@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../context/AuthContext';
+import { API_CONFIG } from '../config';
 import styles from '../design/AuthScreenStyles';
 
 type RootStackParamList = {
@@ -25,16 +27,25 @@ type Props = {
 };
 
 export default function AuthScreen({ navigation }: Props) {
-  const [email, setEmail] = useState('');
+  const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [localLoading, setLocalLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [name, setName] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
-  const { login } = useAuth();
+  const { login: authLogin, register: authRegister } = useAuth();
+
 
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
+    if (!login.trim() || !password.trim()) {
       setError('Пожалуйста, заполните все поля');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Пароль должен содержать минимум 6 символов');
       return;
     }
 
@@ -42,7 +53,7 @@ export default function AuthScreen({ navigation }: Props) {
     setError('');
 
     try {
-      const result = await login(email, password);
+      const result = await authLogin(login, password);
 
       if (result.success) {
         console.log('Успешный вход:', result.user?.role);
@@ -51,27 +62,57 @@ export default function AuthScreen({ navigation }: Props) {
       }
     } catch (error) {
       console.error('Ошибка входа:', error);
-      setError('Произошла ошибка. Попробуйте еще раз.');
+      setError('Произошла ошибка. Проверьте подключение к серверу.');
     } finally {
       setLocalLoading(false);
     }
   };
 
-  const quickLogin = (role: 'chef' | 'waiter' | 'admin') => {
-    let testEmail = '';
-    switch(role) {
-      case 'chef':
-        testEmail = 'chef@test.com';
-        break;
-      case 'waiter':
-        testEmail = 'waiter@test.com';
-        break;
-      case 'admin':
-        testEmail = 'admin@test.com';
-        break;
+  const handleRegister = async () => {
+    if (!name.trim() || !login.trim() || !password.trim() || !confirmPassword.trim()) {
+      setError('Пожалуйста, заполните все поля');
+      return;
     }
-    setEmail(testEmail);
-    setPassword('123456');
+
+    if (password.length < 6) {
+      setError('Пароль должен содержать минимум 6 символов');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Пароли не совпадают');
+      return;
+    }
+
+    setLocalLoading(true);
+    setError('');
+
+    try {
+      const result = await authRegister(name, login, password, 'admin');
+
+      if (result.success) {
+        Alert.alert(
+          'Успешная регистрация!',
+          'Ваш аккаунт создан. Теперь вы можете войти в систему.',
+          [{ text: 'OK' }]
+        );
+        setIsRegisterMode(false);
+        setPassword('');
+        setConfirmPassword('');
+      } else {
+        setError(result.error || 'Ошибка регистрации');
+      }
+    } catch (error) {
+      console.error('Ошибка регистрации:', error);
+      setError('Произошла ошибка регистрации');
+    } finally {
+      setLocalLoading(false);
+    }
+  };
+
+  const quickLogin = (testLogin: string, testPassword:string) => {
+    setLogin(testLogin);
+    setPassword(testPassword);
   };
 
   return (
@@ -85,23 +126,38 @@ export default function AuthScreen({ navigation }: Props) {
           <View style={styles.logoContainer}>
             <Text style={styles.logoIcon}>🍽️</Text>
           </View>
-          <Text style={styles.title}>Restaurant Helper</Text>
-          <Text style={styles.subtitle}>Тестовый режим</Text>
+          <Text style={styles.title}>Restaurant service</Text>
+          <Text style={styles.subtitle}>
+            {isRegisterMode ? 'Регистрация' : 'Вход в систему'}
+          </Text>
         </View>
 
         {/* Форма */}
         <View style={styles.form}>
-          {/* Поле Email */}
+          {isRegisterMode && (
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Имя</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Введите ваше имя"
+                placeholderTextColor="#95A5A6"
+                value={name}
+                onChangeText={setName}
+                editable={!localLoading}
+              />
+            </View>
+          )}
+
+          {/* Поле Логин */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Логин (email)</Text>
+            <Text style={styles.label}>Логин</Text>
             <TextInput
               style={styles.input}
-              placeholder="login@test.com"
+              placeholder="Введите логин"
               placeholderTextColor="#95A5A6"
-              value={email}
-              onChangeText={setEmail}
+              value={login}
+              onChangeText={setLogin}
               autoCapitalize="none"
-              keyboardType="email-address"
               editable={!localLoading}
             />
           </View>
@@ -111,7 +167,7 @@ export default function AuthScreen({ navigation }: Props) {
             <Text style={styles.label}>Пароль</Text>
             <TextInput
               style={styles.input}
-              placeholder="••••••••"
+              placeholder="Введите пароль (мин. 6 символов)"
               placeholderTextColor="#95A5A6"
               value={password}
               onChangeText={setPassword}
@@ -120,6 +176,21 @@ export default function AuthScreen({ navigation }: Props) {
             />
           </View>
 
+          {isRegisterMode && (
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Подтверждение пароля</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Повторите пароль"
+                placeholderTextColor="#95A5A6"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+                editable={!localLoading}
+              />
+            </View>
+          )}
+
           {/* Сообщение об ошибке */}
           {error ? (
             <View style={styles.errorContainer}>
@@ -127,44 +198,64 @@ export default function AuthScreen({ navigation }: Props) {
             </View>
           ) : null}
 
-          {/* Кнопка входа */}
+          {/* Кнопка входа/регистрации */}
           <TouchableOpacity
             style={[styles.loginButton, localLoading && styles.loginButtonDisabled]}
-            onPress={handleLogin}
+            onPress={isRegisterMode ? handleRegister : handleLogin}
             disabled={localLoading}
             activeOpacity={0.8}
           >
             {localLoading ? (
               <ActivityIndicator color="#FFFFFF" size="small" />
             ) : (
-              <Text style={styles.loginButtonText}>Войти</Text>
+              <Text style={styles.loginButtonText}>
+                {isRegisterMode ? 'Зарегистрироваться' : 'Войти'}
+              </Text>
             )}
           </TouchableOpacity>
 
+          {/* Переключение между входом и регистрацией */}
+          <TouchableOpacity
+            style={styles.toggleButton}
+            onPress={() => {
+              setIsRegisterMode(!isRegisterMode);
+              setError('');
+            }}
+            disabled={localLoading}
+          >
+            <Text style={styles.toggleButtonText}>
+              {isRegisterMode
+                ? 'Уже есть аккаунт? Войти'
+                : 'Нет аккаунта? Зарегистрироваться'}
+            </Text>
+          </TouchableOpacity>
+
           {/* Быстрый вход для тестирования*/}
-          <View style={styles.testContainer}>
-            <Text style={styles.testTitle}>Быстрый тестовый вход:</Text>
-            <View style={styles.testButtons}>
-              <TouchableOpacity
-                style={[styles.testButton, styles.testButtonChef]}
-                onPress={() => quickLogin('chef')}
-              >
-                <Text style={styles.testButtonText}>👨‍🍳 Повар</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.testButton, styles.testButtonWaiter]}
-                onPress={() => quickLogin('waiter')}
-              >
-                <Text style={styles.testButtonText}>👨‍💼 Официант</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.testButton, styles.testButtonAdmin]}
-                onPress={() => quickLogin('admin')}
-              >
-                <Text style={styles.testButtonText}>👨‍💻 Админ</Text>
-              </TouchableOpacity>
+          {__DEV__ && !isRegisterMode && (
+            <View style={styles.testContainer}>
+              <Text style={styles.testTitle}>Тестовые пользователи:</Text>
+              <View style={styles.testButtons}>
+                <TouchableOpacity
+                  style={[styles.testButton, styles.testButtonAdmin]}
+                  onPress={() => quickLogin('admin2', '123456')}
+                >
+                  <Text style={styles.testButtonText}>👑 Админ</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.testButton, styles.testButtonWaiter]}
+                  onPress={() => quickLogin('waiter', '123456')}
+                >
+                  <Text style={styles.testButtonText}>👨‍💼 Официант</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.testButton, styles.testButtonChef]}
+                  onPress={() => quickLogin('cook', '123456')}
+                >
+                  <Text style={styles.testButtonText}>👨‍🍳 Повар</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

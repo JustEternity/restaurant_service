@@ -23,7 +23,7 @@ function AppNavigator() {
           <Stack.Screen name="Auth" component={AuthScreen} />
         ) : (
           <>
-            {user?.role === 'chef' && (
+            {user?.role === 'cook' && (
               <Stack.Screen name="Main" component={ChefDrawer} />
             )}
             {user?.role === 'waiter' && (

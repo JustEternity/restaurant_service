@@ -1,6 +1,6 @@
 import { StyleSheet, Dimensions } from 'react-native';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const Colors = {
   primary: '#D35400',       // Тёплый терракотовый (основной акцент)
@@ -19,6 +19,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+    maxHeight: height,
   },
 
   keyboardView: {
@@ -66,7 +67,7 @@ const styles = StyleSheet.create({
   },
 
   inputContainer: {
-    marginBottom: 50,
+    marginBottom: 10,
   },
 
   label: {
@@ -86,7 +87,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     fontSize: 16,
     color: Colors.text,
-    // Тень для полей ввода
     shadowColor: Colors.overlay,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -115,7 +115,6 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     alignItems: 'center',
     marginTop: 10,
-    // Тень для кнопки
     shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.3,
@@ -135,7 +134,7 @@ const styles = StyleSheet.create({
   },
 
   testContainer: {
-    marginTop: 30,
+    marginTop: 10,
     padding: 15,
     backgroundColor: '#F8F9FA',
     borderRadius: 10,
@@ -193,6 +192,18 @@ const styles = StyleSheet.create({
     color: '#6C757D',
     marginTop: 5,
   },
+
+  toggleButton: {
+    marginTop: 10,
+    padding: 10,
+    alignItems: 'center',
+  },
+
+  toggleButtonText: {
+    color: '#3498DB',
+    fontSize: 16,
+    fontWeight: '500',
+  }
 });
 
 export default styles;
