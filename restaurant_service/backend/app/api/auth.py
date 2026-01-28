@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from datetime import timedelta
 
-from app.database import get_db
+from app.database import get_async_db
 from app.db_models import User
 from app.schemas.auth_schemas import Token, UserRegister, ChangePassword
 from app.core.security import (
@@ -18,12 +20,15 @@ from app.core.config import settings
 router = APIRouter(prefix="/auth", tags=["Аутентификация"])
 
 @router.post("/register", response_model=Token)
-def register(
+async def register(
     user_data: UserRegister,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Регистрация нового пользователя"""
-    existing_user = db.query(User).filter(User.login == user_data.login).first()
+    stmt = select(User).where(User.login == user_data.login)
+    result = await db.execute(stmt)
+    existing_user = result.scalar_one_or_none()
+
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -41,8 +46,16 @@ def register(
     )
 
     db.add(user)
-    db.commit()
-    db.refresh(user)
+
+    try:
+        await db.commit()
+        await db.refresh(user)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка при создании пользователя"
+        )
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -59,12 +72,14 @@ def register(
     )
 
 @router.post("/login", response_model=Token)
-def login(
+async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Вход в систему"""
-    user = db.query(User).filter(User.login == form_data.username).first()
+    stmt = select(User).where(User.login == form_data.username)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
 
     if not user or not verify_password(form_data.password, user.password):
         raise HTTPException(
@@ -94,13 +109,13 @@ def login(
     )
 
 @router.post("/login-json", response_model=Token)
-def login_json(
+async def login_json(
     user_data: dict,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Вход в систему с использованием JSON"""
     try:
-        username = user_data.get("username") or user_data.get("login")
+        username = user_data.get("login") or user_data.get("username")
         password = user_data.get("password")
 
         if not username or not password:
@@ -114,7 +129,9 @@ def login_json(
             detail=f"Неверные данные: {str(e)}"
         )
 
-    user = db.query(User).filter(User.login == username).first()
+    stmt = select(User).where(User.login == username)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
 
     if not user or not verify_password(password, user.password):
         raise HTTPException(
@@ -144,12 +161,11 @@ def login_json(
     )
 
 @router.post("/logout")
-def logout():
-    """Выход из системы"""
+async def logout():
     return {"message": "Успешный выход из системы"}
 
 @router.get("/me")
-def get_me(
+async def get_me(
     current_user: User = Depends(get_current_active_user)
 ):
     """Получение информации о текущем пользователе"""
@@ -162,12 +178,11 @@ def get_me(
     }
 
 @router.post("/change-password")
-def change_password(
+async def change_password(
     password_data: ChangePassword,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
-    """Смена пароля"""
     if not verify_password(password_data.old_password, current_user.password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -177,15 +192,14 @@ def change_password(
     hashed_password = get_password_hash(password_data.new_password)
     current_user.password = hashed_password
 
-    db.commit()
+    await db.commit()
 
     return {"message": "Пароль успешно изменен"}
 
 @router.post("/refresh-token")
-def refresh_token(
+async def refresh_token(
     current_user: User = Depends(get_current_user)
 ):
-    """Обновление токена"""
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": str(current_user.id), "role": current_user.role},

@@ -4,10 +4,7 @@ from app.core.config import settings
 
 from app.api import users, tables, menu, orders, health, status_history, table_for_order, auth
 
-from app.database import engine
-from app.db_models import Base
 
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Restaurant Service API",

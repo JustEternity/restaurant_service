@@ -135,7 +135,7 @@ export const AdminDrawer = () => (
     />
     <Drawer.Screen
       name="Меню"
-      component={AdminMenu}
+      component={WaiterMenu}
       options={{
         headerTitle: 'Меню',
         drawerLabel: 'Меню',

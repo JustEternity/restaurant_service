@@ -4,10 +4,11 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.core.config import settings
-from app.database import get_db
+from app.database import get_async_db
 from app.db_models import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -37,9 +38,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ) -> User:
-    """Получение текущего пользователя из токена"""
+    """Асинхронное получение текущего пользователя из токена"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Не удалось подтвердить учетные данные",
@@ -54,7 +55,10 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    user = db.query(User).filter(User.id == int(user_id)).first()
+    stmt = select(User).where(User.id == int(user_id))
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
     if user is None:
         raise credentials_exception
 
