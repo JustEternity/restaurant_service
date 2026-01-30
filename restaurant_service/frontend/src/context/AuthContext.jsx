@@ -1,7 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG, UserRoles } from '../config';
-import axios from 'axios';
 
 const AuthContext = createContext();
 
@@ -44,7 +43,7 @@ export const AuthProvider = ({ children }) => {
           'Accept': 'application/json',
         },
         body: JSON.stringify({
-          username: login,
+          login: login,
           password: password
         })
       });
@@ -114,6 +113,8 @@ export const AuthProvider = ({ children }) => {
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
@@ -163,7 +164,161 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const updateUser = async (updates) => {
+  const getAllUsers = async () => {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/users/`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error('Недостаточно прав');
+        }
+        throw new Error(`Ошибка сервера: ${response.status}`);
+      }
+
+      const users = await response.json();
+      return { success: true, users };
+    } catch (error) {
+      console.error('Ошибка получения пользователей:', error);
+      return {
+        success: false,
+        error: error.message || 'Ошибка получения пользователей'
+      };
+    }
+  };
+
+  const getUserById = async (userId) => {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/users/${userId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error('Недостаточно прав');
+        } else if (response.status === 404) {
+          throw new Error('Пользователь не найден');
+        }
+        throw new Error(`Ошибка сервера: ${response.status}`);
+      }
+
+      const user = await response.json();
+      return { success: true, user };
+    } catch (error) {
+      console.error('Ошибка получения пользователя:', error);
+      return {
+        success: false,
+        error: error.message || 'Ошибка получения пользователя'
+      };
+    }
+  };
+
+  const createUser = async (userData) => {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/users/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData)
+      });
+
+      if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error('Недостаточно прав');
+        } else if (response.status === 400) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Логин уже существует');
+        }
+        throw new Error(`Ошибка сервера: ${response.status}`);
+      }
+
+      const newUser = await response.json();
+      return { success: true, user: newUser };
+    } catch (error) {
+      console.error('Ошибка создания пользователя:', error);
+      return {
+        success: false,
+        error: error.message || 'Ошибка создания пользователя'
+      };
+    }
+  };
+
+  const updateUser = async (userId, userData) => {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/users/${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData)
+      });
+
+      if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error('Недостаточно прав');
+        } else if (response.status === 404) {
+          throw new Error('Пользователь не найден');
+        } else if (response.status === 400) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Ошибка обновления');
+        }
+        throw new Error(`Ошибка сервера: ${response.status}`);
+      }
+
+      const updatedUser = await response.json();
+      return { success: true, user: updatedUser };
+    } catch (error) {
+      console.error('Ошибка обновления пользователя:', error);
+      return {
+        success: false,
+        error: error.message || 'Ошибка обновления пользователя'
+      };
+    }
+  };
+
+  const deleteUser = async (userId) => {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error('Недостаточно прав');
+        } else if (response.status === 404) {
+          throw new Error('Пользователь не найден');
+        }
+        throw new Error(`Ошибка сервера: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return { success: true, message: result.message };
+    } catch (error) {
+      console.error('Ошибка удаления пользователя:', error);
+      return {
+        success: false,
+        error: error.message || 'Ошибка удаления пользователя'
+      };
+    }
+  };
+
+  const updateLocalUser = async (updates) => {
     try {
       const updatedUser = { ...user, ...updates };
       setUser(updatedUser);
@@ -196,7 +351,12 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     register,
+    updateLocalUser,
+    getAllUsers,
+    getUserById,
+    createUser,
     updateUser,
+    deleteUser,
     hasRole,
     hasPermission
   };

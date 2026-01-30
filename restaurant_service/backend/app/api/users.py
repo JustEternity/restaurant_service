@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from typing import List
 
-from app.database import get_db
+from app.database import get_async_db
 from app.db_models import User
 from app.schemas.users_schemas import *
 from app.core.security import get_password_hash, get_current_user
@@ -11,8 +13,10 @@ from app.core.config import settings
 router = APIRouter(prefix="/users", tags=["Пользователи"])
 
 @router.get("/", response_model=List[UserResponse])
-def get_all_users(db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
-
+async def get_all_users(
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
     """Получить всех пользователей (только для администраторов)"""
     if current_user.role not in ["admin"]:
         raise HTTPException(
@@ -20,12 +24,15 @@ def get_all_users(db: Session = Depends(get_db),current_user: User = Depends(get
             detail="Недостаточно прав"
         )
 
-    return db.query(User).all()
+    stmt = select(User)
+    result = await db.execute(stmt)
+    users = result.scalars().all()
+    return users
 
 @router.get("/{user_id}", response_model=UserResponse)
-def get_user(
+async def get_user(
     user_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
     """Получить пользователя по ID"""
@@ -35,15 +42,18 @@ def get_user(
             detail="Недостаточно прав"
         )
 
-    user = db.query(User).filter(User.id == user_id).first()
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     return user
 
 @router.post("/", response_model=UserResponse)
-def create_user(
+async def create_user(
     user_data: UserCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
     """Создать пользователя (только для администраторов)"""
@@ -53,7 +63,10 @@ def create_user(
             detail="Недостаточно прав"
         )
 
-    existing = db.query(User).filter(User.login == user_data.login).first()
+    stmt = select(User).where(User.login == user_data.login)
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+
     if existing:
         raise HTTPException(status_code=400, detail="Логин уже существует")
 
@@ -68,8 +81,8 @@ def create_user(
     )
 
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
 
     return UserResponse(
         id=user.id,
@@ -80,10 +93,10 @@ def create_user(
     )
 
 @router.put("/{user_id}", response_model=UserResponse)
-def update_user(
+async def update_user(
     user_id: int,
     user_data: UserUpdate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
     """Обновить пользователя"""
@@ -93,16 +106,25 @@ def update_user(
             detail="Недостаточно прав"
         )
 
-    user = db.query(User).filter(User.id == user_id).first()
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
+    # Проверяем уникальность логина, если он изменяется
+    if user_data.login is not None and user_data.login != user.login:
+        check_stmt = select(User).where(User.login == user_data.login, User.id != user_id)
+        check_result = await db.execute(check_stmt)
+        existing = check_result.scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=400, detail="Логин уже используется")
+
+    # Обновляем поля
     if user_data.name is not None:
         user.name = user_data.name
     if user_data.login is not None:
-        existing = db.query(User).filter(User.login == user_data.login, User.id != user_id).first()
-        if existing:
-            raise HTTPException(status_code=400, detail="Логин уже используется")
         user.login = user_data.login
     if user_data.password is not None:
         user.password = get_password_hash(user_data.password)
@@ -111,8 +133,8 @@ def update_user(
     if user_data.is_available is not None and current_user.role in ["admin"]:
         user.is_available = user_data.is_available
 
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
 
     return UserResponse(
         id=user.id,
@@ -123,21 +145,47 @@ def update_user(
     )
 
 @router.delete("/{user_id}")
-def delete_user(user_id: int, db: Session = Depends(get_db)):
-    """Удалить пользователя"""
-    user = db.query(User).filter(User.id == user_id).first()
+async def delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Удалить пользователя (только для администраторов)"""
+    if current_user.role not in ["admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав"
+        )
+
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-    db.delete(user)
-    db.commit()
+    await db.delete(user)
+    await db.commit()
 
     return {"message": "Пользователь удален"}
 
 @router.get("/password/{login}")
-def get_password(login: str, db: Session = Depends(get_db)):
+async def get_password(
+    login: str,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
     """Получить пароль пользователя по логину (админка)"""
-    user = db.query(User).filter(User.login == login).first()
+    if current_user.role not in ["admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав"
+        )
+
+    stmt = select(User).where(User.login == login)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь с таким логином не найден")
 
@@ -150,25 +198,43 @@ def get_password(login: str, db: Session = Depends(get_db)):
     }
 
 @router.put("/{user_id}/full", response_model=UserResponse)
-def update_user_full(user_id: int, user_data: UserUpdateFull, db: Session = Depends(get_db)):
+async def update_user_full(
+    user_id: int,
+    user_data: UserUpdateFull,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
     """Полностью обновить данные пользователя (все поля включая пароль)"""
-    user = db.query(User).filter(User.id == user_id).first()
+    if current_user.role not in ["admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав"
+        )
+
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
     if user_data.login != user.login:
-        existing = db.query(User).filter(User.login == user_data.login, User.id != user_id).first()
+        check_stmt = select(User).where(User.login == user_data.login, User.id != user_id)
+        check_result = await db.execute(check_stmt)
+        existing = check_result.scalar_one_or_none()
         if existing:
             raise HTTPException(status_code=400, detail="Логин уже используется другим пользователем")
 
     user.name = user_data.name
     user.login = user_data.login
-    user.password = user_data.password
+    # Хешируем пароль, если он передается в открытом виде
+    # Если в UserUpdateFull пароль уже хешированный, уберите get_password_hash
+    user.password = get_password_hash(user_data.password) if user_data.password else user.password
     user.role = user_data.role
     user.is_available = user_data.is_available
 
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
 
     return UserResponse(
         id=user.id,
