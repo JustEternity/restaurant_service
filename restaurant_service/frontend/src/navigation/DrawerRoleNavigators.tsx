@@ -1,31 +1,35 @@
 import React from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import { Text } from 'react-native';
+import { createStackNavigator } from '@react-navigation/stack';
 
 import ProfileScreen from '../screens/ProfileScreen';
-
 import ChefOrders from '../screens/ChefOrdersScreen';
-
 import WaiterHallMap from '../screens/WaiterHallMapScreen';
 import WaiterOrders from '../screens/WaiterOrdersScreen';
 import WaiterMenu from '../screens/WaiterMenuScreen';
-
 import AdminStaff from '../screens/AdminStaffScreen';
 import AdminMenu from '../screens/AdminMenuScreen';
 import AdminHallMap from '../screens/AdminHallMapScreen';
 import AdminOrders from '../screens/AdminOrdersScreen';
 import AdminReports from '../screens/AdminReportsScreen';
+import MenuItemDetailScreen from '../screens/MenuItemScreen';
 
 const Drawer = createDrawerNavigator();
+const Stack = createStackNavigator();
 
-
+const MenuStack = () => (
+  <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Screen name="MenuList" component={WaiterMenu} />
+    <Stack.Screen name="MenuItemDetail" component={MenuItemDetailScreen} />
+  </Stack.Navigator>
+);
 
 // Для повара
 export const ChefDrawer = () => (
   <Drawer.Navigator
     screenOptions={{
       drawerStyle: {
-        width: 500,
+        width: 250,
       },
       drawerActiveTintColor: '#FF6B6B',
       headerStyle: {
@@ -91,7 +95,7 @@ export const WaiterDrawer = () => (
     />
     <Drawer.Screen
       name="Меню"
-      component={WaiterMenu}
+      component={MenuStack}
       options={{
         headerTitle: 'Меню ресторана',
         drawerLabel: 'Меню',
@@ -135,7 +139,7 @@ export const AdminDrawer = () => (
     />
     <Drawer.Screen
       name="Меню"
-      component={WaiterMenu}
+      component={MenuStack}
       options={{
         headerTitle: 'Меню',
         drawerLabel: 'Меню',

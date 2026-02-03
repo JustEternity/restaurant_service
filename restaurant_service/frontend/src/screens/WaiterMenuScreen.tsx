@@ -10,15 +10,22 @@ import {
   Dimensions,
   RefreshControl,
   Alert,
-  Animated
+  Animated,
+  Modal,
+  ScrollView
 } from 'react-native';
 import { API_CONFIG } from '../config';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
-
+import { useNavigation, NavigationProp } from '@react-navigation/native';
 import styles from '../design/WaiterMenuStyles';
+
+type RootStackParamList = {
+  MenuList: undefined;
+  MenuItemDetail: { itemId: number };
+};
 
 interface Category {
   id: number;
@@ -36,7 +43,7 @@ interface MenuItem {
   category_name: string | null;
 }
 
-const WaiterMenu = ({ navigation }: any) => {
+const WaiterMenu = () => {
   const { authToken, user } = useAuth();
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -44,6 +51,11 @@ const WaiterMenu = ({ navigation }: any) => {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
+  const [modalVisible, setModalVisible] = useState<boolean>(false);
+
+  // Сохраняем навигацию, если она используется в других местах
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
 
   // Для управления свайпом
   const swipeableRefs = new Map();
@@ -63,6 +75,11 @@ const WaiterMenu = ({ navigation }: any) => {
       setFilteredItems(menuItems);
     }
   }, [selectedCategory, menuItems]);
+
+  const handleItemPress = (item: MenuItem): void => {
+    setSelectedItem(item);
+    setModalVisible(true);
+  };
 
   const loadData = async (): Promise<void> => {
     try {
@@ -210,6 +227,11 @@ const WaiterMenu = ({ navigation }: any) => {
     }
   };
 
+  const handleCloseModal = (): void => {
+    setModalVisible(false);
+    setTimeout(() => setSelectedItem(null), 300);
+  };
+
   const renderRightActions = (progress: any, dragX: any, item: MenuItem) => {
     if (!isAdmin) return null;
 
@@ -281,7 +303,11 @@ const WaiterMenu = ({ navigation }: any) => {
 
   const renderMenuItem = ({ item }: { item: MenuItem }) => {
     const menuItemContent = (
-      <View style={styles.menuItemContent}>
+      <TouchableOpacity
+        style={styles.menuItemContent}
+        onPress={() => handleItemPress(item)}
+        activeOpacity={0.7}
+      >
         <View style={styles.menuItemInfo}>
           <Text style={styles.menuItemName}>{item.name}</Text>
           <Text style={styles.menuItemDescription} numberOfLines={2}>
@@ -302,7 +328,7 @@ const WaiterMenu = ({ navigation }: any) => {
             <Ionicons name="fast-food-outline" size={30} color="#999" />
           </View>
         )}
-      </View>
+      </TouchableOpacity>
     );
 
     if (isAdmin) {
@@ -420,8 +446,105 @@ const WaiterMenu = ({ navigation }: any) => {
           </View>
         </TouchableOpacity>
       )}
+
+      {/* Модальное окно с деталями блюда */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={handleCloseModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* Кнопка закрытия */}
+            <TouchableOpacity style={styles.closeButton} onPress={handleCloseModal}>
+              <Ionicons name="close" size={24} color="#666" />
+            </TouchableOpacity>
+
+            {/* Контент модального окна */}
+            {selectedItem && (
+              <ScrollView style={styles.modalScrollView}>
+                {/* Изображение */}
+                {selectedItem.photo ? (
+                  <Image
+                    source={{ uri: selectedItem.photo }}
+                    style={styles.modalImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={[styles.modalImage, styles.modalNoImage]}>
+                    <Ionicons name="fast-food-outline" size={60} color="#ccc" />
+                  </View>
+                )}
+
+                {/* Информация о блюде */}
+                <View style={styles.modalInfo}>
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalName}>{selectedItem.name}</Text>
+                    <Text style={styles.modalPrice}>{selectedItem.price} ₽</Text>
+                  </View>
+
+                  <View style={styles.modalCategory}>
+                    <Ionicons name="list-outline" size={16} color="#666" />
+                    <Text style={styles.modalCategoryText}>{selectedItem.category_name}</Text>
+                  </View>
+
+                  <View style={[
+                    styles.modalAvailability,
+                    selectedItem.is_available ? styles.available : styles.unavailable
+                  ]}>
+                    <Ionicons
+                      name={selectedItem.is_available ? "checkmark-circle" : "close-circle"}
+                      size={16}
+                      color={selectedItem.is_available ? "#2ecc71" : "#e74c3c"}
+                    />
+                    <Text style={[
+                      styles.modalAvailabilityText,
+                      { color: selectedItem.is_available ? "#2ecc71" : "#e74c3c" }
+                    ]}>
+                      {selectedItem.is_available ? "Доступно" : "Не доступно"}
+                    </Text>
+                  </View>
+
+                  <Text style={styles.modalDescription}>
+                    {selectedItem.description || 'Описание отсутствует'}
+                  </Text>
+                </View>
+
+                {/* Кнопки действий для админа */}
+                {isAdmin && (
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.modalActionButton, styles.editButton]}
+                      onPress={() => {
+                        handleCloseModal();
+                        handleEditItem(selectedItem);
+                      }}
+                    >
+                      <Ionicons name="create-outline" size={20} color="#fff" />
+                      <Text style={styles.modalActionButtonText}>Редактировать</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.modalActionButton, styles.deleteButton]}
+                      onPress={() => {
+                        handleCloseModal();
+                        handleDeleteItem(selectedItem);
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={20} color="#fff" />
+                      <Text style={styles.modalActionButtonText}>Удалить</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
+
 
 export default WaiterMenu;
