@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
+from sqlalchemy.orm import selectinload
 
+from app.db_models import Tag
 from app.database import get_async_db
 from app.db_models import Menu, Category
 from app.schemas.menu_schemas import *
@@ -14,16 +16,20 @@ router = APIRouter(prefix="/menu", tags=["Меню"])
 async def get_all_menu(
     category_id: Optional[int] = None,
     is_available: Optional[bool] = None,
+    tag_id: Optional[int] = None,
     db: AsyncSession = Depends(get_async_db)
 ):
     """Получить все блюда"""
-    stmt = select(Menu)
+    stmt = select(Menu).options(selectinload(Menu.tags))
 
     if category_id is not None:
         stmt = stmt.where(Menu.category == category_id)
 
     if is_available is not None:
         stmt = stmt.where(Menu.is_available == is_available)
+
+    if tag_id is not None:
+        stmt = stmt.where(Menu.tags.any(Tag.id == tag_id))
 
     stmt = stmt.order_by(Menu.name)
 
@@ -44,7 +50,8 @@ async def get_all_menu(
             "price": item.price,
             "category": item.category,
             "is_available": item.is_available,
-            "category_name": category.name if category else None
+            "category_name": category.name if category else None,
+            "tags": item.tags
         }
         response_items.append(MenuResponse(**item_dict))
 
@@ -53,7 +60,7 @@ async def get_all_menu(
 @router.get("/{menu_id}", response_model=MenuResponse)
 async def get_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db)):
     """Получить блюдо по ID"""
-    stmt = select(Menu).where(Menu.id == menu_id)
+    stmt = select(Menu).where(Menu.id == menu_id).options(selectinload(Menu.tags))
     result = await db.execute(stmt)
     item = result.scalar_one_or_none()
 
@@ -72,9 +79,9 @@ async def get_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db)):
         "price": item.price,
         "category": item.category,
         "is_available": item.is_available,
-        "category_name": category.name if category else None
+        "category_name": category.name if category else None,
+        "tags": item.tags
     }
-
     return MenuResponse(**item_dict)
 
 @router.post("/", response_model=MenuResponse)
@@ -96,9 +103,19 @@ async def create_menu_item(menu_data: MenuCreate, db: AsyncSession = Depends(get
         is_available=menu_data.is_available
     )
 
+    # Теги
+    if menu_data.tag_ids:
+        tags_stmt = select(Tag).where(Tag.id.in_(menu_data.tag_ids))
+        tags_result = await db.execute(tags_stmt)
+        tags = tags_result.scalars().all()
+        if len(tags) != len(menu_data.tag_ids):
+            raise HTTPException(status_code=404, detail="Один или несколько тегов не найдены")
+        menu_item.tags = tags
+
     db.add(menu_item)
     await db.commit()
     await db.refresh(menu_item)
+    await db.refresh(menu_item, attribute_names=["tags"])
 
     item_dict = {
         "id": menu_item.id,
@@ -108,15 +125,15 @@ async def create_menu_item(menu_data: MenuCreate, db: AsyncSession = Depends(get
         "price": menu_item.price,
         "category": menu_item.category,
         "is_available": menu_item.is_available,
-        "category_name": category.name
+        "category_name": category.name,
+        "tags": menu_item.tags
     }
-
     return MenuResponse(**item_dict)
 
 @router.put("/{menu_id}", response_model=MenuResponse)
 async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession = Depends(get_async_db)):
     """Обновить блюдо"""
-    stmt = select(Menu).where(Menu.id == menu_id)
+    stmt = select(Menu).where(Menu.id == menu_id).options(selectinload(Menu.tags))
     result = await db.execute(stmt)
     item = result.scalar_one_or_none()
 
@@ -125,6 +142,7 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
 
     update_data = menu_data.dict(exclude_unset=True)
 
+    # Обновление полей
     if "name" in update_data:
         item.name = update_data["name"]
     if "description" in update_data:
@@ -143,9 +161,25 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
             raise HTTPException(status_code=404, detail="Категория не найдена")
         item.category = update_data["category"]
 
+    # Обновление тегов
+    if "tag_ids" in update_data:
+        if update_data["tag_ids"] is None:
+            pass
+        elif update_data["tag_ids"] == []:
+            item.tags = []
+        else:
+            tags_stmt = select(Tag).where(Tag.id.in_(update_data["tag_ids"]))
+            tags_result = await db.execute(tags_stmt)
+            tags = tags_result.scalars().all()
+            if len(tags) != len(update_data["tag_ids"]):
+                raise HTTPException(status_code=404, detail="Один или несколько тегов не найдены")
+            item.tags = tags
+
     await db.commit()
     await db.refresh(item)
+    await db.refresh(item, attribute_names=["tags"])
 
+    # Категория для ответа
     category_stmt = select(Category).where(Category.id == item.category)
     category_result = await db.execute(category_stmt)
     category = category_result.scalar_one_or_none()
@@ -158,9 +192,9 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
         "price": item.price,
         "category": item.category,
         "is_available": item.is_available,
-        "category_name": category.name if category else None
+        "category_name": category.name if category else None,
+        "tags": item.tags
     }
-
     return MenuResponse(**item_dict)
 
 @router.delete("/{menu_id}")

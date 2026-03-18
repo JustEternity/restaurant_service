@@ -30,3 +30,5 @@ class User(BaseModel):
         "CookingStatusHistory",
         back_populates="changed_by_user"
     )
+
+    cook_groups = relationship("CookGroup", secondary="cooks_in_groups", back_populates="members")

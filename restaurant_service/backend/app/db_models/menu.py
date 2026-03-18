@@ -26,3 +26,5 @@ class Menu(BaseModel):
         "CookingStatusHistory",
         back_populates="plate_of_status"
     )
+
+    tags = relationship("Tag", secondary="tags_of_plates", back_populates="menu_items")
