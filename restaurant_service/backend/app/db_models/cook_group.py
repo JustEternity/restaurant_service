@@ -7,7 +7,6 @@ class CookGroup(BaseModel):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False)
-    description = Column(Text, nullable=True)
 
     # Связь с пользователями
     members = relationship("User", secondary="cooks_in_groups", back_populates="cook_groups")

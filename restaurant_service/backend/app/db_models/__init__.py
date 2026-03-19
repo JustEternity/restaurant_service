@@ -7,6 +7,10 @@ from .table_for_order import TableForOrder
 from .plates_for_order import PlateForOrder, CookingStatus
 from .cooking_history import CookingStatusHistory
 from .category import Category
+from .cook_group import CookGroup
+from .cooks_in_groups import CooksInGroup
+from .tag import Tag
+from .tags_of_plates import TagsOfPlate
 
 __all__ = [
     'Base',
@@ -22,5 +26,9 @@ __all__ = [
     'PlateForOrder',
     'CookingStatus',
     'CookingStatusHistory',
-    'Category'
+    'Category',
+    'CookGroup',
+    'CooksInGroup',
+    'Tag',
+    'TagsOfPlate'
 ]
