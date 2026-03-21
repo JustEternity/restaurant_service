@@ -13,21 +13,12 @@ class CookingStatusHistory(BaseModel):
 
     # Внешние ключи
     order_id = Column(Integer, ForeignKey("orders.id"))
-    plate_id = Column(Integer, ForeignKey("menu.id"), nullable=False)
-    change_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    plate_id = Column(Integer, ForeignKey("menu.id"))
+    change_by = Column(Integer, ForeignKey("users.id"))
 
     # Связи
-    history_of_order = relationship(
-        "Order",
-        back_populates="history_order"
-    )
+    history_of_order = relationship("Order", back_populates="history_order")
 
-    changed_by_user = relationship(
-        "User",
-        back_populates="status_changes"
-    )
+    changed_by_user = relationship("User", back_populates="status_changes")
 
-    plate_of_status = relationship(
-        "Menu",
-        back_populates="plate_statuses"
-    )
+    plate_of_status = relationship("Menu", back_populates="plate_statuses")

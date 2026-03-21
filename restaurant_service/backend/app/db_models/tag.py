@@ -9,4 +9,7 @@ class Tag(BaseModel):
     name = Column(String(50), unique=True, nullable=False)
 
     # Связь с блюдами
-    menu_items = relationship("Menu", secondary="tags_of_plates", back_populates="tags")
+    menu_items_for_tag = relationship("TagsOfPlate", back_populates="tag_for_menu_item")
+
+    # группы поваров, которым назначен тег
+    groups_for_tag = relationship("TagsForGroup", back_populates="tag_for_group")

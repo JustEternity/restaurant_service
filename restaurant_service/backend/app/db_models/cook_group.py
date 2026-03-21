@@ -9,4 +9,10 @@ class CookGroup(BaseModel):
     name = Column(String(100), unique=True, nullable=False)
 
     # Связь с пользователями
-    members = relationship("User", secondary="cooks_in_groups", back_populates="cook_groups")
+    members = relationship("CooksInGroup", back_populates="group_of_cooks")
+
+    # Связь с категориями
+    categories_of_group = relationship("CategoriesForGroup", back_populates="group_for_category")
+
+    # Связь с тегами
+    tags_of_group = relationship("TagsForGroup", back_populates="group_for_tag")

@@ -11,6 +11,8 @@ from .cook_group import CookGroup
 from .cooks_in_groups import CooksInGroup
 from .tag import Tag
 from .tags_of_plates import TagsOfPlate
+from .categories_for_group import CategoriesForGroup
+from .tags_for_group import TagsForGroup
 
 __all__ = [
     'Base',
@@ -30,5 +32,7 @@ __all__ = [
     'CookGroup',
     'CooksInGroup',
     'Tag',
-    'TagsOfPlate'
+    'TagsOfPlate',
+    'CategoriesForGroup',
+    'TagsForGroup'
 ]

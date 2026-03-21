@@ -8,7 +8,6 @@ class Category(BaseModel):
     id = Column(Integer, primary_key=True)
     name = Column(VARCHAR(100))
 
-    items_of_category = relationship(
-        "Menu",
-        back_populates="category_of_item"
-    )
+    items_of_category = relationship("Menu", back_populates="category_of_item")
+
+    categories_for_groups = relationship("CategoriesForGroup", back_populates="category_for_group")

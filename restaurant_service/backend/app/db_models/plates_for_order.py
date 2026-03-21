@@ -24,12 +24,6 @@ class PlateForOrder(BaseModel):
     plate_id = Column(Integer, ForeignKey("menu.id"), nullable=False)
 
     # Связи
-    order = relationship(
-        "Order",
-        back_populates="plates"
-    )
-    menu_item = relationship(
-        "Menu",
-        back_populates="order_items"
-    )
+    order = relationship("Order", back_populates="plates")
+    menu_item = relationship("Menu", back_populates="order_items")
 

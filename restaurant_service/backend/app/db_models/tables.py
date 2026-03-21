@@ -6,7 +6,6 @@ import enum
 class TableStatus(enum.Enum):
     FREE = "free"
     OCCUPIED = "occupied"
-    RESERVED = "reserved"
 
 class Table(BaseModel):
     __tablename__ = "tables"
@@ -20,7 +19,4 @@ class Table(BaseModel):
     is_available = Column(BOOLEAN, nullable=False)
 
     # Связи
-    orders = relationship(
-        "TableForOrder",
-        back_populates="table_for_order"
-    )
+    orders = relationship("TableForOrder", back_populates="table_for_order")

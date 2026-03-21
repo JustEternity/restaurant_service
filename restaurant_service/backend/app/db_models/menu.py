@@ -15,16 +15,7 @@ class Menu(BaseModel):
     is_available = Column(BOOLEAN, nullable=False)
 
     # Связи
-    category_of_item = relationship(
-        "Category",
-        back_populates="items_of_category"
-    )
-
+    category_of_item = relationship("Category", back_populates="items_of_category")
     order_items = relationship("PlateForOrder", back_populates="menu_item")
-
-    plate_statuses = relationship(
-        "CookingStatusHistory",
-        back_populates="plate_of_status"
-    )
-
-    tags = relationship("Tag", secondary="tags_of_plates", back_populates="menu_items")
+    plate_statuses = relationship("CookingStatusHistory", back_populates="plate_of_status")
+    tags_for_plate = relationship("TagsOfPlate", back_populates="menu_item_for_tag")

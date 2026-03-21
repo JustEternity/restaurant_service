@@ -21,14 +21,8 @@ class User(BaseModel):
     is_available = Column(BOOLEAN, nullable=False)
 
     # Внешние связи
-    orders_created = relationship(
-        "Order",
-        back_populates="waiter_user"
-    )
+    orders_created = relationship("Order", back_populates="waiter_user")
 
-    status_changes = relationship(
-        "CookingStatusHistory",
-        back_populates="changed_by_user"
-    )
+    status_changes = relationship("CookingStatusHistory", back_populates="changed_by_user")
 
-    cook_groups = relationship("CookGroup", secondary="cooks_in_groups", back_populates="members")
+    user_in_group = relationship("CooksInGroup", back_populates="cooks_in_group")
