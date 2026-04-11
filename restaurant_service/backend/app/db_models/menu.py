@@ -17,5 +17,4 @@ class Menu(BaseModel):
     # Связи
     category_of_item = relationship("Category", back_populates="items_of_category")
     order_items = relationship("PlateForOrder", back_populates="menu_item")
-    plate_statuses = relationship("CookingStatusHistory", back_populates="plate_of_status")
-    tags_for_plate = relationship("TagsOfPlate", back_populates="menu_item_for_tag")
+    plate_for_specialization = relationship("PlatesForSpecialization", back_populates="spec_plates")

@@ -6,19 +6,11 @@ from datetime import datetime
 class CookingStatusHistory(BaseModel):
     __tablename__ = "cooking_status_history"
 
-    # Основные поля
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, ForeignKey("plates_for_order.id"), primary_key=True)
     change_time = Column(DateTime, nullable=False)
     new_status = Column(VARCHAR(100), nullable=False)
-
-    # Внешние ключи
-    order_id = Column(Integer, ForeignKey("orders.id"))
-    plate_id = Column(Integer, ForeignKey("menu.id"))
     change_by = Column(Integer, ForeignKey("users.id"))
 
     # Связи
-    history_of_order = relationship("Order", back_populates="history_order")
-
     changed_by_user = relationship("User", back_populates="status_changes")
-
-    plate_of_status = relationship("Menu", back_populates="plate_statuses")
+    status_to_plate = relationship("PlateForOrder", back_populates="statuses_of_plate")

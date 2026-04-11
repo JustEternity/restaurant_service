@@ -16,7 +16,6 @@ class PlateForOrder(BaseModel):
     id = Column(Integer, primary_key=True)
     count = Column(Integer, nullable=False)
     comment = Column(Text)
-    cooking_status = Column(VARCHAR(20), nullable=False)
     price = Column(NUMERIC, nullable=False)
 
     # Внешние ключи
@@ -26,4 +25,4 @@ class PlateForOrder(BaseModel):
     # Связи
     order = relationship("Order", back_populates="plates")
     menu_item = relationship("Menu", back_populates="order_items")
-
+    statuses_of_plate = relationship("CookingStatusHistory", back_populates="status_to_plate")

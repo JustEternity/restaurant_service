@@ -22,9 +22,5 @@ class Order(BaseModel):
 
     # Связи
     waiter_user = relationship("User", back_populates="orders_created")
-
     tables = relationship("TableForOrder", back_populates="order_for_table")
-
     plates = relationship("PlateForOrder", back_populates="order")
-
-    history_order = relationship("CookingStatusHistory", back_populates="history_of_order")
