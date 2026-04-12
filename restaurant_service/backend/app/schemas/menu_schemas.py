@@ -1,16 +1,15 @@
 from typing import Optional, List
 from pydantic import BaseModel
-from app.schemas.tag_schemas import TagResponse
+from app.schemas.specialization_schemas import SpecializationResponse
 
-# Схемы для позиций меню
 class MenuCreate(BaseModel):
     name: str
     description: Optional[str] = None
     photo: Optional[str] = None
-    price: float
+    price: Optional[float] = None
     category: int
     is_available: bool = True
-    tag_ids: List[int] = []
+    specialization_ids: List[int] = []
 
 class MenuUpdate(BaseModel):
     name: Optional[str] = None
@@ -19,29 +18,45 @@ class MenuUpdate(BaseModel):
     price: Optional[float] = None
     category: Optional[int] = None
     is_available: Optional[bool] = None
-    tag_ids: Optional[List[int]] = None
+    specialization_ids: Optional[List[int]] = None
 
 class MenuResponse(BaseModel):
     id: int
     name: str
     description: Optional[str]
     photo: Optional[str]
-    price: float
+    price: Optional[float]
     category: Optional[int]
     category_name: Optional[str] = None
     is_available: bool
-    tags: List[TagResponse] = []
+    specializations: List[SpecializationResponse] = []
 
     class Config:
         from_attributes = True
 
-# Схемы для категорий
+# ========== СХЕМЫ ДЛЯ КАТЕГОРИЙ ==========
 class CategoryCreate(BaseModel):
     name: str
+    parent_category: Optional[int] = None
+
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_category: Optional[int] = None
 
 class CategoryResponse(BaseModel):
     id: int
     name: str
+    parent_category: Optional[int] = None
+    children: List['CategoryResponse'] = []
+
+    class Config:
+        from_attributes = True
+
+class CategoryTreeResponse(BaseModel):
+    id: int
+    name: str
+    parent_category: Optional[int] = None
+    children: List['CategoryTreeResponse'] = []
 
     class Config:
         from_attributes = True

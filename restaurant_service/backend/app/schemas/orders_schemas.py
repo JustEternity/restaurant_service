@@ -6,13 +6,12 @@ class PlateInOrderCreate(BaseModel):
     plate_id: int
     count: int = 1
     comment: Optional[str] = None
-    cooking_status: str = "ordered"
-    price: float
+    initial_status: str = "waiting"
 
 class OrderCreate(BaseModel):
     waiter: int
     status: str = "active"
-    timestart: datetime
+    timestart: Optional[datetime] = None
     plates: List[PlateInOrderCreate]
     tables: List[int]
 
@@ -25,9 +24,12 @@ class PlateInOrderResponse(BaseModel):
     plate_id: int
     count: int
     comment: Optional[str]
-    cooking_status: str
+    current_status: Optional[str] = None
     price: float
     plate_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 class OrderResponse(BaseModel):
     id: int
@@ -42,15 +44,8 @@ class OrderResponse(BaseModel):
     class Config:
         from_attributes = True
 
-class PlateInOrderCreate(BaseModel):
-    plate_id: int
-    count: int = 1
-    comment: Optional[str] = None
-    cooking_status: str = "waiting"
-    price: float
-
 class PlateInOrderUpdate(BaseModel):
     count: Optional[int] = None
     comment: Optional[str] = None
-    cooking_status: Optional[str] = None
+    new_status: Optional[str] = None
     price: Optional[float] = None

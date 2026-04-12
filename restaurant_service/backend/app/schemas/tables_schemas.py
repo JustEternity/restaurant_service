@@ -25,17 +25,3 @@ class TableResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-class TableUpdateFull(BaseModel):
-    number: int
-    pos_x: float
-    pos_y: float
-    status: str
-    is_available: bool
-
-class TableUpdateFull(BaseModel):
-    number: int
-    pos_x: float
-    pos_y: float
-    status: str
-    is_available: bool

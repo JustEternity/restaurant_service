@@ -1,17 +1,15 @@
 from pydantic import BaseModel
 from typing import Optional
 
-class TagBase(BaseModel):
+class RoleCreate(BaseModel):
     name: str
 
-class TagCreate(TagBase):
-    pass
-
-class TagUpdate(BaseModel):
+class RoleUpdate(BaseModel):
     name: Optional[str] = None
 
-class TagResponse(TagBase):
+class RoleResponse(BaseModel):
     id: int
+    name: str
 
     class Config:
         from_attributes = True
