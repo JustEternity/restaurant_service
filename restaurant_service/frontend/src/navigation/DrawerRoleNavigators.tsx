@@ -4,15 +4,15 @@ import { createStackNavigator } from '@react-navigation/stack';
 
 import ProfileScreen from '../screens/ProfileScreen';
 import ChefOrders from '../screens/ChefOrdersScreen';
-import WaiterHallMap from '../screens/WaiterHallMapScreen';
 import WaiterOrders from '../screens/WaiterOrdersScreen';
 import WaiterMenu from '../screens/WaiterMenuScreen';
 import AdminStaff from '../screens/AdminStaffScreen';
-import AdminMenu from '../screens/AdminMenuScreen';
 import AdminHallMap from '../screens/AdminHallMapScreen';
 import AdminOrders from '../screens/AdminOrdersScreen';
 import AdminReports from '../screens/AdminReportsScreen';
 import MenuItemDetailScreen from '../screens/MenuItemScreen';
+import MenuItemFormScreen from '../screens/EditMenuItemScreen';
+import CookGroupManagement from '../screens/CookGroupsManage';
 
 const Drawer = createDrawerNavigator();
 const Stack = createStackNavigator();
@@ -21,6 +21,14 @@ const MenuStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="MenuList" component={WaiterMenu} />
     <Stack.Screen name="MenuItemDetail" component={MenuItemDetailScreen} />
+    <Stack.Screen name="MenuItemForm" component={MenuItemFormScreen} options={{ headerShown: false }} />
+  </Stack.Navigator>
+);
+
+const AdminStack = () => (
+  <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Screen name="AdminStaff" component={AdminStaff} />
+    <Stack.Screen name="CookGroupManagement" component={CookGroupManagement} />
   </Stack.Navigator>
 );
 
@@ -79,7 +87,7 @@ export const WaiterDrawer = () => (
   >
     <Drawer.Screen
       name="Зал"
-      component={WaiterHallMap}
+      component={AdminHallMap}
       options={{
         headerTitle: 'Схема зала',
         drawerLabel: 'Зал',
@@ -131,7 +139,7 @@ export const AdminDrawer = () => (
   >
     <Drawer.Screen
       name="Персонал"
-      component={AdminStaff}
+      component={AdminStack}
       options={{
         headerTitle: 'Управление персоналом',
         drawerLabel: 'Персонал',

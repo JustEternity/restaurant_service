@@ -1,0 +1,468 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  ActivityIndicator,
+  Switch,
+  Modal,
+  FlatList
+} from 'react-native';
+import { useRoute, useNavigation } from '@react-navigation/native';
+import { API_CONFIG } from '../config';
+import { useAuth } from '../context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
+
+interface Category {
+  id: number;
+  name: string;
+}
+
+interface Tag {
+  id: number;
+  name: string;
+}
+
+interface MenuItemFormData {
+  name: string;
+  description: string;
+  price: string;
+  category: number | null;
+  is_available: boolean;
+  photo: string;
+  tag_ids: number[];
+}
+
+const MenuItemFormScreen = () => {
+  const route = useRoute();
+  const navigation = useNavigation();
+  const { authToken, user } = useAuth();
+  const { itemId } = route.params as { itemId?: number } || {};
+
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [tagSelectionModal, setTagSelectionModal] = useState(false);
+  const [selectedTagIds, setSelectedTagIds] = useState<Set<number>>(new Set());
+
+  const [formData, setFormData] = useState<MenuItemFormData>({
+    name: '',
+    description: '',
+    price: '',
+    category: null,
+    is_available: true,
+    photo: '',
+    tag_ids: [],
+  });
+
+  const isEditMode = !!itemId;
+
+  useEffect(() => {
+    loadCategories();
+    loadTags();
+    if (isEditMode) {
+      loadItem();
+    }
+  }, [itemId]);
+
+  const loadCategories = async () => {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/menu/categories/`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Accept': 'application/json',
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCategories(data);
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки категорий:', error);
+    }
+  };
+
+  const loadTags = async () => {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/tags/`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Accept': 'application/json',
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAllTags(data);
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки тегов:', error);
+    }
+  };
+
+  const loadItem = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_CONFIG.BASE_URL}/menu/${itemId}`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Accept': 'application/json',
+        },
+      });
+      if (!response.ok) throw new Error('Ошибка загрузки');
+      const data = await response.json();
+      setFormData({
+        name: data.name || '',
+        description: data.description || '',
+        price: data.price ? data.price.toString() : '',
+        category: data.category || null,
+        is_available: data.is_available,
+        photo: data.photo || '',
+        tag_ids: data.tags?.map((t: Tag) => t.id) || [],
+      });
+      setSelectedTagIds(new Set(data.tags?.map((t: Tag) => t.id) || []));
+    } catch (error) {
+      Alert.alert('Ошибка', 'Не удалось загрузить данные блюда');
+      navigation.goBack();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleTag = (tagId: number) => {
+    const newSet = new Set(selectedTagIds);
+    if (newSet.has(tagId)) {
+      newSet.delete(tagId);
+    } else {
+      newSet.add(tagId);
+    }
+    setSelectedTagIds(newSet);
+    setFormData(prev => ({ ...prev, tag_ids: Array.from(newSet) }));
+  };
+
+  const handleSave = async () => {
+    if (!formData.name.trim()) {
+      Alert.alert('Ошибка', 'Введите название блюда');
+      return;
+    }
+    if (!formData.price || isNaN(parseFloat(formData.price))) {
+      Alert.alert('Ошибка', 'Введите корректную цену');
+      return;
+    }
+    if (!formData.category) {
+      Alert.alert('Ошибка', 'Выберите категорию');
+      return;
+    }
+
+    const payload = {
+      name: formData.name.trim(),
+      description: formData.description.trim() || null,
+      price: parseFloat(formData.price),
+      category: formData.category,
+      is_available: formData.is_available,
+      photo: formData.photo.trim() || '',
+      tag_ids: formData.tag_ids,
+    };
+
+    setSaving(true);
+    try {
+      const url = isEditMode
+        ? `${API_CONFIG.BASE_URL}/menu/${itemId}`
+        : `${API_CONFIG.BASE_URL}/menu/`;
+      const method = isEditMode ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Ошибка сохранения');
+      }
+
+      Alert.alert('Успешно', isEditMode ? 'Блюдо обновлено' : 'Блюдо создано');
+      navigation.goBack();
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Загрузка...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#007AFF" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{isEditMode ? 'Редактировать' : 'Новое блюдо'}</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <View style={styles.form}>
+        <Text style={styles.label}>Название *</Text>
+        <TextInput
+          style={styles.input}
+          value={formData.name}
+          onChangeText={text => setFormData(prev => ({ ...prev, name: text }))}
+          placeholder="Введите название"
+        />
+
+        <Text style={styles.label}>Описание</Text>
+        <TextInput
+          style={[styles.input, styles.textArea]}
+          value={formData.description}
+          onChangeText={text => setFormData(prev => ({ ...prev, description: text }))}
+          placeholder="Введите описание"
+          multiline
+          numberOfLines={4}
+        />
+
+        <Text style={styles.label}>Цена *</Text>
+        <TextInput
+          style={styles.input}
+          value={formData.price}
+          onChangeText={text => setFormData(prev => ({ ...prev, price: text }))}
+          placeholder="0.00"
+          keyboardType="numeric"
+        />
+
+        <Text style={styles.label}>Категория *</Text>
+        <View style={styles.pickerContainer}>
+          {categories.map(cat => (
+            <TouchableOpacity
+              key={cat.id}
+              style={[
+                styles.categoryOption,
+                formData.category === cat.id && styles.categoryOptionSelected,
+              ]}
+              onPress={() => setFormData(prev => ({ ...prev, category: cat.id }))}
+            >
+              <Text
+                style={[
+                  styles.categoryOptionText,
+                  formData.category === cat.id && styles.categoryOptionTextSelected,
+                ]}
+              >
+                {cat.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={styles.label}>Фото (URL)</Text>
+        <TextInput
+          style={styles.input}
+          value={formData.photo}
+          onChangeText={text => setFormData(prev => ({ ...prev, photo: text }))}
+          placeholder="https://example.com/image.jpg"
+        />
+
+        <View style={styles.switchContainer}>
+          <Text style={styles.label}>Доступно</Text>
+          <Switch
+            value={formData.is_available}
+            onValueChange={value => setFormData(prev => ({ ...prev, is_available: value }))}
+            trackColor={{ false: '#767577', true: '#007AFF' }}
+          />
+        </View>
+
+        <Text style={styles.label}>Теги</Text>
+        <TouchableOpacity style={styles.tagSelector} onPress={() => setTagSelectionModal(true)}>
+          <Text style={styles.tagSelectorText}>
+            {formData.tag_ids.length > 0
+              ? `Выбрано тегов: ${formData.tag_ids.length}`
+              : 'Выбрать теги'}
+          </Text>
+          <Ionicons name="chevron-forward" size={20} color="#666" />
+        </TouchableOpacity>
+
+        {formData.tag_ids.length > 0 && (
+          <View style={styles.selectedTags}>
+            {allTags
+              .filter(tag => formData.tag_ids.includes(tag.id))
+              .map(tag => (
+                <View key={tag.id} style={styles.tagChip}>
+                  <Text style={styles.tagChipText}>{tag.name}</Text>
+                </View>
+              ))}
+          </View>
+        )}
+
+        <TouchableOpacity
+          style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.saveButtonText}>Сохранить</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Модальное окно выбора тегов */}
+      <Modal visible={tagSelectionModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Выберите теги</Text>
+            <FlatList
+              data={allTags}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.modalTagItem} onPress={() => toggleTag(item.id)}>
+                  <Ionicons
+                    name={selectedTagIds.has(item.id) ? 'checkbox' : 'square-outline'}
+                    size={24}
+                    color={selectedTagIds.has(item.id) ? '#007AFF' : '#999'}
+                  />
+                  <Text style={styles.modalTagText}>{item.name}</Text>
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity style={styles.modalCloseButton} onPress={() => setTagSelectionModal(false)}>
+              <Text style={styles.modalCloseButtonText}>Закрыть</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 10, fontSize: 16, color: '#666' },
+  contentContainer: { paddingBottom: 40 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 60,
+    paddingBottom: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  backButton: { padding: 4 },
+  headerTitle: { fontSize: 20, fontWeight: '600', color: '#1a1a1a' },
+  form: { padding: 16 },
+  label: { fontSize: 16, fontWeight: '500', color: '#333', marginBottom: 8, marginTop: 16 },
+  input: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    padding: 12,
+    fontSize: 16,
+  },
+  textArea: { minHeight: 100, textAlignVertical: 'top' },
+  pickerContainer: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
+  categoryOption: {
+    backgroundColor: '#f1f3f4',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  categoryOptionSelected: { backgroundColor: '#007AFF' },
+  categoryOptionText: { fontSize: 14, color: '#666' },
+  categoryOptionTextSelected: { color: '#fff' },
+  switchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    marginTop: 16,
+  },
+  tagSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    marginTop: 8,
+  },
+  tagSelectorText: { fontSize: 16, color: '#333' },
+  selectedTags: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 },
+  tagChip: {
+    backgroundColor: '#e1f5fe',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  tagChipText: { fontSize: 14, color: '#0288d1' },
+  saveButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 30,
+  },
+  saveButtonDisabled: { backgroundColor: '#99c9ff' },
+  saveButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '80%',
+    maxHeight: '70%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '600', marginBottom: 16, textAlign: 'center' },
+  modalTagItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalTagText: { fontSize: 16, marginLeft: 12 },
+  modalCloseButton: {
+    marginTop: 20,
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalCloseButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+});
+
+export default MenuItemFormScreen;
