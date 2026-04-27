@@ -10,7 +10,7 @@ class User(BaseModel):
     name = Column(VARCHAR(20), nullable=False)
     login = Column(Text, unique=True, nullable=False)
     password = Column(Text, nullable=False)
-    role = Column(VARCHAR(20), ForeignKey("user_roles.id"), nullable=False)
+    role = Column(Integer, ForeignKey("user_roles.id"), nullable=False)
     is_available = Column(BOOLEAN, nullable=False)
     specialization = Column(Integer, ForeignKey("specialization.id"), nullable=True)
 

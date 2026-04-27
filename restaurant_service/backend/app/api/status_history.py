@@ -1,17 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime, date
-from app.database import get_db
-from app.db_models import CookingStatusHistory, Menu, User, Order
-from app.schemas.history_schemas import *
+
+from app.database import get_async_db
+from app.db_models import CookingStatusHistory, PlateForOrder, Menu, User, Order
+from app.schemas.history_schemas import (
+    CookingStatusHistoryCreate,
+    CookingStatusHistoryUpdate,
+    CookingStatusHistoryResponse
+)
 
 router = APIRouter(prefix="/cooking-status-history", tags=["История статусов блюд"])
 
-# ===== ЭНДПОИНТЫ =====
 @router.get("/", response_model=List[CookingStatusHistoryResponse])
-def get_all_cooking_status_history(
-    db: Session = Depends(get_db),
+async def get_all_cooking_status_history(
+    db: AsyncSession = Depends(get_async_db),
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     plate_id: Optional[int] = None,
@@ -20,271 +26,343 @@ def get_all_cooking_status_history(
     new_status: Optional[str] = None
 ):
     """Получить всю историю изменения статусов с фильтрацией"""
-    query = db.query(CookingStatusHistory)
+    stmt = select(CookingStatusHistory).options(
+        selectinload(CookingStatusHistory.status_to_plate).selectinload(PlateForOrder.plate),
+        selectinload(CookingStatusHistory.status_to_plate).selectinload(PlateForOrder.order_of_plate)
+    )
+
+    if plate_id is not None or order_id is not None:
+        stmt = stmt.join(CookingStatusHistory.status_to_plate)
+        if plate_id is not None:
+            stmt = stmt.where(PlateForOrder.plate_id == plate_id)
+        if order_id is not None:
+            stmt = stmt.where(PlateForOrder.order_id == order_id)
 
     if start_date:
-        query = query.filter(CookingStatusHistory.change_time >= start_date)
+        stmt = stmt.where(CookingStatusHistory.change_time >= start_date)
     if end_date:
-        query = query.filter(CookingStatusHistory.change_time <= end_date)
-    if plate_id:
-        query = query.filter(CookingStatusHistory.plate_id == plate_id)
-    if order_id:
-        query = query.filter(CookingStatusHistory.order_id == order_id)
-    if change_by:
-        query = query.filter(CookingStatusHistory.change_by == change_by)
-    if new_status:
-        query = query.filter(CookingStatusHistory.new_status == new_status)
+        stmt = stmt.where(CookingStatusHistory.change_time <= end_date)
+    if change_by is not None:
+        stmt = stmt.where(CookingStatusHistory.change_by == change_by)
+    if new_status is not None:
+        stmt = stmt.where(CookingStatusHistory.new_status == new_status)
 
-    history_items = query.order_by(CookingStatusHistory.change_time.desc()).all()
+    stmt = stmt.order_by(CookingStatusHistory.change_time.desc())
 
-    result = []
-    for item in history_items:
-        item_dict = item.__dict__.copy()
+    result = await db.execute(stmt)
+    items = result.scalars().all()
 
-        # Добавление информации о блюде
-        plate = db.query(Menu).filter(Menu.id == item.plate_id).first()
-        item_dict['plate_name'] = plate.name if plate else None
+    response = []
+    for item in items:
+        plate_for_order = item.status_to_plate
+        plate_name = plate_for_order.plate.name if plate_for_order and plate_for_order.plate else None
+        order_id = plate_for_order.order_of_plate.id if plate_for_order and plate_for_order.order_of_plate else None
+        order_number = f"Заказ #{order_id}" if order_id else None
 
-        # Добавление информации о пользователе
+        user_name = None
         if item.change_by:
-            user = db.query(User).filter(User.id == item.change_by).first()
-            item_dict['user_name'] = user.name if user else None
+            user = await db.get(User, item.change_by)
+            user_name = user.name if user else None
 
-        # Добавление информации о заказе
-        if item.order_id:
-            order = db.query(Order).filter(Order.id == item.order_id).first()
-            item_dict['order_number'] = f"Заказ #{item.order_id}"
+        response.append(CookingStatusHistoryResponse(
+            id=item.id,
+            change_time=item.change_time,
+            new_status=item.new_status,
+            change_by=item.change_by,
+            plate_name=plate_name,
+            user_name=user_name,
+            order_id=order_id,
+            order_number=order_number
+        ))
 
-        result.append(CookingStatusHistoryResponse(**item_dict))
-
-    return result
+    return response
 
 @router.get("/{history_id}", response_model=CookingStatusHistoryResponse)
-def get_cooking_status_history(history_id: int, db: Session = Depends(get_db)):
-    """Получить запись истории статуса по ID"""
-    history_item = db.query(CookingStatusHistory).filter(CookingStatusHistory.id == history_id).first()
-    if not history_item:
+async def get_cooking_status_history(history_id: int, db: AsyncSession = Depends(get_async_db)):
+    """Получить запись истории статуса по ID (ID = plate_for_order_id)"""
+    stmt = select(CookingStatusHistory).where(CookingStatusHistory.id == history_id).options(
+        selectinload(CookingStatusHistory.status_to_plate).selectinload(PlateForOrder.plate),
+        selectinload(CookingStatusHistory.status_to_plate).selectinload(PlateForOrder.order_of_plate)
+    )
+    result = await db.execute(stmt)
+    item = result.scalar_one_or_none()
+    if not item:
         raise HTTPException(status_code=404, detail="Запись истории не найдена")
 
-    item_dict = history_item.__dict__.copy()
+    plate_for_order = item.status_to_plate
+    plate_name = plate_for_order.plate.name if plate_for_order and plate_for_order.plate else None
+    order_id = plate_for_order.order_of_plate.id if plate_for_order and plate_for_order.order_of_plate else None
+    order_number = f"Заказ #{order_id}" if order_id else None
 
-    # Добавление информации о блюде
-    plate = db.query(Menu).filter(Menu.id == history_item.plate_id).first()
-    item_dict['plate_name'] = plate.name if plate else None
+    user_name = None
+    if item.change_by:
+        user = await db.get(User, item.change_by)
+        user_name = user.name if user else None
 
-    # Добавление информации о пользователе
-    if history_item.change_by:
-        user = db.query(User).filter(User.id == history_item.change_by).first()
-        item_dict['user_name'] = user.name if user else None
-
-    # Добавление информации о заказе
-    if history_item.order_id:
-        order = db.query(Order).filter(Order.id == history_item.order_id).first()
-        item_dict['order_number'] = f"Заказ #{history_item.order_id}"
-
-    return CookingStatusHistoryResponse(**item_dict)
+    return CookingStatusHistoryResponse(
+        id=item.id,
+        change_time=item.change_time,
+        new_status=item.new_status,
+        change_by=item.change_by,
+        plate_name=plate_name,
+        user_name=user_name,
+        order_id=order_id,
+        order_number=order_number
+    )
 
 @router.post("/", response_model=CookingStatusHistoryResponse)
-def create_cooking_status_history(history_data: CookingStatusHistoryCreate, db: Session = Depends(get_db)):
+async def create_cooking_status_history(history_data: CookingStatusHistoryCreate, db: AsyncSession = Depends(get_async_db)):
     """Создать запись истории изменения статуса"""
-    plate = db.query(Menu).filter(Menu.id == history_data.plate_id).first()
-    if not plate:
-        raise HTTPException(status_code=404, detail="Блюдо не найдено")
+    plate_for_order = await db.get(PlateForOrder, history_data.plate_for_order_id)
+    if not plate_for_order:
+        raise HTTPException(status_code=404, detail="Позиция в заказе не найдена")
 
     if history_data.change_by:
-        user = db.query(User).filter(User.id == history_data.change_by).first()
+        user = await db.get(User, history_data.change_by)
         if not user:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-    if history_data.order_id:
-        order = db.query(Order).filter(Order.id == history_data.order_id).first()
-        if not order:
-            raise HTTPException(status_code=404, detail="Заказ не найден")
+    existing = await db.get(CookingStatusHistory, history_data.plate_for_order_id)
+    if existing:
+        raise HTTPException(status_code=400, detail="Запись истории для этой позиции уже существует")
 
     history_item = CookingStatusHistory(
+        id=history_data.plate_for_order_id,
         change_time=datetime.now(),
         new_status=history_data.new_status,
-        order_id=history_data.order_id,
-        plate_id=history_data.plate_id,
         change_by=history_data.change_by
     )
-
     db.add(history_item)
-    db.commit()
-    db.refresh(history_item)
+    await db.commit()
+    await db.refresh(history_item)
 
-    item_dict = history_item.__dict__.copy()
-    item_dict['plate_name'] = plate.name
+    await db.refresh(history_item, attribute_names=["status_to_plate"])
+    if history_item.status_to_plate:
+        await db.refresh(history_item.status_to_plate, attribute_names=["plate", "order_of_plate"])
+
+    plate_for_order = history_item.status_to_plate
+    plate_name = plate_for_order.plate.name if plate_for_order and plate_for_order.plate else None
+    order_id = plate_for_order.order_of_plate.id if plate_for_order and plate_for_order.order_of_plate else None
+    order_number = f"Заказ #{order_id}" if order_id else None
+
+    user_name = None
     if history_data.change_by:
-        user = db.query(User).filter(User.id == history_data.change_by).first()
-        item_dict['user_name'] = user.name if user else None
-    if history_data.order_id:
-        item_dict['order_number'] = f"Заказ #{history_data.order_id}"
+        user = await db.get(User, history_data.change_by)
+        user_name = user.name if user else None
 
-    return CookingStatusHistoryResponse(**item_dict)
+    return CookingStatusHistoryResponse(
+        id=history_item.id,
+        change_time=history_item.change_time,
+        new_status=history_item.new_status,
+        change_by=history_item.change_by,
+        plate_name=plate_name,
+        user_name=user_name,
+        order_id=order_id,
+        order_number=order_number
+    )
 
 @router.put("/{history_id}", response_model=CookingStatusHistoryResponse)
-def update_cooking_status_history(history_id: int, history_data: CookingStatusHistoryUpdate, db: Session = Depends(get_db)):
+async def update_cooking_status_history(history_id: int, history_data: CookingStatusHistoryUpdate, db: AsyncSession = Depends(get_async_db)):
     """Обновить запись истории статуса"""
-    history_item = db.query(CookingStatusHistory).filter(CookingStatusHistory.id == history_id).first()
-    if not history_item:
+    item = await db.get(CookingStatusHistory, history_id)
+    if not item:
         raise HTTPException(status_code=404, detail="Запись истории не найдена")
 
     if history_data.new_status is not None:
-        history_item.new_status = history_data.new_status
-    if history_data.order_id is not None:
-        order = db.query(Order).filter(Order.id == history_data.order_id).first()
-        if not order:
-            raise HTTPException(status_code=404, detail="Заказ не найден")
-        history_item.order_id = history_data.order_id
-    if history_data.plate_id is not None:
-        plate = db.query(Menu).filter(Menu.id == history_data.plate_id).first()
-        if not plate:
-            raise HTTPException(status_code=404, detail="Блюдо не найдено")
-        history_item.plate_id = history_data.plate_id
+        item.new_status = history_data.new_status
     if history_data.change_by is not None:
-        user = db.query(User).filter(User.id == history_data.change_by).first()
+        user = await db.get(User, history_data.change_by)
         if not user:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
-        history_item.change_by = history_data.change_by
+        item.change_by = history_data.change_by
 
-    db.commit()
-    db.refresh(history_item)
+    await db.commit()
+    await db.refresh(item)
 
-    item_dict = history_item.__dict__.copy()
+    await db.refresh(item, attribute_names=["status_to_plate"])
+    if item.status_to_plate:
+        await db.refresh(item.status_to_plate, attribute_names=["plate", "order_of_plate"])
 
-    plate = db.query(Menu).filter(Menu.id == history_item.plate_id).first()
-    item_dict['plate_name'] = plate.name if plate else None
+    plate_for_order = item.status_to_plate
+    plate_name = plate_for_order.plate.name if plate_for_order and plate_for_order.plate else None
+    order_id = plate_for_order.order_of_plate.id if plate_for_order and plate_for_order.order_of_plate else None
+    order_number = f"Заказ #{order_id}" if order_id else None
 
-    if history_item.change_by:
-        user = db.query(User).filter(User.id == history_item.change_by).first()
-        item_dict['user_name'] = user.name if user else None
+    user_name = None
+    if item.change_by:
+        user = await db.get(User, item.change_by)
+        user_name = user.name if user else None
 
-    if history_item.order_id:
-        item_dict['order_number'] = f"Заказ #{history_item.order_id}"
-
-    return CookingStatusHistoryResponse(**item_dict)
+    return CookingStatusHistoryResponse(
+        id=item.id,
+        change_time=item.change_time,
+        new_status=item.new_status,
+        change_by=item.change_by,
+        plate_name=plate_name,
+        user_name=user_name,
+        order_id=order_id,
+        order_number=order_number
+    )
 
 @router.delete("/{history_id}")
-def delete_cooking_status_history(history_id: int, db: Session = Depends(get_db)):
+async def delete_cooking_status_history(history_id: int, db: AsyncSession = Depends(get_async_db)):
     """Удалить запись истории статуса"""
-    history_item = db.query(CookingStatusHistory).filter(CookingStatusHistory.id == history_id).first()
-    if not history_item:
+    item = await db.get(CookingStatusHistory, history_id)
+    if not item:
         raise HTTPException(status_code=404, detail="Запись истории не найдена")
 
-    db.delete(history_item)
-    db.commit()
-
+    await db.delete(item)
+    await db.commit()
     return {"message": "Запись истории удалена"}
 
 @router.get("/plate/{plate_id}", response_model=List[CookingStatusHistoryResponse])
-def get_history_by_plate(plate_id: int, db: Session = Depends(get_db)):
-    """Получить историю статусов для конкретного блюда"""
-    plate = db.query(Menu).filter(Menu.id == plate_id).first()
+async def get_history_by_plate(plate_id: int, db: AsyncSession = Depends(get_async_db)):
+    """Получить историю статусов для блюда"""
+    plate = await db.get(Menu, plate_id)
     if not plate:
         raise HTTPException(status_code=404, detail="Блюдо не найдено")
 
-    history_items = db.query(CookingStatusHistory)\
-        .filter(CookingStatusHistory.plate_id == plate_id)\
-        .order_by(CookingStatusHistory.change_time.desc())\
-        .all()
+    stmt = select(CookingStatusHistory).join(
+        CookingStatusHistory.status_to_plate
+    ).where(PlateForOrder.plate_id == plate_id).options(
+        selectinload(CookingStatusHistory.status_to_plate).selectinload(PlateForOrder.order_of_plate)
+    ).order_by(CookingStatusHistory.change_time.desc())
 
-    result = []
-    for item in history_items:
-        item_dict = item.__dict__.copy()
-        item_dict['plate_name'] = plate.name
+    result = await db.execute(stmt)
+    items = result.scalars().all()
 
+    response = []
+    for item in items:
+        plate_for_order = item.status_to_plate
+        order_id = plate_for_order.order_of_plate.id if plate_for_order and plate_for_order.order_of_plate else None
+        order_number = f"Заказ #{order_id}" if order_id else None
+
+        user_name = None
         if item.change_by:
-            user = db.query(User).filter(User.id == item.change_by).first()
-            item_dict['user_name'] = user.name if user else None
+            user = await db.get(User, item.change_by)
+            user_name = user.name if user else None
 
-        if item.order_id:
-            item_dict['order_number'] = f"Заказ #{item.order_id}"
+        response.append(CookingStatusHistoryResponse(
+            id=item.id,
+            change_time=item.change_time,
+            new_status=item.new_status,
+            change_by=item.change_by,
+            plate_name=plate.name,
+            user_name=user_name,
+            order_id=order_id,
+            order_number=order_number
+        ))
 
-        result.append(CookingStatusHistoryResponse(**item_dict))
-
-    return result
+    return response
 
 @router.get("/order/{order_id}", response_model=List[CookingStatusHistoryResponse])
-def get_history_by_order(order_id: int, db: Session = Depends(get_db)):
-    """Получить историю статусов для конкретного заказа"""
-    order = db.query(Order).filter(Order.id == order_id).first()
+async def get_history_by_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
+    """Получить историю статусов для заказа"""
+    order = await db.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    history_items = db.query(CookingStatusHistory)\
-        .filter(CookingStatusHistory.order_id == order_id)\
-        .order_by(CookingStatusHistory.change_time.desc())\
-        .all()
+    stmt = select(CookingStatusHistory).join(
+        CookingStatusHistory.status_to_plate
+    ).where(PlateForOrder.order_id == order_id).options(
+        selectinload(CookingStatusHistory.status_to_plate).selectinload(PlateForOrder.plate)
+    ).order_by(CookingStatusHistory.change_time.desc())
 
-    result = []
-    for item in history_items:
-        item_dict = item.__dict__.copy()
+    result = await db.execute(stmt)
+    items = result.scalars().all()
 
-        plate = db.query(Menu).filter(Menu.id == item.plate_id).first()
-        item_dict['plate_name'] = plate.name if plate else None
+    response = []
+    for item in items:
+        plate_for_order = item.status_to_plate
+        plate_name = plate_for_order.plate.name if plate_for_order and plate_for_order.plate else None
 
+        user_name = None
         if item.change_by:
-            user = db.query(User).filter(User.id == item.change_by).first()
-            item_dict['user_name'] = user.name if user else None
+            user = await db.get(User, item.change_by)
+            user_name = user.name if user else None
 
-        item_dict['order_number'] = f"Заказ #{order_id}"
+        response.append(CookingStatusHistoryResponse(
+            id=item.id,
+            change_time=item.change_time,
+            new_status=item.new_status,
+            change_by=item.change_by,
+            plate_name=plate_name,
+            user_name=user_name,
+            order_id=order_id,
+            order_number=f"Заказ #{order_id}"
+        ))
 
-        result.append(CookingStatusHistoryResponse(**item_dict))
-
-    return result
+    return response
 
 @router.get("/user/{user_id}", response_model=List[CookingStatusHistoryResponse])
-def get_history_by_user(user_id: int, db: Session = Depends(get_db)):
-    """Получить историю статусов, измененных конкретным пользователем"""
-    user = db.query(User).filter(User.id == user_id).first()
+async def get_history_by_user(user_id: int, db: AsyncSession = Depends(get_async_db)):
+    """Получить историю статусов, измененных пользователем"""
+    user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-    history_items = db.query(CookingStatusHistory)\
-        .filter(CookingStatusHistory.change_by == user_id)\
-        .order_by(CookingStatusHistory.change_time.desc())\
-        .all()
+    stmt = select(CookingStatusHistory).where(CookingStatusHistory.change_by == user_id).options(
+        selectinload(CookingStatusHistory.status_to_plate).selectinload(PlateForOrder.plate),
+        selectinload(CookingStatusHistory.status_to_plate).selectinload(PlateForOrder.order_of_plate)
+    ).order_by(CookingStatusHistory.change_time.desc())
 
-    result = []
-    for item in history_items:
-        item_dict = item.__dict__.copy()
+    result = await db.execute(stmt)
+    items = result.scalars().all()
 
-        plate = db.query(Menu).filter(Menu.id == item.plate_id).first()
-        item_dict['plate_name'] = plate.name if plate else None
+    response = []
+    for item in items:
+        plate_for_order = item.status_to_plate
+        plate_name = plate_for_order.plate.name if plate_for_order and plate_for_order.plate else None
+        order_id = plate_for_order.order_of_plate.id if plate_for_order and plate_for_order.order_of_plate else None
+        order_number = f"Заказ #{order_id}" if order_id else None
 
-        item_dict['user_name'] = user.name
+        response.append(CookingStatusHistoryResponse(
+            id=item.id,
+            change_time=item.change_time,
+            new_status=item.new_status,
+            change_by=item.change_by,
+            plate_name=plate_name,
+            user_name=user.name,
+            order_id=order_id,
+            order_number=order_number
+        ))
 
-        if item.order_id:
-            item_dict['order_number'] = f"Заказ #{item.order_id}"
-
-        result.append(CookingStatusHistoryResponse(**item_dict))
-
-    return result
+    return response
 
 @router.get("/latest/plate/{plate_id}", response_model=CookingStatusHistoryResponse)
-def get_latest_status_for_plate(plate_id: int, db: Session = Depends(get_db)):
-    """Получить последний статус для конкретного блюда"""
-    plate = db.query(Menu).filter(Menu.id == plate_id).first()
+async def get_latest_status_for_plate(plate_id: int, db: AsyncSession = Depends(get_async_db)):
+    """Получить последний статус для блюда"""
+    plate = await db.get(Menu, plate_id)
     if not plate:
         raise HTTPException(status_code=404, detail="Блюдо не найдено")
 
-    latest_item = db.query(CookingStatusHistory)\
-        .filter(CookingStatusHistory.plate_id == plate_id)\
-        .order_by(CookingStatusHistory.change_time.desc())\
-        .first()
+    stmt = select(CookingStatusHistory).join(
+        CookingStatusHistory.status_to_plate
+    ).where(PlateForOrder.plate_id == plate_id).options(
+        selectinload(CookingStatusHistory.status_to_plate).selectinload(PlateForOrder.order_of_plate)
+    ).order_by(CookingStatusHistory.change_time.desc()).limit(1)
 
-    if not latest_item:
+    result = await db.execute(stmt)
+    item = result.scalar_one_or_none()
+    if not item:
         raise HTTPException(status_code=404, detail="История статусов для этого блюда не найдена")
 
-    item_dict = latest_item.__dict__.copy()
-    item_dict['plate_name'] = plate.name
+    plate_for_order = item.status_to_plate
+    order_id = plate_for_order.order_of_plate.id if plate_for_order and plate_for_order.order_of_plate else None
+    order_number = f"Заказ #{order_id}" if order_id else None
 
-    if latest_item.change_by:
-        user = db.query(User).filter(User.id == latest_item.change_by).first()
-        item_dict['user_name'] = user.name if user else None
+    user_name = None
+    if item.change_by:
+        user = await db.get(User, item.change_by)
+        user_name = user.name if user else None
 
-    if latest_item.order_id:
-        item_dict['order_number'] = f"Заказ #{latest_item.order_id}"
-
-    return CookingStatusHistoryResponse(**item_dict)
+    return CookingStatusHistoryResponse(
+        id=item.id,
+        change_time=item.change_time,
+        new_status=item.new_status,
+        change_by=item.change_by,
+        plate_name=plate.name,
+        user_name=user_name,
+        order_id=order_id,
+        order_number=order_number
+    )

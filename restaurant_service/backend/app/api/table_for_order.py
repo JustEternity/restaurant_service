@@ -1,110 +1,117 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List, Optional
-from app.database import get_db
+
+from app.database import get_async_db
 from app.db_models import TableForOrder, Order, Table
-from app.schemas.table_orders_schemas import *
+from app.schemas.table_orders_schemas import (
+    TableForOrderCreate,
+    TableForOrderUpdate,
+    TableForOrderResponse
+)
 
 router = APIRouter(prefix="/tables-for-order", tags=["Столы для заказов"])
 
 @router.get("/", response_model=List[TableForOrderResponse])
-def get_all_tables_for_order(db: Session = Depends(get_db), order_id: Optional[int] = None, table_id: Optional[int] = None):
+async def get_all_tables_for_order(
+    order_id: Optional[int] = None,
+    table_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_async_db)
+):
     """Получить все связи столов и заказов"""
-    query = db.query(TableForOrder)
+    stmt = select(TableForOrder)
 
     if order_id is not None:
-        query = query.filter(TableForOrder.order == order_id)
-
+        stmt = stmt.where(TableForOrder.order == order_id)
     if table_id is not None:
-        query = query.filter(TableForOrder.table == table_id)
+        stmt = stmt.where(TableForOrder.table == table_id)
 
-    return query.order_by(TableForOrder.id).all()
+    stmt = stmt.order_by(TableForOrder.id)
+    result = await db.execute(stmt)
+    records = result.scalars().all()
+    return records
 
 @router.get("/order/{order_id}", response_model=List[TableForOrderResponse])
-def get_tables_by_order(order_id: int, db: Session = Depends(get_db)):
+async def get_tables_by_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
     """Получить все столы, привязанные к заказу"""
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = await db.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    return db.query(TableForOrder)\
-        .filter(TableForOrder.order == order_id)\
-        .order_by(TableForOrder.id)\
-        .all()
+    stmt = select(TableForOrder).where(TableForOrder.order == order_id).order_by(TableForOrder.id)
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
 @router.get("/table/{table_id}", response_model=List[TableForOrderResponse])
-def get_orders_by_table(table_id: int, db: Session = Depends(get_db)):
+async def get_orders_by_table(table_id: int, db: AsyncSession = Depends(get_async_db)):
     """Получить все заказы, привязанные к столу"""
-    table = db.query(Table).filter(Table.id == table_id).first()
+    table = await db.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Стол не найден")
 
-    return db.query(TableForOrder)\
-        .filter(TableForOrder.table == table_id)\
-        .order_by(TableForOrder.id)\
-        .all()
+    stmt = select(TableForOrder).where(TableForOrder.table == table_id).order_by(TableForOrder.id)
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
 @router.post("/", response_model=TableForOrderResponse)
-def create_table_for_order(record_data: TableForOrderCreate, db: Session = Depends(get_db)):
+async def create_table_for_order(record_data: TableForOrderCreate, db: AsyncSession = Depends(get_async_db)):
     """Создать связь стола и заказа"""
-    order = db.query(Order).filter(Order.id == record_data.order).first()
+    order = await db.get(Order, record_data.order)
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    table = db.query(Table).filter(Table.id == record_data.table).first()
+    table = await db.get(Table, record_data.table)
     if not table:
         raise HTTPException(status_code=404, detail="Стол не найден")
 
-    existing = db.query(TableForOrder).filter(
+    stmt = select(TableForOrder).where(
         TableForOrder.order == record_data.order,
         TableForOrder.table == record_data.table
-    ).first()
-    if existing:
+    )
+    result = await db.execute(stmt)
+    if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Связь уже существует")
 
     record = TableForOrder(
         order=record_data.order,
         table=record_data.table
     )
-
     db.add(record)
-    db.commit()
-    db.refresh(record)
-
+    await db.commit()
+    await db.refresh(record)
     return record
 
 @router.put("/{record_id}", response_model=TableForOrderResponse)
-def update_table_for_order(record_id: int, record_data: TableForOrderUpdate, db: Session = Depends(get_db)):
+async def update_table_for_order(record_id: int, record_data: TableForOrderUpdate, db: AsyncSession = Depends(get_async_db)):
     """Обновить связь стола и заказа"""
-    record = db.query(TableForOrder).filter(TableForOrder.id == record_id).first()
+    record = await db.get(TableForOrder, record_id)
     if not record:
         raise HTTPException(status_code=404, detail="Связь не найдена")
 
     if record_data.order is not None:
-        order = db.query(Order).filter(Order.id == record_data.order).first()
+        order = await db.get(Order, record_data.order)
         if not order:
             raise HTTPException(status_code=404, detail="Заказ не найден")
         record.order = record_data.order
 
     if record_data.table is not None:
-        table = db.query(Table).filter(Table.id == record_data.table).first()
+        table = await db.get(Table, record_data.table)
         if not table:
             raise HTTPException(status_code=404, detail="Стол не найден")
         record.table = record_data.table
 
-    db.commit()
-    db.refresh(record)
-
+    await db.commit()
+    await db.refresh(record)
     return record
 
 @router.delete("/{record_id}")
-def delete_table_for_order(record_id: int, db: Session = Depends(get_db)):
+async def delete_table_for_order(record_id: int, db: AsyncSession = Depends(get_async_db)):
     """Удалить связь стола и заказа"""
-    record = db.query(TableForOrder).filter(TableForOrder.id == record_id).first()
+    record = await db.get(TableForOrder, record_id)
     if not record:
         raise HTTPException(status_code=404, detail="Связь не найдена")
 
-    db.delete(record)
-    db.commit()
-
+    await db.delete(record)
+    await db.commit()
     return {"message": "Связь удалена"}

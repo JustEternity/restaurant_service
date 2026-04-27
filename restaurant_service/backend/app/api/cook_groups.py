@@ -1,23 +1,27 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
+from sqlalchemy.orm import selectinload
 from typing import List
 
 from app.database import get_async_db
-from app.db_models import CookGroup, cooks_in_groups
-from app.schemas.cook_group_schemas import CookGroupCreate, CookGroupUpdate, CookGroupResponse
+from app.db_models import CookGroup, CooksInGroup, User
+from app.schemas.cook_group_schemas import (
+    CookGroupCreate, CookGroupUpdate, CookGroupResponse,
+    CookToGroup
+)
+from app.schemas.users_schemas import UserResponse
 from app.core.security import get_current_user
-from app.db_models import User
 
 router = APIRouter(prefix="/cook-groups", tags=["Группы поваров"])
 
+# ===== ЭНДПОИНТЫ ГРУПП =====
 @router.get("/", response_model=List[CookGroupResponse])
 async def get_all_cook_groups(db: AsyncSession = Depends(get_async_db)):
     """Получить все группы поваров"""
     stmt = select(CookGroup).order_by(CookGroup.name)
     result = await db.execute(stmt)
-    groups = result.scalars().all()
-    return groups
+    return result.scalars().all()
 
 @router.get("/{group_id}", response_model=CookGroupResponse)
 async def get_cook_group(group_id: int, db: AsyncSession = Depends(get_async_db)):
@@ -35,20 +39,18 @@ async def create_cook_group(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Создать группу поваров (только для администраторов)"""
-    if current_user.role not in ["admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Недостаточно прав"
-        )
-    # Проверка уникальности имени
+    """Создать группу поваров"""
+    if not current_user.role_of_user:
+        await db.refresh(current_user, attribute_names=["role_of_user"])
+    if current_user.role_of_user.name != "admin":
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
     stmt = select(CookGroup).where(CookGroup.name == group_data.name)
     result = await db.execute(stmt)
-    existing = result.scalar_one_or_none()
-    if existing:
+    if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Группа с таким именем уже существует")
 
-    group = CookGroup(name=group_data.name, description=group_data.description)
+    group = CookGroup(name=group_data.name)
     db.add(group)
     await db.commit()
     await db.refresh(group)
@@ -61,12 +63,12 @@ async def update_cook_group(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Обновить группу поваров (только для администраторов)"""
-    if current_user.role not in ["admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Недостаточно прав"
-        )
+    """Обновить группу поваров"""
+    if not current_user.role_of_user:
+        await db.refresh(current_user, attribute_names=["role_of_user"])
+    if current_user.role_of_user.name != "admin":
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
     stmt = select(CookGroup).where(CookGroup.id == group_id)
     result = await db.execute(stmt)
     group = result.scalar_one_or_none()
@@ -74,15 +76,14 @@ async def update_cook_group(
         raise HTTPException(status_code=404, detail="Группа не найдена")
 
     if group_data.name is not None and group_data.name != group.name:
-        check_stmt = select(CookGroup).where(CookGroup.name == group_data.name, CookGroup.id != group_id)
+        check_stmt = select(CookGroup).where(
+            CookGroup.name == group_data.name,
+            CookGroup.id != group_id
+        )
         check_result = await db.execute(check_stmt)
-        existing = check_result.scalar_one_or_none()
-        if existing:
+        if check_result.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Группа с таким именем уже существует")
         group.name = group_data.name
-
-    if group_data.description is not None:
-        group.description = group_data.description
 
     await db.commit()
     await db.refresh(group)
@@ -94,25 +95,112 @@ async def delete_cook_group(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Удалить группу поваров (только для администраторов)"""
-    if current_user.role not in ["admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Недостаточно прав"
-        )
+    """Удалить группу поваров"""
+    if not current_user.role_of_user:
+        await db.refresh(current_user, attribute_names=["role_of_user"])
+    if current_user.role_of_user.name != "admin":
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
     stmt = select(CookGroup).where(CookGroup.id == group_id)
     result = await db.execute(stmt)
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail="Группа не найдена")
 
-    # Проверяем, есть ли пользователи в группе
-    count_stmt = select(func.count()).select_from(cooks_in_groups).where(cooks_in_groups.c.group_id == group_id)
+    count_stmt = select(func.count()).select_from(CooksInGroup).where(CooksInGroup.group == group_id)
     count_result = await db.execute(count_stmt)
-    count = count_result.scalar()
-    if count > 0:
-        raise HTTPException(status_code=400, detail="Нельзя удалить группу, в которой есть пользователи")
+    if count_result.scalar() > 0:
+        raise HTTPException(status_code=400, detail="Нельзя удалить группу, в которой есть повара")
 
     await db.delete(group)
     await db.commit()
     return {"message": "Группа удалена"}
+
+# ===== ПОВАРА В ГРУППЕ =====
+@router.get("/{group_id}/cooks/", response_model=List[UserResponse])
+async def get_group_cooks(group_id: int, db: AsyncSession = Depends(get_async_db)):
+    """Получить всех поваров, входящих в группу"""
+    group = await db.get(CookGroup, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
+
+    stmt = select(User).join(CooksInGroup).where(CooksInGroup.group == group_id).options(selectinload(User.role_of_user))
+    result = await db.execute(stmt)
+    users = result.scalars().all()
+    response = []
+    for u in users:
+        response.append(UserResponse(
+            id=u.id,
+            name=u.name,
+            login=u.login,
+            role=u.role_of_user.name if u.role_of_user else None,
+            is_available=u.is_available,
+            specialization=None,
+            cook_groups=[]
+        ))
+    return response
+
+@router.post("/{group_id}/cooks/")
+async def add_cook_to_group(
+    group_id: int,
+    payload: CookToGroup,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Добавить повара в группу (только для администраторов)"""
+    if not current_user.role_of_user:
+        await db.refresh(current_user, attribute_names=["role_of_user"])
+    if current_user.role_of_user.name != "admin":
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    group = await db.get(CookGroup, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
+
+    stmt = select(User).where(User.id == payload.user_id).options(selectinload(User.role_of_user))
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if not user.role_of_user or user.role_of_user.name != "cook":
+        raise HTTPException(status_code=400, detail="Пользователь не является поваром")
+
+    exist_stmt = select(CooksInGroup).where(
+        CooksInGroup.group == group_id,
+        CooksInGroup.cook == payload.user_id
+    )
+    exist_result = await db.execute(exist_stmt)
+    if exist_result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Повар уже состоит в этой группе")
+
+    new_link = CooksInGroup(group=group_id, cook=payload.user_id)
+    db.add(new_link)
+    await db.commit()
+    return {"message": "Повар добавлен в группу"}
+
+@router.delete("/{group_id}/cooks/{user_id}")
+async def remove_cook_from_group(
+    group_id: int,
+    user_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Удалить повара из группы (только для администраторов)"""
+    if not current_user.role_of_user:
+        await db.refresh(current_user, attribute_names=["role_of_user"])
+    if current_user.role_of_user.name != "admin":
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    group = await db.get(CookGroup, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
+
+    stmt = delete(CooksInGroup).where(
+        CooksInGroup.group == group_id,
+        CooksInGroup.cook == user_id
+    )
+    result = await db.execute(stmt)
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Повар не найден в группе")
+    await db.commit()
+    return {"message": "Повар удалён из группы"}

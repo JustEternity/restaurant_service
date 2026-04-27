@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from datetime import timedelta
 
 from app.database import get_async_db
-from app.db_models import User
+from app.db_models import User, UserRole, Role
 from app.schemas.auth_schemas import Token, UserRegister, ChangePassword
 from app.core.security import (
     verify_password,
@@ -35,13 +36,19 @@ async def register(
             detail="Пользователь с таким логином уже существует"
         )
 
+    role_stmt = select(UserRole).where(UserRole.name == user_data.role)
+    role_result = await db.execute(role_stmt)
+    role_obj = role_result.scalar_one_or_none()
+    if not role_obj:
+        raise HTTPException(status_code=400, detail="Роль не найдена")
+
     hashed_password = get_password_hash(user_data.password)
 
     user = User(
         name=user_data.name,
         login=user_data.login,
         password=hashed_password,
-        role=user_data.role,
+        role=role_obj.id,
         is_available=True
     )
 
@@ -67,7 +74,7 @@ async def register(
         access_token=access_token,
         token_type="bearer",
         user_id=user.id,
-        role=user.role,
+        role=user_data.role,
         name=user.name
     )
 
@@ -129,7 +136,7 @@ async def login_json(
             detail=f"Неверные данные: {str(e)}"
         )
 
-    stmt = select(User).where(User.login == username)
+    stmt = select(User).where(User.login == username).options(selectinload(User.role_of_user))
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
@@ -152,13 +159,9 @@ async def login_json(
         expires_delta=access_token_expires
     )
 
-    return Token(
-        access_token=access_token,
-        token_type="bearer",
-        user_id=user.id,
-        role=user.role,
-        name=user.name
-    )
+    role_name = user.role_of_user.name if user.role_of_user else "unknown"
+    access_token = create_access_token(data={"sub": str(user.id), "role": role_name})
+    return Token(access_token=access_token, token_type="bearer", user_id=user.id, role=role_name, name=user.name)
 
 @router.post("/logout")
 async def logout():

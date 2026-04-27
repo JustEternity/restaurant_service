@@ -1,43 +1,51 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List, Optional
-from app.database import get_db
+
+from app.database import get_async_db
 from app.db_models import Table
-from app.schemas.tables_schemas import *
+from app.schemas.tables_schemas import TableCreate, TableUpdate, TableResponse
 
 router = APIRouter(prefix="/tables", tags=["Столы"])
 
 @router.get("/", response_model=List[TableResponse])
-def get_all_tables(db: Session = Depends(get_db), status: Optional[str] = None, is_available: Optional[bool] = None):
+async def get_all_tables(
+    status: Optional[str] = None,
+    is_available: Optional[bool] = None,
+    db: AsyncSession = Depends(get_async_db)
+):
     """Получить все столы с возможностью фильтрации"""
-    query = db.query(Table)
-
+    stmt = select(Table)
     if status:
-        query = query.filter(Table.status == status)
-
+        stmt = stmt.where(Table.status == status)
     if is_available is not None:
-        query = query.filter(Table.is_available == is_available)
-
-    return query.order_by(Table.number).all()
+        stmt = stmt.where(Table.is_available == is_available)
+    stmt = stmt.order_by(Table.number)
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
 @router.get("/{table_id}", response_model=TableResponse)
-def get_table(table_id: int, db: Session = Depends(get_db)):
+async def get_table(table_id: int, db: AsyncSession = Depends(get_async_db)):
     """Получить стол по ID"""
-    table = db.query(Table).filter(Table.id == table_id).first()
+    table = await db.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Стол не найден")
     return table
 
 @router.get("/status/{status}", response_model=List[TableResponse])
-def get_tables_by_status(status: str, db: Session = Depends(get_db)):
+async def get_tables_by_status(status: str, db: AsyncSession = Depends(get_async_db)):
     """Получить столы по статусу"""
-    return db.query(Table).filter(Table.status == status).all()
+    stmt = select(Table).where(Table.status == status).order_by(Table.number)
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
 @router.post("/", response_model=TableResponse)
-def create_table(table_data: TableCreate, db: Session = Depends(get_db)):
+async def create_table(table_data: TableCreate, db: AsyncSession = Depends(get_async_db)):
     """Создать стол"""
-    existing = db.query(Table).filter(Table.number == table_data.number).first()
-    if existing:
+    stmt = select(Table).where(Table.number == table_data.number)
+    result = await db.execute(stmt)
+    if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Стол с таким номером уже существует")
 
     table = Table(
@@ -47,23 +55,22 @@ def create_table(table_data: TableCreate, db: Session = Depends(get_db)):
         status=table_data.status,
         is_available=table_data.is_available
     )
-
     db.add(table)
-    db.commit()
-    db.refresh(table)
-
+    await db.commit()
+    await db.refresh(table)
     return table
 
 @router.put("/{table_id}", response_model=TableResponse)
-def update_table(table_id: int, table_data: TableUpdate, db: Session = Depends(get_db)):
+async def update_table(table_id: int, table_data: TableUpdate, db: AsyncSession = Depends(get_async_db)):
     """Обновить стол"""
-    table = db.query(Table).filter(Table.id == table_id).first()
+    table = await db.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Стол не найден")
 
     if table_data.number is not None:
-        existing = db.query(Table).filter(Table.number == table_data.number, Table.id != table_id).first()
-        if existing:
+        stmt = select(Table).where(Table.number == table_data.number, Table.id != table_id)
+        result = await db.execute(stmt)
+        if result.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Стол с таким номером уже существует")
         table.number = table_data.number
 
@@ -76,19 +83,17 @@ def update_table(table_id: int, table_data: TableUpdate, db: Session = Depends(g
     if table_data.is_available is not None:
         table.is_available = table_data.is_available
 
-    db.commit()
-    db.refresh(table)
-
+    await db.commit()
+    await db.refresh(table)
     return table
 
 @router.delete("/{table_id}")
-def delete_table(table_id: int, db: Session = Depends(get_db)):
+async def delete_table(table_id: int, db: AsyncSession = Depends(get_async_db)):
     """Удалить стол"""
-    table = db.query(Table).filter(Table.id == table_id).first()
+    table = await db.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Стол не найден")
 
-    db.delete(table)
-    db.commit()
-
-    return {"message": "Стол удален"}
+    await db.delete(table)
+    await db.commit()
+    return {"message": "Стол удалён"}

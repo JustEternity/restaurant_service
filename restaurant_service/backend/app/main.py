@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 
-from app.api import users, tables, menu, orders, health, status_history, table_for_order, auth, cook_groups, tags
+from app.api import users, tables, menu, orders, health, status_history, table_for_order, auth, cook_groups, specializations, plates_for_specializations
 
 
 
@@ -31,9 +31,10 @@ app.include_router(menu.router, prefix="/api")
 app.include_router(orders.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(cook_groups.router, prefix="/api")
-app.include_router(tags.router, prefix="/api")
 app.include_router(status_history.router, prefix="/api")
 app.include_router(table_for_order.router, prefix="/api")
+app.include_router(specializations.router, prefix="/api")
+app.include_router(plates_for_specializations.router, prefix="/api")
 
 @app.get("/")
 def root():

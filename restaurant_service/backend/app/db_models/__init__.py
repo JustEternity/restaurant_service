@@ -1,5 +1,6 @@
 from .base import Base, BaseModel
-from .user import User, UserRole
+from .user import User
+from .user_roles import Role, UserRole
 from .tables import Table, TableStatus
 from .menu import Menu
 from .order import Order, OrderStatus
@@ -9,10 +10,8 @@ from .cooking_history import CookingStatusHistory
 from .category import Category
 from .cook_group import CookGroup
 from .cooks_in_groups import CooksInGroup
-from .tag import Tag
-from .tags_of_plates import TagsOfPlate
-from .categories_for_group import CategoriesForGroup
-from .tags_for_group import TagsForGroup
+from .plates_for_specialization import PlatesForSpecialization
+from .specialization import Specialization
 
 __all__ = [
     'Base',
@@ -31,8 +30,6 @@ __all__ = [
     'Category',
     'CookGroup',
     'CooksInGroup',
-    'Tag',
-    'TagsOfPlate',
-    'CategoriesForGroup',
-    'TagsForGroup'
+    'PlatesForSpecialization',
+    'Specialization'
 ]

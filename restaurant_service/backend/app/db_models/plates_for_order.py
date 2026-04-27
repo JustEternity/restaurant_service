@@ -25,4 +25,4 @@ class PlateForOrder(BaseModel):
     # Связи
     order = relationship("Order", back_populates="plates")
     menu_item = relationship("Menu", back_populates="order_items")
-    statuses_of_plate = relationship("CookingStatusHistory", back_populates="status_to_plate")
+    statuses_of_plate = relationship("CookingStatusHistory", back_populates="status_to_plate", uselist=False)
