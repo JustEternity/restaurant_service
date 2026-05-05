@@ -7,6 +7,8 @@ import {
   Alert,
   ActivityIndicator,
   Dimensions,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import {
   GestureHandlerRootView,
@@ -23,6 +25,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { API_CONFIG } from '../config';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,6 +36,24 @@ interface Table {
   pos_y: number;
   status: string;
   is_available: boolean;
+}
+
+interface OrderPlate {
+  id: number;
+  plate_name: string;
+  count: number;
+  price: number;
+  current_status: string;
+  comment: string | null;
+}
+
+interface Order {
+  id: number;
+  status: string;
+  waiter_name: string;
+  table_numbers: number[];
+  plates: OrderPlate[];
+  timestart: string;
 }
 
 type RootStackParamList = {
@@ -47,9 +68,14 @@ const HallMap = () => {
   const [tables, setTables] = useState<Table[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTableIds, setSelectedTableIds] = useState<number[]>([]);
+  const [readyTableIds, setReadyTableIds] = useState<Set<number>>(new Set());
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [isAddingMode, setIsAddingMode] = useState(false);
+
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [orderModalVisible, setOrderModalVisible] = useState(false);
+  const [loadingOrder, setLoadingOrder] = useState(false);
 
   const safeSetTables = (updater: Table[] | ((prev: Table[]) => Table[])) => {
     setTables((prev: Table[]) => {
@@ -59,26 +85,78 @@ const HallMap = () => {
     });
   };
 
-  const loadTables = useCallback(async () => {
+  const loadTables = useCallback(async (): Promise<Table[]> => {
+    setLoading(true);
     try {
-      setLoading(true);
       const response = await fetch(`${API_CONFIG.BASE_URL}/tables/`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!response.ok) throw new Error('Ошибка загрузки столов');
       const data = await response.json();
-      safeSetTables(Array.isArray(data) ? data : []);
+      const newTables = Array.isArray(data) ? data : [];
+      safeSetTables(newTables);
+      return newTables;
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось загрузить столы');
       safeSetTables([]);
+      return [];
     } finally {
       setLoading(false);
     }
   }, [authToken]);
 
+  const loadReadyTables = useCallback(async (currentTables: Table[]) => {
+    if (isAdmin || !user) return;
+    try {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/orders/?waiter_id=${user.id}&status=active`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) return;
+      const orders: Order[] = await res.json();
+      const readyNumbers = new Set<number>();
+      orders.forEach(order => {
+        const hasReady = order.plates.some(plate => plate.current_status === 'ready');
+        if (hasReady) {
+          order.table_numbers.forEach(num => readyNumbers.add(num));
+        }
+      });
+      const ids = new Set<number>();
+      currentTables.forEach(table => {
+        if (readyNumbers.has(table.number)) {
+          ids.add(table.id);
+        }
+      });
+      setReadyTableIds(ids);
+    } catch (error) {
+      console.error('Ошибка загрузки готовых заказов', error);
+    }
+  }, [authToken, user, isAdmin]);
+
+  const manualRefresh = useCallback(async () => {
+    const newTables = await loadTables();
+    await loadReadyTables(newTables);
+  }, [loadTables, loadReadyTables]);
+
   useEffect(() => {
-    loadTables();
-  }, [loadTables]);
+    manualRefresh();
+  }, []);
+
+  const { addHandler } = useWebSocket();
+  useEffect(() => {
+    const unsubscribe = addHandler((data: any) => {
+      console.log('HallMap raw event:', data);
+      if (
+        data.type === 'plate_ready' ||
+        data.type === 'plate_status_changed' ||
+        data.type === 'order_completed' ||
+        data.type === 'order_created' ||
+        data.type === 'order_updated'
+      ) {
+        manualRefresh();
+      }
+    });
+    return unsubscribe;
+  }, [addHandler, manualRefresh]);
 
   const updateTablePosition = async (id: number, pos_x: number, pos_y: number) => {
     if (!isAdmin) return;
@@ -162,10 +240,37 @@ const HallMap = () => {
     setIsAddingMode(false);
   };
 
-  const toggleTableSelection = (id: number) => {
-    setSelectedTableIds((prev) =>
-      prev.includes(id) ? prev.filter((tid) => tid !== id) : [...prev, id]
-    );
+  const showOrderForTable = async (table: Table) => {
+    setLoadingOrder(true);
+    try {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/orders/?status=active&table_id=${table.id}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error('Ошибка загрузки заказа');
+      const orders: Order[] = await res.json();
+      if (orders.length > 0) {
+        setSelectedOrder(orders[0]);
+        setOrderModalVisible(true);
+      } else {
+        Alert.alert('Информация', 'Нет активного заказа для этого стола');
+      }
+    } catch (error) {
+      Alert.alert('Ошибка', 'Не удалось загрузить заказ');
+    } finally {
+      setLoadingOrder(false);
+    }
+  };
+
+  const toggleTableSelection = (table: Table) => {
+    if (table.status === 'occupied' || readyTableIds.has(table.id)) {
+      showOrderForTable(table);
+      return;
+    }
+    if (!isAdmin) {
+      setSelectedTableIds((prev) =>
+        prev.includes(table.id) ? prev.filter((tid) => tid !== table.id) : [...prev, table.id]
+      );
+    }
   };
 
   const clearSelection = () => {
@@ -174,17 +279,30 @@ const HallMap = () => {
 
   const handleCreateOrderPress = () => {
     if (selectedTableIds.length === 0) return;
-    if (isAdmin) {
-      const numbers = tables
-        .filter((t) => selectedTableIds.includes(t.id))
-        .map((t) => t.number)
-        .join(', ');
-      Alert.alert('Создать заказ', `Для столов: ${numbers}`);
-    } else {
+    if (!isAdmin) {
       navigation.navigate('Меню', {
         screen: 'MenuList',
         params: { selectedTableIds },
       });
+    }
+  };
+
+  const getOrderStatusText = (status: string) => {
+    switch (status) {
+      case 'active': return 'Активен';
+      case 'completed': return 'Завершён';
+      case 'cancelled': return 'Отменён';
+      default: return status;
+    }
+  };
+
+  const getCookingStatusText = (status: string) => {
+    switch (status) {
+      case 'waiting': return 'Ожидает';
+      case 'preparing': return 'Готовится';
+      case 'ready': return 'Готово';
+      case 'served': return 'Подано';
+      default: return status;
     }
   };
 
@@ -215,19 +333,20 @@ const HallMap = () => {
         <Animated.View style={[styles.tableContainer, animatedStyle]}>
           <TouchableOpacity
             activeOpacity={0.8}
-            onPress={() => toggleTableSelection(table.id)}
-            onLongPress={() => deleteTable(table.id)}
+            onPress={() => toggleTableSelection(table)}
+            onLongPress={() => deleteTable(table)}
           >
             <View
               style={[
                 styles.table,
-                table.status === 'occupied' && styles.tableOccupied,
-                selectedTableIds.includes(table.id) && styles.tableSelected,
+                table.status === 'occupied' && !readyTableIds.has(table.id) && styles.tableOccupied,
+                readyTableIds.has(table.id) && styles.tableReady,
+                selectedTableIds.includes(table.id) && !isAdmin && styles.tableSelected,
               ]}
             >
               <Text style={styles.tableNumber}>{table.number}</Text>
               <Text style={styles.tableStatus}>
-                {table.status === 'free' ? 'Свободен' : 'Занят'}
+                {readyTableIds.has(table.id) ? 'Готово подать' : (table.status === 'free' ? 'Свободен' : 'Занят')}
               </Text>
             </View>
           </TouchableOpacity>
@@ -245,18 +364,19 @@ const HallMap = () => {
           key={table.id}
           style={[styles.tableContainer, { left: table.pos_x, top: table.pos_y }]}
           activeOpacity={0.8}
-          onPress={() => toggleTableSelection(table.id)}
+          onPress={() => toggleTableSelection(table)}
         >
           <View
             style={[
               styles.table,
-              table.status === 'occupied' && styles.tableOccupied,
-              selectedTableIds.includes(table.id) && styles.tableSelected,
+              table.status === 'occupied' && !readyTableIds.has(table.id) && styles.tableOccupied,
+              readyTableIds.has(table.id) && styles.tableReady,
+              selectedTableIds.includes(table.id) && !isAdmin && styles.tableSelected,
             ]}
           >
             <Text style={styles.tableNumber}>{table.number}</Text>
             <Text style={styles.tableStatus}>
-              {table.status === 'free' ? 'Свободен' : 'Занят'}
+              {readyTableIds.has(table.id) ? 'Готово подать' : (table.status === 'free' ? 'Свободен' : 'Занят')}
             </Text>
           </View>
         </TouchableOpacity>
@@ -279,7 +399,7 @@ const HallMap = () => {
     <GestureHandlerRootView style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerButtons}>
-          {selectedTableIds.length > 0 && (
+          {selectedTableIds.length > 0 && !isAdmin && (
             <TouchableOpacity style={styles.clearButton} onPress={clearSelection}>
               <Ionicons name="close-circle" size={24} color="#ff3b30" />
             </TouchableOpacity>
@@ -305,6 +425,11 @@ const HallMap = () => {
               )}
             </>
           )}
+          {!isAdmin && (
+            <TouchableOpacity style={styles.refreshButton} onPress={manualRefresh}>
+              <Ionicons name="refresh" size={24} color="#007AFF" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -317,7 +442,7 @@ const HallMap = () => {
         {safeTables.map((table) => renderTable(table))}
       </TouchableOpacity>
 
-      {selectedTableIds.length > 0 && (
+      {selectedTableIds.length > 0 && !isAdmin && (
         <View style={styles.orderButtonContainer}>
           <TouchableOpacity style={styles.orderButton} onPress={handleCreateOrderPress}>
             <Ionicons name="receipt-outline" size={24} color="#fff" />
@@ -333,6 +458,56 @@ const HallMap = () => {
           <Text style={styles.helperText}>Нажмите на карту, чтобы добавить стол</Text>
         </View>
       )}
+
+      <Modal visible={orderModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Заказ #{selectedOrder?.id}</Text>
+              <TouchableOpacity onPress={() => setOrderModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            {loadingOrder ? (
+              <ActivityIndicator size="large" style={{ margin: 20 }} />
+            ) : selectedOrder ? (
+              <ScrollView>
+                <View style={styles.orderDetails}>
+                  <Text style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Статус: </Text>
+                    {getOrderStatusText(selectedOrder.status)}
+                  </Text>
+                  <Text style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Официант: </Text>
+                    {selectedOrder.waiter_name}
+                  </Text>
+                  <Text style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Столы: </Text>
+                    {selectedOrder.table_numbers.join(', ')}
+                  </Text>
+                </View>
+                <Text style={styles.platesTitle}>Блюда:</Text>
+                {selectedOrder.plates.map((plate, idx) => (
+                  <View key={idx} style={styles.plateItem}>
+                    <View style={styles.plateInfo}>
+                      <Text style={styles.plateName}>{plate.plate_name}</Text>
+                      {plate.comment && (
+                        <Text style={styles.plateComment}>Комм: {plate.comment}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.platePrice}>
+                      {plate.count} x {plate.price} ₽
+                    </Text>
+                    <Text style={styles.plateStatus}>
+                      {getCookingStatusText(plate.current_status)}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </GestureHandlerRootView>
   );
 };
@@ -344,8 +519,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingHorizontal: 10,
+    paddingTop: 10,
     paddingBottom: 16,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
@@ -353,6 +528,7 @@ const styles = StyleSheet.create({
   },
   headerButtons: { flexDirection: 'row', alignItems: 'center' },
   clearButton: { marginRight: 12, padding: 4 },
+  refreshButton: { marginLeft: 12, padding: 4 },
   editButton: {
     width: 44,
     height: 44,
@@ -395,6 +571,7 @@ const styles = StyleSheet.create({
     borderColor: '#fff',
   },
   tableOccupied: { backgroundColor: '#ff9500' },
+  tableReady: { backgroundColor: '#ff69b4' },
   tableSelected: { borderWidth: 4, borderColor: '#007AFF' },
   tableNumber: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
   tableStatus: { fontSize: 10, color: '#fff', marginTop: 4 },
@@ -435,6 +612,38 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     fontSize: 14,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
+  modalTitle: { fontSize: 20, fontWeight: 'bold' },
+  orderDetails: { marginBottom: 12 },
+  detailRow: { marginBottom: 6, fontSize: 14 },
+  detailLabel: { fontWeight: '600', color: '#666' },
+  platesTitle: { fontSize: 18, fontWeight: '600', marginTop: 8, marginBottom: 8 },
+  plateItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  plateInfo: { flex: 1 },
+  plateName: { fontSize: 16 },
+  plateComment: { fontSize: 13, color: '#888', fontStyle: 'italic' },
+  platePrice: { fontSize: 14, fontWeight: '500', marginRight: 10 },
+  plateStatus: { fontSize: 14, color: '#007AFF' },
 });
 
 export default HallMap;

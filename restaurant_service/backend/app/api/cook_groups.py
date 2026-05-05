@@ -124,7 +124,9 @@ async def get_group_cooks(group_id: int, db: AsyncSession = Depends(get_async_db
     if not group:
         raise HTTPException(status_code=404, detail="Группа не найдена")
 
-    stmt = select(User).join(CooksInGroup).where(CooksInGroup.group == group_id).options(selectinload(User.role_of_user))
+    stmt = select(User).join(CooksInGroup).where(CooksInGroup.group == group_id).options(
+        selectinload(User.role_of_user),
+        selectinload(User.specialization_of_user))
     result = await db.execute(stmt)
     users = result.scalars().all()
     response = []
@@ -135,7 +137,7 @@ async def get_group_cooks(group_id: int, db: AsyncSession = Depends(get_async_db
             login=u.login,
             role=u.role_of_user.name if u.role_of_user else None,
             is_available=u.is_available,
-            specialization=None,
+            specialization=u.specialization_of_user,
             cook_groups=[]
         ))
     return response

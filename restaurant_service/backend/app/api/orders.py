@@ -1,21 +1,83 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, desc
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 from typing import List, Optional
 
 from app.database import get_async_db
-from app.db_models import Order, User, Table, Menu, PlateForOrder, TableForOrder
-from app.db_models.cooking_history import CookingStatusHistory
+from app.db_models import Order, User, Table, Menu, PlateForOrder, TableForOrder, CookingStatusHistory, PlatesForSpecialization, CooksInGroup
+from app.db_models.user_roles import Role
 from app.schemas.orders_schemas import *
+from app.core.security import get_current_user
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/orders", tags=["Заказы"])
+
+def get_current_status(plate: PlateForOrder):
+    if plate.statuses_of_plate:
+        sorted_statuses = sorted(plate.statuses_of_plate, key=lambda x: x.change_time)
+        return sorted_statuses[-1].new_status
+    return None
+
+async def get_cooks_to_notify(order_id: int, db: AsyncSession):
+    """
+    Возвращает список id поваров у которых в специализациях есть блюда из заказа (order_id)
+    """
+    stmt = select(Order).where(Order.id == order_id).options(selectinload(Order.plates))
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
+    if not order or not order.plates:
+        return set()
+
+    plate_ids = [p.plate_id for p in order.plates]
+
+    stmt = (
+        select(PlatesForSpecialization.specialization)
+        .where(PlatesForSpecialization.plate.in_(plate_ids))
+        .distinct()
+    )
+    result = await db.execute(stmt)
+    spec_ids = {row[0] for row in result}
+    if not spec_ids:
+        return set()
+
+    stmt = (
+        select(User.id)
+        .join(User.role_of_user)
+        .where(Role.name == "cook", User.specialization.in_(spec_ids))
+    )
+    result = await db.execute(stmt)
+    direct_cook_ids = {row[0] for row in result}
+    if not direct_cook_ids:
+        return set()
+
+    stmt = (
+        select(CooksInGroup.group)
+        .where(CooksInGroup.cook.in_(direct_cook_ids))
+        .distinct()
+    )
+    result = await db.execute(stmt)
+    group_ids = {row[0] for row in result}
+    if not group_ids:
+        return direct_cook_ids
+
+    stmt = (
+        select(User.id)
+        .join(CooksInGroup, User.id == CooksInGroup.cook)
+        .join(User.role_of_user)
+        .where(CooksInGroup.group.in_(group_ids), Role.name == "cook")
+    )
+    result = await db.execute(stmt)
+    group_cook_ids = {row[0] for row in result}
+
+    return direct_cook_ids.union(group_cook_ids)
 
 @router.get("/", response_model=List[OrderResponse])
 async def get_all_orders(
     status: Optional[str] = None,
     waiter_id: Optional[int] = None,
+    table_id: Optional[int] = None,
     db: AsyncSession = Depends(get_async_db)
 ):
     stmt = select(Order).options(
@@ -28,6 +90,8 @@ async def get_all_orders(
         stmt = stmt.where(Order.status == status)
     if waiter_id:
         stmt = stmt.where(Order.waiter == waiter_id)
+    if table_id is not None:
+        stmt = stmt.join(Order.tables).where(TableForOrder.table == table_id)
     stmt = stmt.order_by(Order.timestart.desc())
     result = await db.execute(stmt)
     orders = result.scalars().all()
@@ -37,13 +101,12 @@ async def get_all_orders(
         table_numbers = [link.table_for_order.number for link in order.tables if link.table_for_order]
         plates_resp = []
         for plate in order.plates:
-            current_status = plate.statuses_of_plate.new_status if plate.statuses_of_plate else None
             plates_resp.append(PlateInOrderResponse(
                 id=plate.id,
                 plate_id=plate.plate_id,
                 count=plate.count,
                 comment=plate.comment,
-                current_status=current_status,
+                current_status=get_current_status(plate),
                 price=plate.price,
                 plate_name=plate.menu_item.name if plate.menu_item else None
             ))
@@ -79,13 +142,12 @@ async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
     table_numbers = [link.table_for_order.number for link in order.tables if link.table_for_order]
     plates_resp = []
     for plate in order.plates:
-        current_status = plate.statuses_of_plate.new_status if plate.statuses_of_plate else None
         plates_resp.append(PlateInOrderResponse(
             id=plate.id,
             plate_id=plate.plate_id,
             count=plate.count,
             comment=plate.comment,
-            current_status=current_status,
+            current_status=get_current_status(plate),
             price=plate.price,
             plate_name=plate.menu_item.name if plate.menu_item else None
         ))
@@ -101,7 +163,11 @@ async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
     )
 
 @router.post("/", response_model=OrderResponse)
-async def create_order(order_data: OrderCreate, db: AsyncSession = Depends(get_async_db)):
+async def create_order(
+    order_data: OrderCreate,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
     waiter = await db.get(User, order_data.waiter)
     if not waiter:
         raise HTTPException(status_code=404, detail="Официант не найден")
@@ -123,7 +189,6 @@ async def create_order(order_data: OrderCreate, db: AsyncSession = Depends(get_a
         raise HTTPException(status_code=404, detail="Одно или несколько блюд не найдены")
     dishes_dict = {d.id: d for d in dishes}
 
-    # Создание заказа
     timestart = order_data.timestart or datetime.utcnow()
     order = Order(
         waiter=order_data.waiter,
@@ -151,16 +216,33 @@ async def create_order(order_data: OrderCreate, db: AsyncSession = Depends(get_a
         db.add(plate)
         await db.flush()
 
-        status_history = CookingStatusHistory(
-            id=plate.id,
+        # Создаём первую запись в истории статуса
+        history = CookingStatusHistory(
             change_time=datetime.utcnow(),
             new_status=plate_data.initial_status,
-            change_by=order_data.waiter
+            change_by=current_user.id,
+            ordered_plate=plate.id
         )
-        db.add(status_history)
+        db.add(history)
 
     await db.commit()
     await db.refresh(order, attribute_names=["waiter_user", "tables", "plates"])
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Создан заказ официантом {order_data.waiter}"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Создан заказ официантом {order_data.waiter}"
+    }, "admin")
+
+    cooks_to_notify = await get_cooks_to_notify(order.id, db)
+    if cooks_to_notify:
+        await manager.broadcast_to_users({
+            "type": "new_order",
+            "order_id": order.id,
+            "message": "Поступил новый заказ"
+        }, list(cooks_to_notify))
     return await get_order(order.id, db)
 
 @router.put("/{order_id}", response_model=OrderResponse)
@@ -174,6 +256,22 @@ async def update_order(order_id: int, order_data: OrderUpdate, db: AsyncSession 
         order.endtime = order_data.endtime
     await db.commit()
     await db.refresh(order)
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом {order_data.waiter}"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом {order_data.waiter}"
+    }, "admin")
+
+    cooks_to_notify = await get_cooks_to_notify(order_id, db)
+    if cooks_to_notify:
+        await manager.broadcast_to_users({
+            "type": "order_updated",
+            "order_id": order_id,
+            "message": "Состав заказа изменён"
+        }, list(cooks_to_notify))
     return await get_order(order.id, db)
 
 @router.put("/{order_id}/complete")
@@ -187,30 +285,71 @@ async def complete_order(order_id: int, db: AsyncSession = Depends(get_async_db)
         if link.table_for_order:
             link.table_for_order.status = "free"
     await db.commit()
+    await manager.broadcast_to_role({
+        "type": "order_completed",
+        "order_id": order.id,
+        "message": "Заказ завершён"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_completed",
+        "order_id": order.id,
+        "message": "Заказ завершён"
+    }, "admin")
     return {"message": "Заказ завершён"}
 
 @router.put("/plate/{plate_id}/status/{status}")
-async def update_plate_status(plate_id: int, status: str, db: AsyncSession = Depends(get_async_db)):
+async def update_plate_status(
+    plate_id: int,
+    status: str,
+    change_by: Optional[int] = None,
+    db: AsyncSession = Depends(get_async_db)
+):
     allowed_statuses = ["waiting", "preparing", "ready", "served"]
     if status not in allowed_statuses:
         raise HTTPException(status_code=400, detail=f"Недопустимый статус. Допустимые: {', '.join(allowed_statuses)}")
 
-    plate = await db.get(PlateForOrder, plate_id, options=[selectinload(PlateForOrder.statuses_of_plate)])
+    stmt = select(PlateForOrder).where(PlateForOrder.id == plate_id).options(
+        selectinload(PlateForOrder.order),
+        selectinload(PlateForOrder.menu_item)
+    )
+    result = await db.execute(stmt)
+    plate = result.scalar_one_or_none()
+
     if not plate:
         raise HTTPException(status_code=404, detail="Блюдо в заказе не найдено")
 
-    if plate.statuses_of_plate:
-        plate.statuses_of_plate.new_status = status
-        plate.statuses_of_plate.change_time = datetime.utcnow()
-    else:
-        history = CookingStatusHistory(
-            id=plate.id,
-            change_time=datetime.utcnow(),
-            new_status=status,
-            change_by=None
-        )
-        db.add(history)
+    history = CookingStatusHistory(
+        change_time=datetime.utcnow(),
+        new_status=status,
+        change_by=change_by,
+        ordered_plate=plate.id
+    )
+    db.add(history)
     await db.commit()
+
+    await manager.broadcast_to_role({
+        "type": "plate_status_changed",
+        "plate_id": plate_id,
+        "new_status": status,
+        "order_id": plate.order.id if plate.order else None,
+        "message": f"Статус блюда изменён на {status}"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "plate_status_changed",
+        "plate_id": plate_id,
+        "new_status": status,
+        "order_id": plate.order.id if plate.order else None,
+        "message": f"Статус блюда изменён на {status}"
+    }, "admin")
+
+    if status == "ready" and plate.order:
+        await manager.send_personal_message({
+            "type": "plate_ready",
+            "plate_name": plate.menu_item.name if plate.menu_item else "Блюдо",
+            "order_id": plate.order.id,
+            "message": "Блюдо готово к подаче"
+        }, plate.order.waiter)
+
     return {"message": f"Статус блюда изменён на {status}"}
 
 @router.delete("/{order_id}")
@@ -226,7 +365,12 @@ async def delete_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
     return {"message": "Заказ удалён"}
 
 @router.post("/{order_id}/plates", response_model=PlateInOrderResponse)
-async def add_plate_to_order(order_id: int, plate_data: PlateInOrderCreate, db: AsyncSession = Depends(get_async_db)):
+async def add_plate_to_order(
+    order_id: int,
+    plate_data: PlateInOrderCreate,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
     order = await db.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
@@ -249,28 +393,38 @@ async def add_plate_to_order(order_id: int, plate_data: PlateInOrderCreate, db: 
     await db.flush()
 
     history = CookingStatusHistory(
-        id=plate.id,
         change_time=datetime.utcnow(),
         new_status=plate_data.initial_status,
-        change_by=None
+        change_by=current_user.id,
+        ordered_plate=plate.id
     )
     db.add(history)
+
     await db.commit()
     await db.refresh(plate, attribute_names=["menu_item", "statuses_of_plate"])
-
-    current_status = plate.statuses_of_plate.new_status if plate.statuses_of_plate else None
+    cooks_to_notify = await get_cooks_to_notify(order.id, db)
+    if cooks_to_notify:
+        await manager.broadcast_to_users({
+            "type": "new_order",
+            "order_id": order.id,
+            "message": "Поступил новый заказ"
+        }, list(cooks_to_notify))
     return PlateInOrderResponse(
         id=plate.id,
         plate_id=plate.plate_id,
         count=plate.count,
         comment=plate.comment,
-        current_status=current_status,
+        current_status=get_current_status(plate),
         price=plate.price,
         plate_name=plate.menu_item.name if plate.menu_item else None
     )
 
 @router.put("/plates/{plate_id}", response_model=PlateInOrderResponse)
-async def update_plate_in_order(plate_id: int, plate_data: PlateInOrderUpdate, db: AsyncSession = Depends(get_async_db)):
+async def update_plate_in_order(
+    plate_id: int,
+    plate_data: PlateInOrderUpdate,
+    db: AsyncSession = Depends(get_async_db)
+):
     plate = await db.get(PlateForOrder, plate_id, options=[
         selectinload(PlateForOrder.menu_item),
         selectinload(PlateForOrder.order),
@@ -291,30 +445,100 @@ async def update_plate_in_order(plate_id: int, plate_data: PlateInOrderUpdate, d
         allowed_statuses = ["waiting", "preparing", "ready", "served"]
         if plate_data.new_status not in allowed_statuses:
             raise HTTPException(status_code=400, detail=f"Недопустимый статус. Допустимые: {', '.join(allowed_statuses)}")
-        if plate.statuses_of_plate:
-            plate.statuses_of_plate.new_status = plate_data.new_status
-            plate.statuses_of_plate.change_time = datetime.utcnow()
-        else:
-            history = CookingStatusHistory(
-                id=plate.id,
-                change_time=datetime.utcnow(),
-                new_status=plate_data.new_status,
-                change_by=None
-            )
-            db.add(history)
+        history = CookingStatusHistory(
+            change_time=datetime.utcnow(),
+            new_status=plate_data.new_status,
+            change_by=None,
+            ordered_plate=plate.id
+        )
+        db.add(history)
 
     await db.commit()
     await db.refresh(plate)
-    current_status = plate.statuses_of_plate.new_status if plate.statuses_of_plate else None
+    cooks_to_notify = await get_cooks_to_notify(plate_id, db)
+    if cooks_to_notify:
+        await manager.broadcast_to_users({
+            "type": "new_order",
+            "order_id": plate_id,
+            "message": "Поступил новый заказ"
+        }, list(cooks_to_notify))
     return PlateInOrderResponse(
         id=plate.id,
         plate_id=plate.plate_id,
         count=plate.count,
         comment=plate.comment,
-        current_status=current_status,
+        current_status=get_current_status(plate),
         price=plate.price,
         plate_name=plate.menu_item.name if plate.menu_item else None
     )
+
+@router.put("/{order_id}/plates", response_model=OrderResponse)
+async def update_order_plates(
+    order_id: int,
+    plates_data: List[PlateInOrderCreate],
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    order = await db.get(Order, order_id, options=[
+        selectinload(Order.plates).selectinload(PlateForOrder.statuses_of_plate),
+        selectinload(Order.tables).selectinload(TableForOrder.table_for_order)
+    ])
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+    if order.status not in ["active", "waiting"]:
+        raise HTTPException(status_code=400, detail="Нельзя редактировать завершённый или отменённый заказ")
+
+    existing_plates_dict = {p.id: p for p in order.plates}
+    kept_plate_ids = set()
+
+    for plate_in in plates_data:
+        dish = await db.get(Menu, plate_in.plate_id)
+        if not dish:
+            raise HTTPException(status_code=404, detail=f"Блюдо с id={plate_in.plate_id} не найдено")
+        price = dish.price if dish.price else 0.0
+
+        if plate_in.id is not None and plate_in.id in existing_plates_dict:
+            existing = existing_plates_dict[plate_in.id]
+            if get_current_status(existing) == "waiting":
+                existing.count = plate_in.count
+                existing.comment = plate_in.comment
+                existing.price = price
+            kept_plate_ids.add(plate_in.id)
+        else:
+            new_plate = PlateForOrder(
+                order_id=order_id,
+                plate_id=plate_in.plate_id,
+                count=plate_in.count,
+                comment=plate_in.comment,
+                price=price
+            )
+            db.add(new_plate)
+            await db.flush()
+            history = CookingStatusHistory(
+                change_time=datetime.utcnow(),
+                new_status=plate_in.initial_status,
+                change_by=current_user.id,
+                ordered_plate=new_plate.id
+            )
+            db.add(history)
+            kept_plate_ids.add(new_plate.id)
+
+    for plate in order.plates:
+        if plate.id not in kept_plate_ids and get_current_status(plate) == "waiting":
+            await db.execute(delete(CookingStatusHistory).where(CookingStatusHistory.ordered_plate == plate.id))
+            await db.delete(plate)
+
+    await db.commit()
+    await db.refresh(order, attribute_names=["plates", "tables"])
+
+    cooks_to_notify = await get_cooks_to_notify(order.id, db)
+    if cooks_to_notify:
+        await manager.broadcast_to_users({
+            "type": "new_order",
+            "order_id": order.id,
+            "message": "Поступил новый заказ"
+        }, list(cooks_to_notify))
+    return await get_order(order.id, db)
 
 @router.delete("/plates/{plate_id}")
 async def delete_plate_from_order(plate_id: int, db: AsyncSession = Depends(get_async_db)):
@@ -323,7 +547,13 @@ async def delete_plate_from_order(plate_id: int, db: AsyncSession = Depends(get_
         raise HTTPException(status_code=404, detail="Блюдо в заказе не найдено")
     if plate.order.status not in ["active", "waiting"]:
         raise HTTPException(status_code=400, detail="Нельзя удалять блюда из завершённого или отменённого заказа")
-
     await db.delete(plate)
     await db.commit()
+    cooks_to_notify = await get_cooks_to_notify(plate_id, db)
+    if cooks_to_notify:
+        await manager.broadcast_to_users({
+            "type": "new_order",
+            "order_id": plate_id,
+            "message": "Поступил новый заказ"
+        }, list(cooks_to_notify))
     return {"message": "Блюдо удалено из заказа"}

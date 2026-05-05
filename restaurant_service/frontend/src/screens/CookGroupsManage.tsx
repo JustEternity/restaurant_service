@@ -309,7 +309,7 @@ const CookGroupManagement = () => {
         </View>
       </Modal>
 
-      {/* Детальное окно группы (только повара) */}
+      {/* Детальное окно группы */}
       <Modal visible={detailModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.detailModalContent}>
@@ -389,9 +389,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 60,
-    paddingBottom: 16,
+    paddingHorizontal: 15,
+    paddingTop: 15,
+    paddingBottom: 15,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',

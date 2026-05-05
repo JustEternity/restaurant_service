@@ -6,10 +6,11 @@ from datetime import datetime
 class CookingStatusHistory(BaseModel):
     __tablename__ = "cooking_status_history"
 
-    id = Column(Integer, ForeignKey("plates_for_order.id"), primary_key=True)
+    id = Column(Integer, primary_key=True)
     change_time = Column(DateTime, nullable=False)
     new_status = Column(VARCHAR(100), nullable=False)
     change_by = Column(Integer, ForeignKey("users.id"))
+    ordered_plate = Column(Integer, ForeignKey("plates_for_order.id"))
 
     # Связи
     changed_by_user = relationship("User", back_populates="status_changes")

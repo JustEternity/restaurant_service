@@ -14,6 +14,7 @@ import {
 import { API_CONFIG } from '../config';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 interface PlateInOrder {
   id: number;
@@ -176,6 +177,23 @@ const AdminOrders = () => {
       </View>
     </View>
   );
+
+  const { addHandler } = useWebSocket();
+    useEffect(() => {
+      const unsubscribe = addHandler((data: any) => {
+        console.log('HallMap raw event:', data);
+        if (
+          data.type === 'plate_ready' ||
+          data.type === 'plate_status_changed' ||
+          data.type === 'order_completed' ||
+          data.type === 'order_created' ||
+          data.type === 'order_updated'
+        ) {
+          loadOrders();
+        }
+      });
+      return unsubscribe;
+    }, [addHandler, loadOrders]);
 
   if (loading && !refreshing) {
     return (

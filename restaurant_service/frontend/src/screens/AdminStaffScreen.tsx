@@ -490,10 +490,9 @@ const AdminStaff = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <Text style={styles.headerTitle}>Сотрудники</Text>
+          <Text style={styles.headerTitle}>{filteredStaff.length} сотрудников</Text>
           <View style={{ flexDirection: 'row' }}>
             <TouchableOpacity onPress={handleOpenSpecModal} style={styles.groupsButton}>
               <Ionicons name="ribbon-outline" size={24} color="#007AFF" />
@@ -503,10 +502,8 @@ const AdminStaff = () => {
             </TouchableOpacity>
           </View>
         </View>
-        <Text style={styles.headerSubtitle}>{filteredStaff.length} сотрудников</Text>
       </View>
 
-      {/* Filters */}
       <View style={styles.filterContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.filterGroup}>
@@ -570,7 +567,6 @@ const AdminStaff = () => {
         </ScrollView>
       </View>
 
-      {/* Staff List */}
       <FlatList
         data={filteredStaff}
         renderItem={renderUserItem}
@@ -587,14 +583,12 @@ const AdminStaff = () => {
         }
       />
 
-      {/* Add User FAB */}
       <TouchableOpacity style={styles.addButton} onPress={handleAddUser} activeOpacity={0.8}>
         <View style={styles.addButtonInner}>
           <Ionicons name="add" size={28} color="#fff" />
         </View>
       </TouchableOpacity>
 
-      {/* User Detail Modal */}
       <Modal animationType="fade" transparent visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -662,7 +656,6 @@ const AdminStaff = () => {
         </View>
       </Modal>
 
-      {/* Edit/Create User Modal */}
       <Modal animationType="slide" transparent visible={editModalVisible} onRequestClose={() => setEditModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.editModalContent}>
@@ -780,13 +773,12 @@ const AdminStaff = () => {
         </View>
       </Modal>
 
-      {/* Specializations Management Modal */}
       <Modal visible={specModalVisible} animationType="slide" transparent onRequestClose={closeSpecModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             {mode === 'list' ? (
               <>
-                <View style={styles.modalHeader}>
+                <View style={styles.modalHeaderSpecs}>
                   <Text style={styles.modalTitle}>Специализации</Text>
                   <TouchableOpacity onPress={closeSpecModal}>
                     <Ionicons name="close" size={24} color="#666" />
@@ -827,7 +819,7 @@ const AdminStaff = () => {
               </>
             ) : (
               <>
-                <View style={styles.modalHeader}>
+                <View style={styles.modalHeaderSpecs}>
                   <TouchableOpacity onPress={() => setMode('list')} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#007AFF" />
                   </TouchableOpacity>
@@ -881,11 +873,10 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 10, fontSize: 16, color: '#666' },
-  header: { padding: 20, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  header: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#333', marginBottom: 5 },
-  groupsButton: { padding: 8 },
-  headerSubtitle: { fontSize: 14, color: '#666' },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 5 },
+  groupsButton: { padding: 10 },
   filterContainer: {
     backgroundColor: '#fff',
     paddingVertical: 15,
@@ -975,6 +966,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
+    marginRight: 30
+  },
+  modalHeaderSpecs: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
   },
   modalName: { fontSize: 20, fontWeight: 'bold', color: '#333', flex: 1, marginRight: 10 },
   modalDetails: { gap: 15, marginBottom: 25 },

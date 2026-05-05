@@ -67,48 +67,15 @@ const ProfileScreen = () => {
           <Text style={styles.role}>{getRoleDisplayName(user?.role || '')}</Text>
           <Text style={styles.email}>{user?.email}</Text>
         </View>
+      </ScrollView>
 
-        {/* Информационная секция */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Основная информация</Text>
-
-          <View style={styles.infoCard}>
-            <View style={styles.infoRow}>
-              <Ionicons name="person-outline" size={20} color="#6C757D" />
-              <Text style={styles.infoLabel}>Имя:</Text>
-              <Text style={styles.infoValue}>{user?.name}</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Ionicons name="mail-outline" size={20} color="#6C757D" />
-              <Text style={styles.infoLabel}>Email:</Text>
-              <Text style={styles.infoValue}>{user?.email}</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Ionicons name="restaurant-outline" size={20} color="#6C757D" />
-              <Text style={styles.infoLabel}>ID ресторана:</Text>
-              <Text style={styles.infoValue}>{user?.restaurantId || 'rest_001'}</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Ionicons name="shield-outline" size={20} color="#6C757D" />
-              <Text style={styles.infoLabel}>Роль:</Text>
-              <Text style={styles.infoValue}>{getRoleDisplayName(user?.role || '')}</Text>
-            </View>
-          </View>
-        </View>
-
-
-        {/* Кнопка выхода */}
+      {/* Кнопка выхода */}
+      <View style={styles.bottomContainer}>
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={24} color="#FF6B6B" />
           <Text style={styles.logoutButtonText}>Выйти из аккаунта</Text>
         </TouchableOpacity>
-
-        {/* Версия приложения */}
-        <Text style={styles.version}>Версия 1.0.0 • Restaurant Helper</Text>
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 };

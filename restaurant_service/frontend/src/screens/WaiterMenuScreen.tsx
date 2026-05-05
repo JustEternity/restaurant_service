@@ -38,19 +38,28 @@ interface MenuItem {
   category: number;
   is_available: boolean;
   category_name: string | null;
-  specializations: any[];
+}
+
+interface ExistingPlate {
+  id: number;
+  plate_id: number;
+  count: number;
+  comment: string | null;
+  price: number;
+  current_status: string;
 }
 
 interface CartItem {
   item: MenuItem;
   quantity: number;
   comment: string;
+  id?: number;
 }
 
 type RootStackParamList = {
   MenuList: undefined;
   MenuItemForm: { itemId?: number };
-  WaiterMenu: { selectedTableIds?: number[] };
+  WaiterMenu: { selectedTableIds?: number[]; orderId: number; existingPlates: ExistingPlate[] };
 };
 
 const WaiterMenu = () => {
@@ -58,6 +67,8 @@ const WaiterMenu = () => {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const route = useRoute();
   const selectedTableIds = (route.params as any)?.selectedTableIds || [];
+  const orderId = (route.params as any)?.orderId;
+  const existingPlates: ExistingPlate[] = (route.params as any)?.existingPlates || [];
 
   const [categoriesTree, setCategoriesTree] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -72,12 +83,46 @@ const WaiterMenu = () => {
 
   const swipeableRefs = new Map();
   const isAdmin = user?.role === 'admin';
-  const isOrderMode = selectedTableIds.length > 0;
+  const isNewOrderMode = selectedTableIds.length > 0;
+  const isEditMode = !!orderId;
 
   const currentCategory = categoryPath.length > 0 ? categoryPath[categoryPath.length - 1] : null;
   const currentLevelCategories = categoryPath.length === 0
     ? categoriesTree
     : currentCategory?.children || [];
+
+  useEffect(() => {
+    if (isEditMode && existingPlates.length > 0) {
+      const initialCart: CartItem[] = existingPlates.map(ep => ({
+        item: {
+          id: ep.plate_id,
+          name: '',
+          description: '',
+          photo: null,
+          price: ep.price,
+          category: 0,
+          is_available: true,
+          category_name: null,
+        },
+        quantity: ep.count,
+        comment: ep.comment || '',
+        id: ep.id,
+      }));
+      setCart(initialCart);
+    }
+  }, [isEditMode]);
+
+  useEffect(() => {
+    if (isEditMode && cart.length > 0 && menuItems.length > 0) {
+      setCart(prev => prev.map(ci => {
+        const menuItem = menuItems.find(m => m.id === ci.item.id);
+        if (menuItem) {
+          return { ...ci, item: { ...ci.item, name: menuItem.name, description: menuItem.description, photo: menuItem.photo, category_name: menuItem.category_name } };
+        }
+        return ci;
+      }));
+    }
+  }, [menuItems]);
 
   useEffect(() => {
     loadData();
@@ -208,24 +253,54 @@ const WaiterMenu = () => {
 
   const addToCart = (item: MenuItem) => {
     setCart(prev => {
-      const existing = prev.find(i => i.item.id === item.id);
-      if (existing) {
-        return prev.map(i =>
-          i.item.id === item.id ? { ...i, quantity: i.quantity + 1 } : i
-        );
+      if (isEditMode) {
+        const existingWaitingIndex = prev.findIndex(cartItem => {
+          if (cartItem.id !== undefined) {
+            const ep = existingPlates.find(p => p.id === cartItem.id);
+            return ep && ep.current_status === 'waiting' && cartItem.item.id === item.id;
+          }
+          return false;
+        });
+        if (existingWaitingIndex !== -1) {
+          return prev.map((ci, idx) =>
+            idx === existingWaitingIndex ? { ...ci, quantity: ci.quantity + 1 } : ci
+          );
+        }
+        return [...prev, { item, quantity: 1, comment: '', id: undefined }];
+      } else {
+        const existing = prev.find(i => i.item.id === item.id);
+        if (existing) {
+          return prev.map(i =>
+            i.item.id === item.id ? { ...i, quantity: i.quantity + 1 } : i
+          );
+        }
+        return [...prev, { item, quantity: 1, comment: '' }];
       }
-      return [...prev, { item, quantity: 1, comment: '' }];
     });
   };
 
-  const updateCartItem = (id: number, quantity: number, comment?: string) => {
-    setCart(prev => prev.map(i =>
-      i.item.id === id ? { ...i, quantity: Math.max(1, quantity), comment: comment ?? i.comment } : i
-    ));
+  const updateCartItem = (idOrPlateId: number, quantity: number, comment?: string) => {
+    setCart(prev => prev.map(i => {
+      const compareId = i.id || i.item.id;
+      if (compareId === idOrPlateId) {
+        return { ...i, quantity: Math.max(1, quantity), comment: comment ?? i.comment };
+      }
+      return i;
+    }));
   };
 
-  const removeCartItem = (id: number) => {
-    setCart(prev => prev.filter(i => i.item.id !== id));
+  const removeCartItem = (idOrPlateId: number) => {
+    if (isEditMode) {
+      const existing = existingPlates.find(ep => (ep.id === idOrPlateId || ep.plate_id === idOrPlateId));
+      if (existing && existing.current_status !== 'waiting') {
+        Alert.alert('Нельзя удалить', 'Это блюдо уже готовится или готово');
+        return;
+      }
+    }
+    setCart(prev => prev.filter(i => {
+      const compareId = i.id || i.item.id;
+      return compareId !== idOrPlateId;
+    }));
   };
 
   const getTotalPrice = () => cart.reduce((sum, i) => sum + i.item.price * i.quantity, 0);
@@ -256,9 +331,37 @@ const WaiterMenu = () => {
       if (!response.ok) throw new Error('Ошибка создания заказа');
       Alert.alert('Успех', 'Заказ создан');
       setCart([]);
+      setCartModalVisible(false);
       navigation.goBack();
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось создать заказ');
+    }
+  };
+
+  const saveEditedOrder = async () => {
+    if (!orderId) return;
+    try {
+      const platesToSend = cart.map(i => ({
+        id: i.id,
+        plate_id: i.item.id,
+        count: i.quantity,
+        comment: i.comment,
+        initial_status: 'waiting',
+      }));
+      const response = await fetch(`${API_CONFIG.BASE_URL}/orders/${orderId}/plates`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(platesToSend),
+      });
+      if (!response.ok) throw new Error('Ошибка сохранения изменений');
+      Alert.alert('Заказ обновлён', 'Изменения сохранены');
+      setCartModalVisible(false);
+      navigation.goBack();
+    } catch (error) {
+      Alert.alert('Ошибка', 'Не удалось обновить заказ');
     }
   };
 
@@ -290,15 +393,15 @@ const WaiterMenu = () => {
             </View>
           )}
         </TouchableOpacity>
-        {isOrderMode && (
-          <TouchableOpacity style={styles.addToCartButton} onPress={() => addToCart(item)}>
+        {(isNewOrderMode || isEditMode) && (
+          <TouchableOpacity style={localStyles.addToCartButton} onPress={() => addToCart(item)}>
             <Ionicons name="add" size={22} color="#fff" />
           </TouchableOpacity>
         )}
       </View>
     );
 
-    if (isAdmin && !isOrderMode) {
+    if (isAdmin && !isNewOrderMode && !isEditMode) {
       return (
         <Swipeable
           ref={(ref) => { if (ref) swipeableRefs.set(item.id, ref); }}
@@ -343,16 +446,21 @@ const WaiterMenu = () => {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          {isOrderMode && (
+          {(isNewOrderMode || isEditMode) && (
             <TouchableOpacity onPress={() => setCartModalVisible(true)}>
               <View>
                 <Ionicons name="cart-outline" size={28} color="#007AFF" />
                 {cart.length > 0 && (
-                  <View style={styles.cartBadge}>
-                    <Text style={styles.cartBadgeText}>{cart.reduce((s, i) => s + i.quantity, 0)}</Text>
+                  <View style={localStyles.cartBadge}>
+                    <Text style={localStyles.cartBadgeText}>{cart.reduce((s, i) => s + i.quantity, 0)}</Text>
                   </View>
                 )}
               </View>
+            </TouchableOpacity>
+          )}
+          {isEditMode && (
+            <TouchableOpacity onPress={saveEditedOrder} style={localStyles.saveButton}>
+              <Text style={{ color: '#fff', fontWeight: '600' }}>Сохранить</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -377,11 +485,13 @@ const WaiterMenu = () => {
           <Text style={[styles.categoryText, categoryPath.length === 0 && styles.categoryTextSelected]}>Все</Text>
         </TouchableOpacity>
         <FlatList
+          key={currentCategory?.id || 'root'}
           data={currentLevelCategories}
           renderItem={renderCategoryItem}
           keyExtractor={(item) => item.id.toString()}
           horizontal
           showsHorizontalScrollIndicator={false}
+          extraData={categoryPath}
         />
       </View>
 
@@ -390,7 +500,7 @@ const WaiterMenu = () => {
         renderItem={renderMenuItem}
         keyExtractor={(item) => item.id.toString()}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={['#007AFF']} />}
-        contentContainerStyle={[styles.menuList, { paddingBottom: isAdmin && !isOrderMode ? 100 : 20 }]}
+        contentContainerStyle={[styles.menuList, { paddingBottom: isAdmin && !isNewOrderMode && !isEditMode ? 100 : 20 }]}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="restaurant-outline" size={60} color="#ccc" />
@@ -403,7 +513,7 @@ const WaiterMenu = () => {
         }
       />
 
-      {isAdmin && !isOrderMode && (
+      {isAdmin && !isNewOrderMode && !isEditMode && (
         <TouchableOpacity style={styles.addButton} onPress={handleAddItem}>
           <View style={styles.addButtonInner}>
             <Ionicons name="add" size={28} color="#fff" />
@@ -433,7 +543,7 @@ const WaiterMenu = () => {
                   <Text style={styles.modalCategory}>{selectedItem.category_name}</Text>
                   <Text>{selectedItem.description || 'Описание отсутствует'}</Text>
                 </View>
-                {isAdmin && !isOrderMode && (
+                {isAdmin && !isNewOrderMode && !isEditMode && (
                   <View style={styles.modalActions}>
                     <TouchableOpacity style={[styles.modalActionButton, styles.editButton]} onPress={() => { handleCloseModal(); handleEditItem(selectedItem); }}>
                       <Text>Редактировать</Text>
@@ -443,8 +553,8 @@ const WaiterMenu = () => {
                     </TouchableOpacity>
                   </View>
                 )}
-                {isOrderMode && (
-                  <TouchableOpacity style={styles.modalAddToCartButton} onPress={() => { addToCart(selectedItem); handleCloseModal(); }}>
+                {(isNewOrderMode || isEditMode) && (
+                  <TouchableOpacity style={localStyles.modalAddToCartButton} onPress={() => { addToCart(selectedItem); handleCloseModal(); }}>
                     <Text style={{ color: '#fff', fontWeight: '600' }}>Добавить в корзину</Text>
                   </TouchableOpacity>
                 )}
@@ -456,47 +566,67 @@ const WaiterMenu = () => {
 
       {/* Модалка корзины */}
       <Modal visible={cartModalVisible} animationType="slide" transparent>
-        <View style={styles.cartModalOverlay}>
-          <View style={styles.cartModalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Корзина</Text>
+        <View style={localStyles.cartModalOverlay}>
+          <View style={localStyles.cartModalContent}>
+            <View style={localStyles.modalHeader}>
+              <Text style={localStyles.modalTitle}>Корзина</Text>
               <TouchableOpacity onPress={() => setCartModalVisible(false)}>
                 <Ionicons name="close" size={28} color="#333" />
               </TouchableOpacity>
             </View>
             <ScrollView style={{ maxHeight: '70%' }}>
-              {cart.map(cartItem => (
-                <View key={cartItem.item.id} style={styles.cartItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: '600' }}>{cartItem.item.name}</Text>
-                    <Text style={{ color: '#666' }}>{cartItem.item.price} ₽</Text>
-                    <TextInput
-                      style={styles.commentInput}
-                      placeholder="Комментарий"
-                      value={cartItem.comment}
-                      onChangeText={(text) => updateCartItem(cartItem.item.id, cartItem.quantity, text)}
-                    />
+              {cart.map(cartItem => {
+                const existing = (isEditMode && cartItem.id !== undefined)
+                  ? existingPlates.find(ep => ep.id === cartItem.id)
+                  : null;
+                const isLocked = existing && existing.current_status !== 'waiting';
+                return (
+                  <View key={cartItem.id || cartItem.item.id} style={[localStyles.cartItem, isLocked && { opacity: 0.6 }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: '600' }}>{cartItem.item.name}</Text>
+                      <Text style={{ color: '#666' }}>{cartItem.item.price} ₽</Text>
+                      {!isLocked && (
+                        <TextInput
+                          style={localStyles.commentInput}
+                          placeholder="Комментарий"
+                          value={cartItem.comment}
+                          onChangeText={(text) => updateCartItem(cartItem.id || cartItem.item.id, cartItem.quantity, text)}
+                        />
+                      )}
+                    </View>
+                    <View style={localStyles.quantityControl}>
+                      {!isLocked ? (
+                        <>
+                          <TouchableOpacity onPress={() => updateCartItem(cartItem.id || cartItem.item.id, cartItem.quantity - 1)}>
+                            <Ionicons name="remove-circle-outline" size={28} color="#007AFF" />
+                          </TouchableOpacity>
+                          <Text style={{ marginHorizontal: 8, fontSize: 16 }}>{cartItem.quantity}</Text>
+                          <TouchableOpacity onPress={() => updateCartItem(cartItem.id || cartItem.item.id, cartItem.quantity + 1)}>
+                            <Ionicons name="add-circle-outline" size={28} color="#007AFF" />
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => removeCartItem(cartItem.id || cartItem.item.id)} style={{ marginLeft: 12 }}>
+                            <Ionicons name="trash-outline" size={22} color="#e74c3c" />
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <Text style={{ color: '#999' }}>Нельзя изменить</Text>
+                      )}
+                    </View>
                   </View>
-                  <View style={styles.quantityControl}>
-                    <TouchableOpacity onPress={() => updateCartItem(cartItem.item.id, cartItem.quantity - 1)}>
-                      <Ionicons name="remove-circle-outline" size={28} color="#007AFF" />
-                    </TouchableOpacity>
-                    <Text style={{ marginHorizontal: 8, fontSize: 16 }}>{cartItem.quantity}</Text>
-                    <TouchableOpacity onPress={() => updateCartItem(cartItem.item.id, cartItem.quantity + 1)}>
-                      <Ionicons name="add-circle-outline" size={28} color="#007AFF" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => removeCartItem(cartItem.item.id)} style={{ marginLeft: 12 }}>
-                      <Ionicons name="trash-outline" size={22} color="#e74c3c" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </ScrollView>
-            <View style={styles.cartFooter}>
-              <Text style={styles.totalText}>Итого: {getTotalPrice()} ₽</Text>
-              <TouchableOpacity style={styles.submitOrderButton} onPress={submitOrder}>
-                <Text style={{ color: '#fff', fontWeight: '600' }}>Оформить заказ</Text>
-              </TouchableOpacity>
+            <View style={localStyles.cartFooter}>
+              <Text style={localStyles.totalText}>Итого: {getTotalPrice()} ₽</Text>
+              {isNewOrderMode ? (
+                <TouchableOpacity style={localStyles.submitOrderButton} onPress={submitOrder}>
+                  <Text style={{ color: '#fff', fontWeight: '600' }}>Оформить заказ</Text>
+                </TouchableOpacity>
+              ) : isEditMode ? (
+                <TouchableOpacity style={localStyles.submitOrderButton} onPress={saveEditedOrder}>
+                  <Text style={{ color: '#fff', fontWeight: '600' }}>Сохранить</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
         </View>
@@ -579,6 +709,12 @@ const localStyles = {
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 24,
+  },
+  saveButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
   },
   modalHeader: {
     flexDirection: 'row',

@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.websocket.router import router as websocket_router
 from app.core.config import settings
 
 from app.api import users, tables, menu, orders, health, status_history, table_for_order, auth, cook_groups, specializations, plates_for_specializations
-
 
 
 app = FastAPI(
@@ -23,6 +23,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
+
+app.include_router(websocket_router)
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")

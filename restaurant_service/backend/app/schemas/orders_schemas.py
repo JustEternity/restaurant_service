@@ -3,6 +3,7 @@ from typing import List, Optional
 from datetime import datetime
 
 class PlateInOrderCreate(BaseModel):
+    id: Optional[int] = None
     plate_id: int
     count: int = 1
     comment: Optional[str] = None

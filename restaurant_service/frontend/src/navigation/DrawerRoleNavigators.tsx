@@ -39,13 +39,22 @@ export const ChefDrawer = () => (
       drawerStyle: {
         width: 250,
       },
+      drawerItemStyle: {
+        height: 80,
+        justifyContent: 'center'
+      },
+      drawerLabelStyle: {
+        fontSize: 18
+      },
       drawerActiveTintColor: '#FF6B6B',
       headerStyle: {
         backgroundColor: '#FF6B6B',
+        height: 120
       },
       headerTintColor: '#FFFFFF',
       headerTitleStyle: {
-        fontWeight: '600',
+        fontWeight: '800',
+        fontSize: 20
       },
     }}
   >
@@ -75,13 +84,22 @@ export const WaiterDrawer = () => (
       drawerStyle: {
         width: 250,
       },
+      drawerItemStyle: {
+        height: 80,
+        justifyContent: 'center'
+      },
+      drawerLabelStyle: {
+        fontSize: 18
+      },
       drawerActiveTintColor: '#4ECDC4',
       headerStyle: {
         backgroundColor: '#4ECDC4',
+        height: 120
       },
       headerTintColor: '#FFFFFF',
       headerTitleStyle: {
-        fontWeight: '600',
+        fontWeight: '800',
+        fontSize: 20
       },
     }}
   >
@@ -125,15 +143,24 @@ export const AdminDrawer = () => (
   <Drawer.Navigator
     screenOptions={{
       drawerStyle: {
-        width: 250,
+        width: 250
+      },
+      drawerItemStyle: {
+        height: 80,
+        justifyContent: 'center'
+      },
+      drawerLabelStyle: {
+        fontSize: 18
       },
       drawerActiveTintColor: '#45B7D1',
       headerStyle: {
         backgroundColor: '#45B7D1',
+        height: 120
       },
       headerTintColor: '#FFFFFF',
       headerTitleStyle: {
-        fontWeight: '600',
+        fontWeight: '800',
+        fontSize: 20
       },
     }}
   >

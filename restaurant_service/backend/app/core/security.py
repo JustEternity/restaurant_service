@@ -67,3 +67,10 @@ def check_user_permissions(user: User, required_role: str = None) -> bool:
         if user_role != required_role:
             return False
     return True
+
+def decode_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except jwt.JWTError:
+        return None

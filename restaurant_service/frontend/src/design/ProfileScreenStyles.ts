@@ -8,7 +8,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
   },
   scrollContent: {
-    paddingBottom: 30,
+    paddingBottom: 10,
+  },
+  bottomContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+    backgroundColor: '#F8F9FA',
   },
   header: {
     alignItems: 'center',
