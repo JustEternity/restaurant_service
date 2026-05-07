@@ -12,10 +12,10 @@ import {
   TextInput,
   ScrollView
 } from 'react-native';
-import { API_CONFIG } from '../config';
-import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 interface CookGroup {
   id: number;
@@ -31,7 +31,7 @@ interface User {
 }
 
 const CookGroupManagement = () => {
-  const { authToken } = useAuth();
+  const { user } = useAuth();
   const navigation = useNavigation();
   const [groups, setGroups] = useState<CookGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,12 +54,8 @@ const CookGroupManagement = () => {
   const loadGroups = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_CONFIG.BASE_URL}/cook-groups/`, {
-        headers: { Authorization: `Bearer ${authToken}`, Accept: 'application/json' },
-      });
-      if (!response.ok) throw new Error('Ошибка загрузки групп');
-      const data = await response.json();
-      setGroups(data);
+      const response = await api.get('/cook-groups/');
+      setGroups(response.data);
     } catch (error) {
       console.error(error);
       Alert.alert('Ошибка', 'Не удалось загрузить группы поваров');
@@ -71,13 +67,8 @@ const CookGroupManagement = () => {
 
   const loadAllCooks = async () => {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/users/?role=cook`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setAllCooks(data);
-      }
+      const response = await api.get('/users/?role=cook');
+      setAllCooks(response.data);
     } catch (error) {
       console.error(error);
     }
@@ -86,13 +77,8 @@ const CookGroupManagement = () => {
   const loadGroupDetails = async (groupId: number) => {
     setLoadingDetails(true);
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/cook-groups/${groupId}/cooks/`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (response.ok) {
-        const cooks = await response.json();
-        setGroupCooks(Array.isArray(cooks) ? cooks : []);
-      }
+      const response = await api.get(`/cook-groups/${groupId}/cooks/`);
+      setGroupCooks(response.data);
     } catch (error) {
       console.error('Error loading group cooks:', error);
       Alert.alert('Ошибка', 'Не удалось загрузить поваров группы');
@@ -132,20 +118,15 @@ const CookGroupManagement = () => {
 
     const payload = { name: groupName.trim() };
     try {
-      const url = editingGroup
-        ? `${API_CONFIG.BASE_URL}/cook-groups/${editingGroup.id}`
-        : `${API_CONFIG.BASE_URL}/cook-groups/`;
-      const method = editingGroup ? 'PUT' : 'POST';
-      const response = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw new Error('Ошибка сохранения');
-      const savedGroup = await response.json();
+      let savedGroup;
+      if (editingGroup) {
+        const response = await api.put(`/cook-groups/${editingGroup.id}`, payload);
+        savedGroup = response.data;
+      } else {
+        const response = await api.post('/cook-groups/', payload);
+        savedGroup = response.data;
+      }
+
       if (editingGroup) {
         setGroups(prev => prev.map(g => (g.id === savedGroup.id ? savedGroup : g)));
       } else {
@@ -153,9 +134,9 @@ const CookGroupManagement = () => {
       }
       setModalVisible(false);
       Alert.alert('Успешно', editingGroup ? 'Группа обновлена' : 'Группа создана');
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      Alert.alert('Ошибка', 'Не удалось сохранить группу');
+      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось сохранить группу');
     }
   };
 
@@ -170,18 +151,11 @@ const CookGroupManagement = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              const response = await fetch(`${API_CONFIG.BASE_URL}/cook-groups/${group.id}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${authToken}` },
-              });
-              if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.detail || 'Ошибка удаления');
-              }
+              await api.delete(`/cook-groups/${group.id}`);
               setGroups(prev => prev.filter(g => g.id !== group.id));
               Alert.alert('Успешно', 'Группа удалена');
-            } catch (error) {
-              Alert.alert('Ошибка', error instanceof Error ? error.message : 'Не удалось удалить группу');
+            } catch (error: any) {
+              Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось удалить группу');
             }
           },
         },
@@ -192,21 +166,10 @@ const CookGroupManagement = () => {
   const addCookToGroup = async (userId: number) => {
     if (!selectedGroup) return;
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/cook-groups/${selectedGroup.id}/cooks/`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user_id: userId }),
-      });
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.detail || 'Ошибка добавления');
-      }
+      await api.post(`/cook-groups/${selectedGroup.id}/cooks/`, { user_id: userId });
       await loadGroupDetails(selectedGroup.id);
-    } catch (error) {
-      Alert.alert('Ошибка', error instanceof Error ? error.message : 'Не удалось добавить повара');
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось добавить повара');
     } finally {
       setCookModalVisible(false);
       setDetailModalVisible(true);
@@ -216,11 +179,7 @@ const CookGroupManagement = () => {
   const removeCookFromGroup = async (userId: number) => {
     if (!selectedGroup) return;
     try {
-      const response = await fetch(
-        `${API_CONFIG.BASE_URL}/cook-groups/${selectedGroup.id}/cooks/${userId}`,
-        { method: 'DELETE', headers: { Authorization: `Bearer ${authToken}` } }
-      );
-      if (!response.ok) throw new Error('Ошибка удаления повара');
+      await api.delete(`/cook-groups/${selectedGroup.id}/cooks/${userId}`);
       await loadGroupDetails(selectedGroup.id);
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось удалить повара');

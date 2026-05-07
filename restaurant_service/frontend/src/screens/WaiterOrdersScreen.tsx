@@ -3,11 +3,11 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
   RefreshControl, Alert, Modal, ScrollView,
 } from 'react-native';
-import { API_CONFIG } from '../config';
-import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
+import api from '../services/api';
 
 interface PlateInOrder {
   id: number; plate_id: number; count: number; comment: string | null;
@@ -20,7 +20,7 @@ interface Order {
 }
 
 const WaiterOrders = () => {
-  const { authToken, user } = useAuth();
+  const { user } = useAuth();
   const navigation = useNavigation();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,11 +31,8 @@ const WaiterOrders = () => {
   const loadOrders = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_CONFIG.BASE_URL}/orders/?waiter_id=${user?.id}`, {
-        headers: { Authorization: `Bearer ${authToken}`, Accept: 'application/json' },
-      });
-      if (!response.ok) throw new Error('Ошибка загрузки заказов');
-      const data: Order[] = await response.json();
+      const response = await api.get(`/orders/?waiter_id=${user?.id}`);
+      const data: Order[] = response.data;
       data.sort((a, b) => new Date(b.timestart).getTime() - new Date(a.timestart).getTime());
       setOrders(data);
     } catch (error) {
@@ -45,7 +42,7 @@ const WaiterOrders = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [authToken, user?.id]);
+  }, [user?.id]);
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
@@ -56,11 +53,8 @@ const WaiterOrders = () => {
   const refreshSelectedOrder = async () => {
     if (!selectedOrder) return;
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/orders/?waiter_id=${user?.id}`, {
-        headers: { Authorization: `Bearer ${authToken}`, Accept: 'application/json' },
-      });
-      if (!res.ok) return;
-      const updatedOrders: Order[] = await res.json();
+      const res = await api.get(`/orders/?waiter_id=${user?.id}`);
+      const updatedOrders: Order[] = res.data;
       const updated = updatedOrders.find(o => o.id === selectedOrder.id);
       if (updated) setSelectedOrder(updated);
     } catch (error) { console.error('Ошибка обновления заказа', error); }
@@ -84,26 +78,23 @@ const WaiterOrders = () => {
   const completeOrder = async () => {
     if (!selectedOrder) return;
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/orders/${selectedOrder.id}/complete`, {
-        method: 'PUT', headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!response.ok) throw new Error('Ошибка завершения заказа');
+      await api.put(`/orders/${selectedOrder.id}/complete`);
       setModalVisible(false);
       loadOrders();
       Alert.alert('Заказ завершён', `Заказ #${selectedOrder.id} закрыт`);
-    } catch (error) { Alert.alert('Ошибка', 'Не удалось завершить заказ'); }
+    } catch (error) {
+      Alert.alert('Ошибка', 'Не удалось завершить заказ');
+    }
   };
 
   const markAsServed = async (plateId: number) => {
     try {
-      const response = await fetch(
-        `${API_CONFIG.BASE_URL}/orders/plate/${plateId}/status/served?change_by=${user?.id}`,
-        { method: 'PUT', headers: { Authorization: `Bearer ${authToken}` } }
-      );
-      if (!response.ok) throw new Error('Ошибка обновления статуса');
+      await api.put(`/orders/plate/${plateId}/status/served?change_by=${user?.id}`);
       await loadOrders();
       await refreshSelectedOrder();
-    } catch (error) { Alert.alert('Ошибка', 'Не удалось обновить статус блюда'); }
+    } catch (error) {
+      Alert.alert('Ошибка', 'Не удалось обновить статус блюда');
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -196,12 +187,11 @@ const WaiterOrders = () => {
   const { addHandler } = useWebSocket();
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
-      console.log('WaiterOrders raw event:', data);
-      if (data.type === 'plate_ready') {
+      if (data.type === 'plate_ready' || data.type === 'plate_status_changed') {
         loadOrders();
-        Alert.alert('Блюдо готово', data.message || 'Блюдо готово к подаче');
-      } else if (data.type === 'plate_status_changed') {
-        loadOrders();
+        if (data.type === 'plate_ready') {
+          Alert.alert('Блюдо готово', data.message || 'Блюдо готово к подаче');
+        }
       }
     });
     return unsubscribe;

@@ -11,10 +11,10 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
-import { API_CONFIG } from '../config';
-import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
+import api from '../services/api';
 
 interface Specialization {
   id: number;
@@ -73,7 +73,7 @@ type StatusFilter = 'waiting' | 'preparing' | 'ready';
 type SpecializationFilter = 'all' | number;
 
 const ChefOrders = () => {
-  const { authToken, user } = useAuth();
+  const { user } = useAuth();
   const [items, setItems] = useState<FlatOrderedPlate[]>([]);
   const [filteredItems, setFilteredItems] = useState<FlatOrderedPlate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,11 +95,8 @@ const ChefOrders = () => {
     const specializationIds = new Set<number>();
     const specializationsMap = new Map<number, Specialization>();
     try {
-      const userRes = await fetch(`${API_CONFIG.BASE_URL}/users/${user?.id}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!userRes.ok) throw new Error('Ошибка загрузки пользователя');
-      const currentUser = await userRes.json();
+      const userRes = await api.get(`/users/${user?.id}`);
+      const currentUser = userRes.data;
 
       if (currentUser.specialization?.id) {
         specializationIds.add(currentUser.specialization.id);
@@ -108,18 +105,14 @@ const ChefOrders = () => {
 
       if (currentUser.cook_groups && currentUser.cook_groups.length > 0) {
         for (const group of currentUser.cook_groups) {
-          const cooksRes = await fetch(`${API_CONFIG.BASE_URL}/cook-groups/${group.id}/cooks/`, {
-            headers: { Authorization: `Bearer ${authToken}` },
+          const cooksRes = await api.get(`/cook-groups/${group.id}/cooks/`);
+          const cooks = cooksRes.data;
+          cooks.forEach((cook: any) => {
+            if (cook.specialization?.id) {
+              specializationIds.add(cook.specialization.id);
+              specializationsMap.set(cook.specialization.id, cook.specialization);
+            }
           });
-          if (cooksRes.ok) {
-            const cooks = await cooksRes.json();
-            cooks.forEach((cook: any) => {
-              if (cook.specialization?.id) {
-                specializationIds.add(cook.specialization.id);
-                specializationsMap.set(cook.specialization.id, cook.specialization);
-              }
-            });
-          }
         }
       }
 
@@ -127,19 +120,15 @@ const ChefOrders = () => {
       const newPlateToSpec = new Map<number, Set<number>>();
 
       for (const specId of specializationIds) {
-        const platesRes = await fetch(`${API_CONFIG.BASE_URL}/plates-specializations/specialization/${specId}`, {
-          headers: { Authorization: `Bearer ${authToken}` },
+        const platesRes = await api.get(`/plates-specializations/specialization/${specId}`);
+        const plates: PlatesForSpecializationLink[] = platesRes.data;
+        plates.forEach(link => {
+          allowedPlateIds.add(link.plate_id);
+          if (!newPlateToSpec.has(link.plate_id)) {
+            newPlateToSpec.set(link.plate_id, new Set());
+          }
+          newPlateToSpec.get(link.plate_id)!.add(specId);
         });
-        if (platesRes.ok) {
-          const plates: PlatesForSpecializationLink[] = await platesRes.json();
-          plates.forEach(link => {
-            allowedPlateIds.add(link.plate_id);
-            if (!newPlateToSpec.has(link.plate_id)) {
-              newPlateToSpec.set(link.plate_id, new Set());
-            }
-            newPlateToSpec.get(link.plate_id)!.add(specId);
-          });
-        }
       }
 
       plateToSpecializations.current = newPlateToSpec;
@@ -150,41 +139,34 @@ const ChefOrders = () => {
       console.error('Ошибка получения разрешённых блюд', error);
       return new Set<number>();
     }
-  }, [authToken, user?.id]);
+  }, [user?.id]);
 
   const loadGroupCooks = useCallback(async () => {
     try {
-      const userRes = await fetch(`${API_CONFIG.BASE_URL}/users/${user?.id}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!userRes.ok) throw new Error('Ошибка загрузки пользователя');
-      const currentUser = await userRes.json();
+      const userRes = await api.get(`/users/${user?.id}`);
+      const currentUser = userRes.data;
       const cooksMap = new Map<number, Cook>();
 
       if (currentUser.cook_groups && currentUser.cook_groups.length > 0) {
         for (const group of currentUser.cook_groups) {
-          const cooksRes = await fetch(`${API_CONFIG.BASE_URL}/cook-groups/${group.id}/cooks/`, {
-            headers: { Authorization: `Bearer ${authToken}` },
+          const cooksRes = await api.get(`/cook-groups/${group.id}/cooks/`);
+          const cooks = cooksRes.data;
+          cooks.forEach((c: any) => {
+            if (!cooksMap.has(c.id)) {
+              cooksMap.set(c.id, {
+                id: c.id,
+                name: c.name,
+                specialization: c.specialization,
+              });
+            }
           });
-          if (cooksRes.ok) {
-            const cooks = await cooksRes.json();
-            cooks.forEach((c: any) => {
-              if (!cooksMap.has(c.id)) {
-                cooksMap.set(c.id, {
-                  id: c.id,
-                  name: c.name,
-                  specialization: c.specialization,
-                });
-              }
-            });
-          }
         }
       }
       setGroupCooks(Array.from(cooksMap.values()));
     } catch (error) {
       console.error('Ошибка загрузки поваров группы', error);
     }
-  }, [authToken, user?.id]);
+  }, [user?.id]);
 
   useEffect(() => {
     loadData();
@@ -201,11 +183,8 @@ const ChefOrders = () => {
         return;
       }
 
-      const ordersRes = await fetch(`${API_CONFIG.BASE_URL}/orders/?status=active`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!ordersRes.ok) throw new Error('Ошибка загрузки заказов');
-      const orders: Order[] = await ordersRes.json();
+      const ordersRes = await api.get('/orders/?status=active');
+      const orders: Order[] = ordersRes.data;
 
       const groupedMap = new Map<string, FlatOrderedPlate>();
       for (const order of orders) {
@@ -243,7 +222,7 @@ const ChefOrders = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [loadAllowedPlateIds, authToken, statusFilter, specializationFilter]);
+  }, [loadAllowedPlateIds, statusFilter, specializationFilter]);
 
   const applyFilter = (
     source: FlatOrderedPlate[],
@@ -299,23 +278,15 @@ const ChefOrders = () => {
   const changePlateStatus = async () => {
     if (!selectedItem || !targetStatus || !selectedCookId) return;
     try {
-      const response = await fetch(
-        `${API_CONFIG.BASE_URL}/orders/plate/${selectedItem.plate_order_id}/status/${targetStatus}?change_by=${selectedCookId}`,
-        {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${authToken}` },
-        }
+      await api.put(
+        `/orders/plate/${selectedItem.plate_order_id}/status/${targetStatus}?change_by=${selectedCookId}`
       );
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.detail || 'Не удалось изменить статус');
-      }
       setChangeStatusModalVisible(false);
       setDetailModalVisible(false);
       loadData();
       Alert.alert('Успех', `Статус изменён на "${getStatusLabel(targetStatus)}"`);
     } catch (error: any) {
-      Alert.alert('Ошибка', error.message || 'Не удалось изменить статус');
+      Alert.alert('Ошибка', error.response?.data?.detail || error.message || 'Не удалось изменить статус');
       setChangeStatusModalVisible(false);
       setDetailModalVisible(false);
       loadData();
@@ -333,17 +304,14 @@ const ChefOrders = () => {
   };
 
   const { addHandler } = useWebSocket();
-    useEffect(() => {
-      const unsubscribe = addHandler((data: any) => {
-        console.log('HallMap raw event:', data);
-        if (
-          data.type === 'new_order'
-        ) {
-          handleRefresh();
-        }
-      });
-      return unsubscribe;
-    }, [addHandler, handleRefresh]);
+  useEffect(() => {
+    const unsubscribe = addHandler((data: any) => {
+      if (data.type === 'new_order') {
+        handleRefresh();
+      }
+    });
+    return unsubscribe;
+  }, [addHandler, handleRefresh]);
 
   const renderItem = ({ item }: { item: FlatOrderedPlate }) => {
     const statusInfo = getStatusInfo(item.current_status);
@@ -406,7 +374,6 @@ const ChefOrders = () => {
         <Text style={styles.subtitle}>{filteredItems.length} позиций</Text>
       </View>
 
-      {/* Фильтр по статусу */}
       <View style={styles.filterContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {renderFilterChip('waiting', 'Ожидает', statusFilter, setStatusFilter)}
@@ -415,7 +382,6 @@ const ChefOrders = () => {
         </ScrollView>
       </View>
 
-      {/* Фильтр по специализации */}
       {availableSpecializations.length > 1 && (
         <View style={styles.filterContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -445,7 +411,6 @@ const ChefOrders = () => {
         }
       />
 
-      {/* Детали позиции */}
       <Modal visible={detailModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -488,8 +453,6 @@ const ChefOrders = () => {
                 <Text style={styles.timeText}>
                   Время заказа: {new Date(selectedItem.timestart).toLocaleString('ru-RU')}
                 </Text>
-
-                {/* Кнопка смены статуса */}
                 {nextStatus && (
                   <TouchableOpacity
                     style={styles.changeStatusButton}
@@ -509,7 +472,6 @@ const ChefOrders = () => {
         </View>
       </Modal>
 
-      {/* Выбор повара для смены статуса */}
       <Modal visible={changeStatusModalVisible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>

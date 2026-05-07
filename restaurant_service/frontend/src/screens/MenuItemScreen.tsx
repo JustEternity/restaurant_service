@@ -11,9 +11,9 @@ import {
   StyleSheet
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { API_CONFIG } from '../config';
-import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import styles from '../design/MenuItemScreenStyles';
 
 interface Tag {
@@ -152,19 +152,17 @@ const localStyles = StyleSheet.create({
 const MenuItemDetailScreen = () => {
   const route = useRoute();
   const navigation = useNavigation();
-  const { authToken, user } = useAuth();
+  const { user } = useAuth();
   const { itemId } = route.params as { itemId: number };
 
   const [item, setItem] = useState<MenuItemDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<Set<number>>(new Set());
   const [editTagsModalVisible, setEditTagsModalVisible] = useState(false);
   const [savingTags, setSavingTags] = useState(false);
 
   const isAdmin = user?.role === 'admin';
-  console.log('MenuItemDetailScreen: isAdmin =', isAdmin, 'role =', user?.role);
 
   useEffect(() => {
     loadItem();
@@ -174,48 +172,23 @@ const MenuItemDetailScreen = () => {
   const loadItem = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_CONFIG.BASE_URL}/menu/${itemId}`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Accept': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setItem(data);
+      const response = await api.get(`/menu/${itemId}`);
+      setItem(response.data);
     } catch (error) {
       console.error('Ошибка загрузки деталей блюда:', error);
       Alert.alert('Ошибка', 'Не удалось загрузить информацию о блюде');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
   const loadAllTags = async () => {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/tags/`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Accept': 'application/json',
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setAllTags(data);
-      }
+      const response = await api.get('/tags/');
+      setAllTags(response.data);
     } catch (error) {
       console.error('Ошибка загрузки тегов:', error);
     }
-  };
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    loadItem();
   };
 
   const handleEdit = () => {
@@ -248,18 +221,7 @@ const MenuItemDetailScreen = () => {
 
   const deleteItem = async () => {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/menu/${itemId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Accept': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
+      await api.delete(`/menu/${itemId}`);
       Alert.alert('Успешно', 'Позиция удалена');
       navigation.goBack();
     } catch (error) {
@@ -289,20 +251,8 @@ const MenuItemDetailScreen = () => {
     setSavingTags(true);
     try {
       const tagIds = Array.from(selectedTagIds);
-      const response = await fetch(`${API_CONFIG.BASE_URL}/menu/${item.id}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ tag_ids: tagIds }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || 'Ошибка сохранения тегов');
-      }
-      const updatedItem = await response.json();
-      setItem(updatedItem);
+      const response = await api.put(`/menu/${item.id}`, { tag_ids: tagIds });
+      setItem(response.data);
       setEditTagsModalVisible(false);
       Alert.alert('Успешно', 'Теги обновлены');
     } catch (error: any) {
@@ -373,7 +323,6 @@ const MenuItemDetailScreen = () => {
           </Text>
         </View>
 
-        {/* Теги */}
         {item.tags && item.tags.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Теги</Text>
@@ -387,7 +336,6 @@ const MenuItemDetailScreen = () => {
           </View>
         )}
 
-        {/* Кнопки действий для админа */}
         {isAdmin && (
           <View style={localStyles.actionsContainer}>
             <TouchableOpacity
@@ -417,7 +365,6 @@ const MenuItemDetailScreen = () => {
         )}
       </View>
 
-      {/* Модальное окно выбора тегов */}
       <Modal
         visible={editTagsModalVisible}
         animationType="slide"

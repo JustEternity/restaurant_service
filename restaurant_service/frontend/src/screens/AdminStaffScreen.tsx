@@ -14,10 +14,10 @@ import {
   Switch,
   Dimensions,
 } from 'react-native';
-import { API_CONFIG } from '../config';
-import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 
@@ -55,7 +55,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
 type RoleFilter = 'all' | 'cook' | 'waiter';
 
 const AdminStaff = () => {
-  const { authToken, user } = useAuth();
+  const { user } = useAuth();
   const navigation = useNavigation();
 
   const [staff, setStaff] = useState<User[]>([]);
@@ -91,14 +91,9 @@ const AdminStaff = () => {
 
   const loadAllSpecializations = async () => {
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/specializations/`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAllSpecializations(data);
-        setSpecializations(data);
-      }
+      const res = await api.get('/specializations/');
+      setAllSpecializations(res.data);
+      setSpecializations(res.data);
     } catch (error) {
       console.error('Ошибка загрузки специализаций', error);
     }
@@ -107,11 +102,8 @@ const AdminStaff = () => {
   const loadStaff = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_CONFIG.BASE_URL}/users/`, {
-        headers: { Authorization: `Bearer ${authToken}`, Accept: 'application/json' },
-      });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const data: User[] = await response.json();
+      const response = await api.get('/users/');
+      const data: User[] = response.data;
       const nonAdminUsers = data.filter((u) => u.role !== 'admin');
       setStaff(nonAdminUsers);
       applyFilters(nonAdminUsers);
@@ -121,7 +113,7 @@ const AdminStaff = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [authToken]);
+  }, []);
 
   useEffect(() => {
     loadStaff();
@@ -151,11 +143,7 @@ const AdminStaff = () => {
     loadStaff();
   };
 
-  const handleUserPress = (u: User) => {
-    setSelectedUser(u);
-    setModalVisible(true);
-  };
-
+  const handleUserPress = (u: User) => { setSelectedUser(u); setModalVisible(true); };
   const handleEditUser = (u: User) => {
     setSelectedUser(u);
     setEditData({
@@ -182,11 +170,7 @@ const AdminStaff = () => {
 
   const deleteUser = async (userId: number) => {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/users/${userId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}`, Accept: 'application/json' },
-      });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      await api.delete(`/users/${userId}`);
       setStaff((prev) => prev.filter((u) => u.id !== userId));
       Alert.alert('Успех', 'Сотрудник удалён');
     } catch (error) {
@@ -209,17 +193,8 @@ const AdminStaff = () => {
       };
       if (editData.password.trim()) updateData.password = editData.password;
 
-      const response = await fetch(`${API_CONFIG.BASE_URL}/users/${selectedUser?.id}`, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify(updateData),
-      });
-      if (!response.ok) throw new Error('Ошибка сохранения');
-      const updatedUser: User = await response.json();
+      const response = await api.put(`/users/${selectedUser?.id}`, updateData);
+      const updatedUser: User = response.data;
       setStaff((prev) => prev.map((u) => (u.id === selectedUser?.id ? updatedUser : u)));
       setEditModalVisible(false);
       Alert.alert('Успех', 'Данные сотрудника обновлены');
@@ -247,24 +222,16 @@ const AdminStaff = () => {
       return;
     }
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/users/`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          name: editData.name,
-          login: editData.login,
-          password: editData.password,
-          role: editData.role,
-          is_available: editData.is_available,
-          specialization_id: editData.role === 'cook' ? editData.specialization_id : null,
-        }),
-      });
-      if (!response.ok) throw new Error('Ошибка создания');
-      const newUser: User = await response.json();
+      const body = {
+        name: editData.name,
+        login: editData.login,
+        password: editData.password,
+        role: editData.role,
+        is_available: editData.is_available,
+        specialization_id: editData.role === 'cook' ? editData.specialization_id : null,
+      };
+      const response = await api.post('/users/', body);
+      const newUser: User = response.data;
       setStaff((prev) => [...prev, newUser]);
       setEditModalVisible(false);
       Alert.alert('Успех', 'Сотрудник добавлен');
@@ -276,13 +243,9 @@ const AdminStaff = () => {
   const loadSpecializations = async () => {
     setSpecLoading(true);
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/specializations/`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!res.ok) throw new Error('Ошибка загрузки');
-      const data = await res.json();
-      setSpecializations(data);
-      setAllSpecializations(data);
+      const res = await api.get('/specializations/');
+      setSpecializations(res.data);
+      setAllSpecializations(res.data);
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось загрузить специализации');
     } finally {
@@ -293,12 +256,8 @@ const AdminStaff = () => {
   const loadAllMenuItems = async () => {
     if (allMenuItems.length > 0) return;
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/menu/`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!res.ok) throw new Error('Ошибка загрузки меню');
-      const data = await res.json();
-      setAllMenuItems(data);
+      const res = await api.get('/menu/');
+      setAllMenuItems(res.data);
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось загрузить меню');
     }
@@ -314,16 +273,8 @@ const AdminStaff = () => {
   const handleCreateSpec = async () => {
     if (!newSpecName.trim()) return;
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/specializations/`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name: newSpecName }),
-      });
-      if (!res.ok) throw new Error('Ошибка создания');
-      const newSpec = await res.json();
+      const res = await api.post('/specializations/', { name: newSpecName });
+      const newSpec = res.data;
       setSpecializations((prev) => [...prev, newSpec]);
       setAllSpecializations((prev) => [...prev, newSpec]);
       setNewSpecName('');
@@ -340,10 +291,7 @@ const AdminStaff = () => {
         style: 'destructive',
         onPress: async () => {
           try {
-            await fetch(`${API_CONFIG.BASE_URL}/specializations/${id}`, {
-              method: 'DELETE',
-              headers: { Authorization: `Bearer ${authToken}` },
-            });
+            await api.delete(`/specializations/${id}`);
             setSpecializations((prev) => prev.filter((s) => s.id !== id));
             setAllSpecializations((prev) => prev.filter((s) => s.id !== id));
           } catch (error) {
@@ -359,21 +307,15 @@ const AdminStaff = () => {
     setMode('plates');
     setPlatesLoading(true);
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/plates-specializations/specialization/${spec.id}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (res.ok) {
-        const linkedData = await res.json();
-        const plates = linkedData.map((link: any) => ({
-          id: link.plate_id,
-          name: link.plate_name,
-          description: '',
-          price: 0,
-        }));
-        setLinkedPlates(plates);
-      } else {
-        setLinkedPlates([]);
-      }
+      const res = await api.get(`/plates-specializations/specialization/${spec.id}`);
+      const linkedData: any[] = res.data;
+      const plates: MenuItem[] = linkedData.map((link) => ({
+        id: link.plate_id,
+        name: link.plate_name,
+        description: '',
+        price: 0,
+      }));
+      setLinkedPlates(plates);
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось загрузить связанные блюда');
     } finally {
@@ -384,41 +326,25 @@ const AdminStaff = () => {
   const addPlateToSpec = async (plateId: number) => {
     if (!selectedSpec) return;
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/plates-specializations/`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ plate_id: plateId, specialization_id: selectedSpec.id }),
+      await api.post('/plates-specializations/', {
+        plate_id: plateId,
+        specialization_id: selectedSpec.id,
       });
-      if (!res.ok) {
-        const err = await res.json();
-        Alert.alert('Ошибка', err.detail || 'Не удалось добавить блюдо');
-        return;
-      }
       const addedPlate = allMenuItems.find((p) => p.id === plateId);
       if (addedPlate) setLinkedPlates((prev) => [...prev, addedPlate]);
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось добавить блюдо');
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось добавить блюдо');
     }
   };
 
   const removePlateFromSpec = async (plateId: number) => {
     if (!selectedSpec) return;
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/plates-specializations/specialization/${selectedSpec.id}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!res.ok) throw new Error('Ошибка поиска связи');
-      const links = await res.json();
-      const link = links.find((l: any) => l.plate_id === plateId);
+      const res = await api.get(`/plates-specializations/specialization/${selectedSpec.id}`);
+      const links: any[] = res.data;
+      const link = links.find((l) => l.plate_id === plateId);
       if (!link) throw new Error('Связь не найдена');
-
-      await fetch(`${API_CONFIG.BASE_URL}/plates-specializations/${link.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
+      await api.delete(`/plates-specializations/${link.id}`);
       setLinkedPlates((prev) => prev.filter((p) => p.id !== plateId));
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось удалить связь');

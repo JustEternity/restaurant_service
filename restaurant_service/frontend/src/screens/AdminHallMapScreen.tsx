@@ -22,10 +22,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { API_CONFIG } from '../config';
-import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
+import api from '../services/api';
 
 const { width, height } = Dimensions.get('window');
 
@@ -61,7 +61,7 @@ type RootStackParamList = {
 };
 
 const HallMap = () => {
-  const { authToken, user } = useAuth();
+  const { user } = useAuth();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const isAdmin = user?.role === 'admin';
 
@@ -87,12 +87,8 @@ const HallMap = () => {
 
   const loadTables = useCallback(async (): Promise<Table[]> => {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/tables/`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!response.ok) throw new Error('Ошибка загрузки столов');
-      const data = await response.json();
-      const newTables = Array.isArray(data) ? data : [];
+      const response = await api.get('/tables/');
+      const newTables: Table[] = response.data;
       safeSetTables(newTables);
       return newTables;
     } catch (error) {
@@ -102,16 +98,13 @@ const HallMap = () => {
     } finally {
       setInitialLoading(false);
     }
-  }, [authToken]);
+  }, []);
 
   const loadReadyTables = useCallback(async (currentTables: Table[]) => {
     if (isAdmin || !user) return;
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/orders/?waiter_id=${user.id}&status=active`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!res.ok) return;
-      const orders: Order[] = await res.json();
+      const res = await api.get(`/orders/?waiter_id=${user.id}&status=active`);
+      const orders: Order[] = res.data;
       const readyNumbers = new Set<number>();
       orders.forEach(order => {
         const hasReady = order.plates.some(plate => plate.current_status === 'ready');
@@ -129,7 +122,7 @@ const HallMap = () => {
     } catch (error) {
       console.error('Ошибка загрузки готовых заказов', error);
     }
-  }, [authToken, user, isAdmin]);
+  }, [user, isAdmin]);
 
   const manualRefresh = useCallback(async () => {
     const newTables = await loadTables();
@@ -150,11 +143,7 @@ const HallMap = () => {
         data.type === 'order_created' ||
         data.type === 'order_updated'
       ) {
-        if (data.order_id && data.type === 'plate_status_changed') {
-          manualRefresh();
-        } else {
-          manualRefresh();
-        }
+        manualRefresh();
       }
     });
     return unsubscribe;
@@ -163,14 +152,7 @@ const HallMap = () => {
   const updateTablePosition = async (id: number, pos_x: number, pos_y: number) => {
     if (!isAdmin) return;
     try {
-      await fetch(`${API_CONFIG.BASE_URL}/tables/${id}`, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ pos_x, pos_y }),
-      });
+      await api.put(`/tables/${id}`, { pos_x, pos_y });
     } catch (error) {
       console.error('Ошибка сохранения позиции стола:', error);
     }
@@ -188,22 +170,14 @@ const HallMap = () => {
     if (!isAdmin) return;
     try {
       const newNumber = tables.length > 0 ? Math.max(...tables.map((t) => t.number)) + 1 : 1;
-      const response = await fetch(`${API_CONFIG.BASE_URL}/tables/`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          number: newNumber,
-          pos_x: x,
-          pos_y: y,
-          status: 'free',
-          is_available: true,
-        }),
+      const response = await api.post('/tables/', {
+        number: newNumber,
+        pos_x: x,
+        pos_y: y,
+        status: 'free',
+        is_available: true,
       });
-      if (!response.ok) throw new Error('Ошибка создания стола');
-      const newTable: Table = await response.json();
+      const newTable: Table = response.data;
       if (newTable && newTable.id) {
         safeSetTables((prev) => [...prev, newTable]);
       }
@@ -221,10 +195,7 @@ const HallMap = () => {
         style: 'destructive',
         onPress: async () => {
           try {
-            await fetch(`${API_CONFIG.BASE_URL}/tables/${id}`, {
-              method: 'DELETE',
-              headers: { Authorization: `Bearer ${authToken}` },
-            });
+            await api.delete(`/tables/${id}`);
             safeSetTables((prev) => prev.filter((t) => t.id !== id));
             setSelectedTableIds((prev) => prev.filter((tid) => tid !== id));
           } catch (error) {
@@ -245,11 +216,8 @@ const HallMap = () => {
   const showOrderForTable = async (table: Table) => {
     setLoadingOrder(true);
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/orders/?status=active&table_id=${table.id}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!res.ok) throw new Error('Ошибка загрузки заказа');
-      const orders: Order[] = await res.json();
+      const res = await api.get(`/orders/?status=active&table_id=${table.id}`);
+      const orders: Order[] = res.data;
       if (orders.length > 0) {
         setSelectedOrder(orders[0]);
         setOrderModalVisible(true);

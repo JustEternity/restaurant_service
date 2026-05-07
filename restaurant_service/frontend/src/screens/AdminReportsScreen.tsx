@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { API_CONFIG } from '../config';
+import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 interface Order {
@@ -87,7 +87,7 @@ interface TableOrderCount {
 type TabType = 'general' | 'kitchen' | 'waiters';
 
 const AdminReports = () => {
-  const { authToken } = useAuth();
+  const { user } = useAuth();
 
   const [activeTab, setActiveTab] = useState<TabType>('general');
   const [startDate, setStartDate] = useState<Date>(new Date());
@@ -123,11 +123,7 @@ const AdminReports = () => {
   };
 
   const formatDate = (d: Date) =>
-    d.toLocaleDateString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
+    d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const formatApiDate = (d: Date) => d.toISOString().split('T')[0];
 
   const loadAll = useCallback(async () => {
@@ -135,33 +131,26 @@ const AdminReports = () => {
     const params = `start_date=${formatApiDate(startDate)}&end_date=${formatApiDate(endDate)}`;
     try {
       const [genRes, tabRes] = await Promise.all([
-        fetch(`${API_CONFIG.BASE_URL}/statistics/general?${params}`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        }),
-        fetch(`${API_CONFIG.BASE_URL}/statistics/general/tables?${params}`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        }),
+        api.get(`/statistics/general?${params}`),
+        api.get(`/statistics/general/tables?${params}`),
       ]);
-      if (genRes.ok) setGeneralStats(await genRes.json());
-      if (tabRes.ok) setTableOrders(await tabRes.json());
+      setGeneralStats(genRes.data);
+      setTableOrders(tabRes.data);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [authToken, startDate, endDate]);
+  }, [startDate, endDate]);
 
   const loadOrders = useCallback(async () => {
     try {
-      const res = await fetch(
-        `${API_CONFIG.BASE_URL}/orders/?start_date=${formatApiDate(startDate)}&end_date=${formatApiDate(endDate)}`,
-        { headers: { Authorization: `Bearer ${authToken}` } }
-      );
-      if (res.ok) setOrders(await res.json());
+      const res = await api.get(`/orders/?start_date=${formatApiDate(startDate)}&end_date=${formatApiDate(endDate)}`);
+      setOrders(res.data);
     } catch (err) {
       console.error(err);
     }
-  }, [authToken, startDate, endDate]);
+  }, [startDate, endDate]);
 
   const loadKitchenDetail = useCallback(async () => {
     const params = new URLSearchParams({
@@ -173,37 +162,39 @@ const AdminReports = () => {
 
     try {
       const [kitRes, detRes] = await Promise.all([
-        fetch(`${API_CONFIG.BASE_URL}/statistics/kitchen?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        }),
-        fetch(`${API_CONFIG.BASE_URL}/statistics/kitchen/details?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        }),
+        api.get(`/statistics/kitchen?${params.toString()}`),
+        api.get(`/statistics/kitchen/details?${params.toString()}`),
       ]);
-      if (kitRes.ok) setKitchenStats(await kitRes.json());
-      if (detRes.ok) setKitchenDetail(await detRes.json());
+      setKitchenStats(kitRes.data);
+      setKitchenDetail(detRes.data);
     } catch (err) {
       console.error(err);
     }
-  }, [authToken, startDate, endDate, selectedCook, selectedPlate]);
+  }, [startDate, endDate, selectedCook, selectedPlate]);
 
   const loadWaiters = async () => {
-    const res = await fetch(`${API_CONFIG.BASE_URL}/users/?role=waiter`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-    if (res.ok) setWaiters(await res.json());
+    try {
+      const res = await api.get('/users/?role=waiter');
+      setWaiters(res.data);
+    } catch (err) {
+      console.error(err);
+    }
   };
   const loadCooks = async () => {
-    const res = await fetch(`${API_CONFIG.BASE_URL}/users/?role=cook`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-    if (res.ok) setCooks(await res.json());
+    try {
+      const res = await api.get('/users/?role=cook');
+      setCooks(res.data);
+    } catch (err) {
+      console.error(err);
+    }
   };
   const loadMenu = async () => {
-    const res = await fetch(`${API_CONFIG.BASE_URL}/menu/`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-    if (res.ok) setMenuItems(await res.json());
+    try {
+      const res = await api.get('/menu/');
+      setMenuItems(res.data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   useEffect(() => {
@@ -278,7 +269,7 @@ const AdminReports = () => {
     return Array.from(map.entries())
         .filter(([_, data]) => data.cookedCount > 0)
         .map(([plateId, data]) => ({ plateId, ...data }));
-    }, [kitchenDetail]);
+  }, [kitchenDetail]);
 
   if (loading && !generalStats) {
     return (
@@ -427,6 +418,7 @@ const AdminReports = () => {
         )}
       </ScrollView>
 
+      {/* Модальное окно таблицы */}
       <Modal visible={showAllDishesModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContentLarge}>
@@ -457,16 +449,14 @@ const AdminReports = () => {
               ListEmptyComponent={<Text style={styles.emptyText}>Нет данных</Text>}
             />
 
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setShowAllDishesModal(false)}
-            >
+            <TouchableOpacity style={styles.closeButton} onPress={() => setShowAllDishesModal(false)}>
               <Text style={styles.closeButtonText}>Закрыть</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
+      {/* Модальные окна выбора */}
       <Modal visible={showWaiterPicker} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -661,7 +651,6 @@ const styles = StyleSheet.create({
   },
   closeButtonText: { color: '#fff', fontWeight: '600' },
   emptyText: { textAlign: 'center', color: '#999', marginTop: 20 },
-
   tableHeader: {
     flexDirection: 'row',
     backgroundColor: '#f0f0f0',

@@ -13,14 +13,14 @@ import {
   Animated,
   TextInput,
 } from 'react-native';
-import { API_CONFIG } from '../config';
-import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import styles from '../design/WaiterMenuStyles';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 interface Category {
   id: number;
@@ -63,7 +63,7 @@ type RootStackParamList = {
 };
 
 const WaiterMenu = () => {
-  const { authToken, user } = useAuth();
+  const { user } = useAuth();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const route = useRoute();
   const selectedTableIds = (route.params as any)?.selectedTableIds || [];
@@ -150,11 +150,8 @@ const WaiterMenu = () => {
 
   const fetchCategories = async () => {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/menu/categories/?flat=false`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const data: Category[] = await response.json();
+      const response = await api.get('/menu/categories/?flat=false');
+      const data: Category[] = response.data;
 
       const deduplicateChildren = (cat: Category) => {
         if (cat.children && cat.children.length > 0) {
@@ -174,11 +171,8 @@ const WaiterMenu = () => {
 
   const fetchMenuItems = async () => {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/menu/`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const data: MenuItem[] = await response.json();
+      const response = await api.get('/menu/');
+      const data: MenuItem[] = response.data;
       const available = data.filter(item => item.is_available);
       setMenuItems(available);
     } catch (error) {
@@ -230,11 +224,7 @@ const WaiterMenu = () => {
 
   const deleteMenuItem = async (id: number) => {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/menu/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      await api.delete(`/menu/${id}`);
       setMenuItems(prev => prev.filter(item => item.id !== id));
       Alert.alert('Успешно', 'Позиция удалена');
     } catch (error) {
@@ -320,15 +310,7 @@ const WaiterMenu = () => {
           comment: i.comment,
         })),
       };
-      const response = await fetch(`${API_CONFIG.BASE_URL}/orders/`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw new Error('Ошибка создания заказа');
+      await api.post('/orders/', payload);
       Alert.alert('Успех', 'Заказ создан');
       setCart([]);
       setCartModalVisible(false);
@@ -348,15 +330,7 @@ const WaiterMenu = () => {
         comment: i.comment,
         initial_status: 'waiting',
       }));
-      const response = await fetch(`${API_CONFIG.BASE_URL}/orders/${orderId}/plates`, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(platesToSend),
-      });
-      if (!response.ok) throw new Error('Ошибка сохранения изменений');
+      await api.put(`/orders/${orderId}/plates`, platesToSend);
       Alert.alert('Заказ обновлён', 'Изменения сохранены');
       setCartModalVisible(false);
       navigation.goBack();
@@ -521,7 +495,6 @@ const WaiterMenu = () => {
         </TouchableOpacity>
       )}
 
-      {/* Модалка деталей блюда */}
       <Modal animationType="fade" transparent visible={modalVisible} onRequestClose={handleCloseModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -564,7 +537,6 @@ const WaiterMenu = () => {
         </View>
       </Modal>
 
-      {/* Модалка корзины */}
       <Modal visible={cartModalVisible} animationType="slide" transparent>
         <View style={localStyles.cartModalOverlay}>
           <View style={localStyles.cartModalContent}>

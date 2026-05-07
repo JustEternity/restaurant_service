@@ -13,9 +13,9 @@ import {
   FlatList
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { API_CONFIG } from '../config';
-import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 interface Category {
   id: number;
@@ -40,7 +40,7 @@ interface MenuItemFormData {
 const MenuItemFormScreen = () => {
   const route = useRoute();
   const navigation = useNavigation();
-  const { authToken, user } = useAuth();
+  const { user } = useAuth();
   const { itemId } = route.params as { itemId?: number } || {};
 
   const [loading, setLoading] = useState(false);
@@ -72,16 +72,8 @@ const MenuItemFormScreen = () => {
 
   const loadCategories = async () => {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/menu/categories/`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Accept': 'application/json',
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setCategories(data);
-      }
+      const response = await api.get('/menu/categories/');
+      setCategories(response.data);
     } catch (error) {
       console.error('Ошибка загрузки категорий:', error);
     }
@@ -89,16 +81,8 @@ const MenuItemFormScreen = () => {
 
   const loadTags = async () => {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/tags/`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Accept': 'application/json',
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setAllTags(data);
-      }
+      const response = await api.get('/tags/');
+      setAllTags(response.data);
     } catch (error) {
       console.error('Ошибка загрузки тегов:', error);
     }
@@ -107,14 +91,8 @@ const MenuItemFormScreen = () => {
   const loadItem = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_CONFIG.BASE_URL}/menu/${itemId}`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Accept': 'application/json',
-        },
-      });
-      if (!response.ok) throw new Error('Ошибка загрузки');
-      const data = await response.json();
+      const response = await api.get(`/menu/${itemId}`);
+      const data = response.data;
       setFormData({
         name: data.name || '',
         description: data.description || '',
@@ -170,30 +148,17 @@ const MenuItemFormScreen = () => {
 
     setSaving(true);
     try {
-      const url = isEditMode
-        ? `${API_CONFIG.BASE_URL}/menu/${itemId}`
-        : `${API_CONFIG.BASE_URL}/menu/`;
-      const method = isEditMode ? 'PUT' : 'POST';
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || 'Ошибка сохранения');
+      if (isEditMode) {
+        await api.put(`/menu/${itemId}`, payload);
+      } else {
+        await api.post('/menu/', payload);
       }
 
       Alert.alert('Успешно', isEditMode ? 'Блюдо обновлено' : 'Блюдо создано');
       navigation.goBack();
     } catch (error: any) {
-      Alert.alert('Ошибка', error.message);
+      const errMsg = error.response?.data?.detail || error.message || 'Ошибка сохранения';
+      Alert.alert('Ошибка', errMsg);
     } finally {
       setSaving(false);
     }

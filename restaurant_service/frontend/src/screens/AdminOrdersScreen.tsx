@@ -11,10 +11,10 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
-import { API_CONFIG } from '../config';
-import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
+import api from '../services/api';
 
 interface PlateInOrder {
   id: number;
@@ -38,7 +38,7 @@ interface Order {
 }
 
 const AdminOrders = () => {
-  const { authToken } = useAuth();
+  const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -48,14 +48,8 @@ const AdminOrders = () => {
   const loadOrders = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_CONFIG.BASE_URL}/orders/`, {
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          Accept: 'application/json',
-        },
-      });
-      if (!response.ok) throw new Error('Ошибка загрузки заказов');
-      const data: Order[] = await response.json();
+      const response = await api.get('/orders/');
+      const data: Order[] = response.data;
       data.sort((a, b) => new Date(b.timestart).getTime() - new Date(a.timestart).getTime());
       setOrders(data);
     } catch (error) {
@@ -65,7 +59,7 @@ const AdminOrders = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [authToken]);
+  }, []);
 
   useEffect(() => {
     loadOrders();
@@ -179,21 +173,20 @@ const AdminOrders = () => {
   );
 
   const { addHandler } = useWebSocket();
-    useEffect(() => {
-      const unsubscribe = addHandler((data: any) => {
-        console.log('HallMap raw event:', data);
-        if (
-          data.type === 'plate_ready' ||
-          data.type === 'plate_status_changed' ||
-          data.type === 'order_completed' ||
-          data.type === 'order_created' ||
-          data.type === 'order_updated'
-        ) {
-          loadOrders();
-        }
-      });
-      return unsubscribe;
-    }, [addHandler, loadOrders]);
+  useEffect(() => {
+    const unsubscribe = addHandler((data: any) => {
+      if (
+        data.type === 'plate_ready' ||
+        data.type === 'plate_status_changed' ||
+        data.type === 'order_completed' ||
+        data.type === 'order_created' ||
+        data.type === 'order_updated'
+      ) {
+        loadOrders();
+      }
+    });
+    return unsubscribe;
+  }, [addHandler, loadOrders]);
 
   if (loading && !refreshing) {
     return (
