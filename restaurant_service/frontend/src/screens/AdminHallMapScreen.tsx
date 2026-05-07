@@ -66,7 +66,7 @@ const HallMap = () => {
   const isAdmin = user?.role === 'admin';
 
   const [tables, setTables] = useState<Table[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [selectedTableIds, setSelectedTableIds] = useState<number[]>([]);
   const [readyTableIds, setReadyTableIds] = useState<Set<number>>(new Set());
 
@@ -86,7 +86,6 @@ const HallMap = () => {
   };
 
   const loadTables = useCallback(async (): Promise<Table[]> => {
-    setLoading(true);
     try {
       const response = await fetch(`${API_CONFIG.BASE_URL}/tables/`, {
         headers: { Authorization: `Bearer ${authToken}` },
@@ -101,7 +100,7 @@ const HallMap = () => {
       safeSetTables([]);
       return [];
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
     }
   }, [authToken]);
 
@@ -144,7 +143,6 @@ const HallMap = () => {
   const { addHandler } = useWebSocket();
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
-      console.log('HallMap raw event:', data);
       if (
         data.type === 'plate_ready' ||
         data.type === 'plate_status_changed' ||
@@ -152,7 +150,11 @@ const HallMap = () => {
         data.type === 'order_created' ||
         data.type === 'order_updated'
       ) {
-        manualRefresh();
+        if (data.order_id && data.type === 'plate_status_changed') {
+          manualRefresh();
+        } else {
+          manualRefresh();
+        }
       }
     });
     return unsubscribe;
@@ -384,7 +386,7 @@ const HallMap = () => {
     }
   };
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#007AFF" />
