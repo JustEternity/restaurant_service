@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.websocket.router import router as websocket_router
 from app.core.config import settings
 
-from app.api import users, tables, menu, orders, health, status_history, table_for_order, auth, cook_groups, specializations, plates_for_specializations
+from app.api import users, tables, menu, orders, health, status_history, table_for_order, auth, cook_groups, specializations, plates_for_specializations, statistics
 
 
 app = FastAPI(
@@ -37,6 +37,7 @@ app.include_router(status_history.router, prefix="/api")
 app.include_router(table_for_order.router, prefix="/api")
 app.include_router(specializations.router, prefix="/api")
 app.include_router(plates_for_specializations.router, prefix="/api")
+app.include_router(statistics.router, prefix="/api")
 
 @app.get("/")
 def root():
