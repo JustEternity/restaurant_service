@@ -1,5 +1,5 @@
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from app.schemas.specialization_schemas import SpecializationResponse
 
 class MenuCreate(BaseModel):
@@ -60,3 +60,9 @@ class CategoryTreeResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class CategoryFlatResponse(BaseModel):
+    id: int
+    name: str
+    parent_category: int | None
+    model_config = ConfigDict(from_attributes=True)

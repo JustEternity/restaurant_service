@@ -6,7 +6,6 @@ from sqlalchemy.orm import selectinload
 
 from app.db_models import Menu, Category, Specialization, PlatesForSpecialization
 from app.database import get_async_db
-from app.db_models import Menu, Category
 from app.schemas.menu_schemas import *
 
 router = APIRouter(prefix="/menu", tags=["Меню"])
@@ -30,10 +29,11 @@ async def get_all_menu(
     if is_available is not None:
         stmt = stmt.where(Menu.is_available == is_available)
     if specialization_id is not None:
-        stmt = stmt.join(Menu.plate_for_specialization).where(PlatesForSpecialization.specialization_id == specialization_id)
+        stmt = stmt.join(Menu.plate_for_specialization).where(
+            PlatesForSpecialization.specialization_id == specialization_id
+        )
 
     stmt = stmt.order_by(Menu.name)
-
     result = await db.execute(stmt)
     menu_items = result.scalars().all()
 
@@ -42,10 +42,11 @@ async def get_all_menu(
         category = item.category_of_item
         category_name = category.name if category else None
 
-        specializations = []
-        for link in item.plate_for_specialization:
-            if link.spec_of_plates:
-                specializations.append(SpecializationResponse.from_orm(link.spec_of_plates))
+        specializations = [
+            SpecializationResponse.from_orm(link.spec_of_plates)
+            for link in item.plate_for_specialization
+            if link.spec_of_plates
+        ]
 
         response_items.append(MenuResponse(
             id=item.id,
@@ -76,10 +77,11 @@ async def get_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db)):
     category = item.category_of_item
     category_name = category.name if category else None
 
-    specializations = []
-    for link in item.plate_for_specialization:
-        if link.specialization:
-            specializations.append(SpecializationResponse.from_orm(link.specialization))
+    specializations = [
+        SpecializationResponse.from_orm(link.spec_of_plates)
+        for link in item.plate_for_specialization
+        if link.spec_of_plates
+    ]
 
     return MenuResponse(
         id=item.id,
@@ -121,13 +123,14 @@ async def create_menu_item(menu_data: MenuCreate, db: AsyncSession = Depends(get
             db.add(PlatesForSpecialization(plate=menu_item.id, specialization=spec.id))
 
     await db.commit()
+    # Подгружаем оба отношения
     await db.refresh(menu_item, attribute_names=["category_of_item", "plate_for_specialization"])
 
     specializations_resp = []
     for link in menu_item.plate_for_specialization:
-        await db.refresh(link, attribute_names=["specialization"])
-        if link.specialization:
-            specializations_resp.append(SpecializationResponse.from_orm(link.specialization))
+        await db.refresh(link, attribute_names=["spec_of_plates"])
+        if link.spec_of_plates:
+            specializations_resp.append(SpecializationResponse.from_orm(link.spec_of_plates))
 
     return MenuResponse(
         id=menu_item.id,
@@ -182,9 +185,9 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
 
     specializations_resp = []
     for link in item.plate_for_specialization:
-        await db.refresh(link, attribute_names=["specialization"])
-        if link.specialization:
-            specializations_resp.append(SpecializationResponse.from_orm(link.specialization))
+        await db.refresh(link, attribute_names=["spec_of_plates"])
+        if link.spec_of_plates:
+            specializations_resp.append(SpecializationResponse.from_orm(link.spec_of_plates))
 
     return MenuResponse(
         id=item.id,
@@ -210,78 +213,98 @@ async def delete_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db
     return {"message": "Блюдо удалено"}
 
 # ===== ЭНДПОИНТЫ ДЛЯ КАТЕГОРИЙ =====
-@router.get("/categories/", response_model=List[CategoryResponse])
+@router.get("/categories/", response_model=List[CategoryFlatResponse])
 async def get_all_categories(
     flat: bool = True,
     db: AsyncSession = Depends(get_async_db)
 ):
     """
     Получить категории.
-    Если flat=False, возвращается иерархическое дерево (вложенные дочерние эелементы).
+    Если flat=False, возвращается иерархическое дерево (вложенные дочерние элементы).
     """
+    stmt = select(Category).order_by(Category.name)
+    result = await db.execute(stmt)
+    categories = result.scalars().all()
+
     if flat:
-        stmt = select(Category).order_by(Category.name)
-        result = await db.execute(stmt)
-        categories = result.scalars().all()
-        return categories
+        return [
+            CategoryFlatResponse(
+                id=cat.id,
+                name=cat.name,
+                parent_category=cat.parent_category,
+            )
+            for cat in categories
+        ]
     else:
-        stmt = select(Category).options(selectinload(Category.children)).order_by(Category.name)
-        result = await db.execute(stmt)
-        all_cats = result.scalars().all()
+        cat_map: dict[int, CategoryTreeResponse] = {}
+        tree: list[CategoryTreeResponse] = []
+        for cat in categories:
+            node = CategoryTreeResponse(
+                id=cat.id,
+                name=cat.name,
+                parent_category=cat.parent_category,
+                children=[]
+            )
+            cat_map[cat.id] = node
 
-        cat_map = {cat.id: cat for cat in all_cats}
-        root_cats = []
-
-        for cat in all_cats:
-            if cat.parent_category is None:
-                root_cats.append(cat)
+        for cat in categories:
+            node = cat_map[cat.id]
+            if node.parent_category is None:
+                tree.append(node)
             else:
-                parent = cat_map.get(cat.parent_category)
-                if parent:
-                    parent.children.append(cat)
+                parent_node = cat_map.get(node.parent_category)
+                if parent_node:
+                    parent_node.children.append(node)
 
-        return root_cats
+        return tree
 
 @router.get("/categories/tree", response_model=List[CategoryTreeResponse])
 async def get_category_tree(db: AsyncSession = Depends(get_async_db)):
     """Получить полное дерево категорий"""
     stmt = select(Category).order_by(Category.name)
     result = await db.execute(stmt)
-    all_cats = result.scalars().all()
+    categories = result.scalars().all()
 
-    cat_map = {cat.id: cat for cat in all_cats}
-    roots = []
+    cat_map: dict[int, CategoryTreeResponse] = {}
+    tree: list[CategoryTreeResponse] = []
+    for cat in categories:
+        node = CategoryTreeResponse(
+            id=cat.id,
+            name=cat.name,
+            parent_category=cat.parent_category,
+            children=[]
+        )
+        cat_map[cat.id] = node
 
-    for cat in all_cats:
-        if cat.parent_category is None:
-            roots.append(cat)
+    for cat in categories:
+        node = cat_map[cat.id]
+        if node.parent_category is None:
+            tree.append(node)
         else:
-            parent = cat_map.get(cat.parent_category)
-            if parent:
-                parent.children.append(cat)
+            parent_node = cat_map.get(node.parent_category)
+            if parent_node:
+                parent_node.children.append(node)
 
-    return roots
+    return tree
 
-@router.get("/categories/{category_id}", response_model=CategoryResponse)
+@router.get("/categories/{category_id}", response_model=CategoryFlatResponse)
 async def get_category(category_id: int, db: AsyncSession = Depends(get_async_db)):
-    """Получить категорию по ID (включая вложенные)"""
-    stmt = select(Category).where(Category.id == category_id)
-    result = await db.execute(stmt)
-    category = result.scalar_one_or_none()
-
-    if not category:
+    """Получить категорию по ID (без дочерних)"""
+    cat = await db.get(Category, category_id)
+    if not cat:
         raise HTTPException(status_code=404, detail="Категория не найдена")
+    return CategoryFlatResponse(
+        id=cat.id,
+        name=cat.name,
+        parent_category=cat.parent_category,
+    )
 
-    return category
-
-@router.post("/categories/", response_model=CategoryResponse)
+@router.post("/categories/", response_model=CategoryFlatResponse)
 async def create_category(category_data: CategoryCreate, db: AsyncSession = Depends(get_async_db)):
     """Создать категорию"""
     parent_id = category_data.parent_category
     if parent_id is not None:
-        stmt = select(Category).where(Category.id == parent_id)
-        result = await db.execute(stmt)
-        parent = result.scalar_one_or_none()
+        parent = await db.get(Category, parent_id)
         if not parent:
             raise HTTPException(status_code=404, detail="Родительская категория не найдена")
 
@@ -289,24 +312,24 @@ async def create_category(category_data: CategoryCreate, db: AsyncSession = Depe
         name=category_data.name,
         parent_category=parent_id
     )
-
     db.add(category)
     await db.commit()
     await db.refresh(category)
 
-    return category
+    return CategoryFlatResponse(
+        id=category.id,
+        name=category.name,
+        parent_category=category.parent_category,
+    )
 
-@router.put("/categories/{category_id}", response_model=CategoryResponse)
+@router.put("/categories/{category_id}", response_model=CategoryFlatResponse)
 async def update_category(
     category_id: int,
     category_data: CategoryUpdate,
     db: AsyncSession = Depends(get_async_db)
 ):
     """Обновить категорию"""
-    stmt = select(Category).where(Category.id == category_id)
-    result = await db.execute(stmt)
-    category = result.scalar_one_or_none()
-
+    category = await db.get(Category, category_id)
     if not category:
         raise HTTPException(status_code=404, detail="Категория не найдена")
 
@@ -318,44 +341,41 @@ async def update_category(
     if "parent_category" in update_dict:
         new_parent_id = update_dict["parent_category"]
         if new_parent_id is not None:
-            parent_stmt = select(Category).where(Category.id == new_parent_id)
-            parent_result = await db.execute(parent_stmt)
-            parent = parent_result.scalar_one_or_none()
+            parent = await db.get(Category, new_parent_id)
             if not parent:
                 raise HTTPException(status_code=404, detail="Родительская категория не найдена")
-
             if new_parent_id == category_id:
                 raise HTTPException(status_code=400, detail="Категория не может быть родителем самой себя")
+            # Проверка на циклическую зависимость
             current = parent
-            while current is not None:
+            while current:
                 if current.id == category_id:
                     raise HTTPException(status_code=400, detail="Нельзя создать циклическую зависимость")
                 if current.parent_category is None:
                     break
-                parent_of_current_stmt = select(Category).where(Category.id == current.parent_category)
-                parent_of_current_res = await db.execute(parent_of_current_stmt)
-                current = parent_of_current_res.scalar_one_or_none()
+                current = await db.get(Category, current.parent_category)
         category.parent_category = new_parent_id
 
     await db.commit()
     await db.refresh(category)
 
-    return category
+    return CategoryFlatResponse(
+        id=category.id,
+        name=category.name,
+        parent_category=category.parent_category,
+    )
 
 @router.delete("/categories/{category_id}")
 async def delete_category(category_id: int, db: AsyncSession = Depends(get_async_db)):
     """Удалить категорию"""
-    stmt = select(Category).where(Category.id == category_id)
-    result = await db.execute(stmt)
-    category = result.scalar_one_or_none()
-
+    category = await db.get(Category, category_id)
     if not category:
         raise HTTPException(status_code=404, detail="Категория не найдена")
 
+    # Отвязываем дочерние категории
     children_stmt = select(Category).where(Category.parent_category == category_id)
     children_result = await db.execute(children_stmt)
     children = children_result.scalars().all()
-
     for child in children:
         child.parent_category = None
 
