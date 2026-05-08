@@ -314,7 +314,7 @@ const WaiterMenu = () => {
       Alert.alert('Успех', 'Заказ создан');
       setCart([]);
       setCartModalVisible(false);
-      navigation.goBack();
+      navigation.replace('MenuList');
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось создать заказ');
     }
@@ -332,8 +332,9 @@ const WaiterMenu = () => {
       }));
       await api.put(`/orders/${orderId}/plates`, platesToSend);
       Alert.alert('Заказ обновлён', 'Изменения сохранены');
+      setCart([]);
       setCartModalVisible(false);
-      navigation.goBack();
+      navigation.replace('MenuList');
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось обновить заказ');
     }
