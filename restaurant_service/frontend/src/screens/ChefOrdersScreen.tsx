@@ -304,6 +304,17 @@ const ChefOrders = () => {
     }
   };
 
+  const rollbackStatus = async (plateOrderId: number) => {
+    try {
+      await api.delete(`/cooking-status-history/rollback/${plateOrderId}`);
+      Alert.alert('Успешно', 'Статус откачен');
+      setDetailModalVisible(false);
+      loadData();
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось откатить статус');
+    }
+  };
+
   const { addHandler } = useWebSocket();
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
@@ -454,6 +465,18 @@ const ChefOrders = () => {
                 <Text style={styles.timeText}>
                   Время заказа: {new Date(selectedItem.timestart).toLocaleString('ru-RU')}
                 </Text>
+                {(selectedItem.current_status === 'preparing' || selectedItem.current_status === 'ready') && (
+                  <TouchableOpacity
+                    style={[styles.changeStatusButton, { backgroundColor: '#e74c3c' }]}
+                    onPress={() => {
+                      setDetailModalVisible(false);
+                      rollbackStatus(selectedItem.plate_order_id);
+                    }}
+                  >
+                    <Ionicons name="arrow-undo-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                    <Text style={styles.changeStatusButtonText}>Откатить статус</Text>
+                  </TouchableOpacity>
+                )}
                 {nextStatus && (
                   <TouchableOpacity
                     style={styles.changeStatusButton}

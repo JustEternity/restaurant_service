@@ -122,12 +122,8 @@ async def create_cooking_status_history(history_data: CookingStatusHistoryCreate
         if not user:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-    existing = await db.get(CookingStatusHistory, history_data.plate_for_order_id)
-    if existing:
-        raise HTTPException(status_code=400, detail="Запись истории для этой позиции уже существует")
-
     history_item = CookingStatusHistory(
-        id=history_data.plate_for_order_id,
+        ordered_plate=history_data.plate_for_order_id,
         change_time=datetime.now(),
         new_status=history_data.new_status,
         change_by=history_data.change_by
@@ -160,6 +156,45 @@ async def create_cooking_status_history(history_data: CookingStatusHistoryCreate
         order_id=order_id,
         order_number=order_number
     )
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
+from sqlalchemy.orm import selectinload
+from app.db_models import CookingStatusHistory, PlateForOrder, User, Menu, Order
+
+@router.delete("/rollback/{plate_for_order_id}")
+async def rollback_status(plate_for_order_id: int, db: AsyncSession = Depends(get_async_db)):
+    """
+    Отменить последнее изменение статуса приготовления (удалить последнюю запись истории).
+    Разрешено только если последний статус 'preparing' или 'ready'.
+    """
+    stmt = select(CookingStatusHistory).where(
+        CookingStatusHistory.ordered_plate == plate_for_order_id
+    ).order_by(CookingStatusHistory.change_time.desc())
+    result = await db.execute(stmt)
+    history_records = result.scalars().all()
+
+    if not history_records:
+        raise HTTPException(status_code=404, detail="История статусов не найдена")
+
+    last_record = history_records[0]
+    if last_record.new_status not in ("preparing", "ready"):
+        raise HTTPException(status_code=400, detail="Откат возможен только со статусов 'preparing' или 'ready'")
+
+    await db.delete(last_record)
+    await db.commit()
+
+    plate_for_order = await db.get(PlateForOrder, plate_for_order_id)
+    if plate_for_order:
+        if len(history_records) > 1:
+            previous_record = history_records[1]
+            plate_for_order.current_status = previous_record.new_status
+        else:
+            plate_for_order.current_status = "waiting"
+        await db.commit()
+
+    return {"message": "Последний статус успешно отменён", "new_status": plate_for_order.current_status if plate_for_order else None}
 
 @router.put("/{history_id}", response_model=CookingStatusHistoryResponse)
 async def update_cooking_status_history(history_id: int, history_data: CookingStatusHistoryUpdate, db: AsyncSession = Depends(get_async_db)):
