@@ -129,7 +129,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingHorizontal: 40,
   },
-  // Стили для свайпов по элементам меню
   swipeActions: {
     flexDirection: 'row',
     width: 160,
@@ -155,7 +154,6 @@ const styles = StyleSheet.create({
   deleteButton: {
     backgroundColor: '#FF3B30',
   },
-  // Стили для кнопки добавления позиции меню
   addButton: {
     position: 'absolute',
     right: 20,
@@ -288,17 +286,112 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginHorizontal: 5,
   },
-  // editButton: {
-  //   backgroundColor: '#4ECDC4',
-  // },
-  // deleteButton: {
-  //   backgroundColor: '#e74c3c',
-  // },
   modalActionButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  addToCartButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  cartBadge: {
+    position: 'absolute',
+    right: -6,
+    top: -4,
+    backgroundColor: '#ff3b30',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cartBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  modalAddToCartButton: {
+    backgroundColor: '#007AFF',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  cartModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  cartModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+  },
+  cartItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  commentInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 8,
+    fontSize: 14,
+  },
+  quantityControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  cartFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  totalText: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  submitOrderButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+  },
+  saveButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+  },
+  cartModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
   },
 });
 

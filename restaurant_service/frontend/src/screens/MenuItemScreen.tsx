@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   Alert,
   Modal,
-  StyleSheet
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,122 +31,6 @@ interface MenuItemDetail {
   category_name: string | null;
   tags: Tag[];
 }
-
-const localStyles = StyleSheet.create({
-  tagsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 8,
-  },
-  tagChip: {
-    backgroundColor: '#e1f5fe',
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginRight: 6,
-    marginBottom: 4,
-  },
-  tagText: {
-    fontSize: 12,
-    color: '#0288d1',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: '90%',
-    maxHeight: '80%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  modalScroll: {
-    maxHeight: 400,
-  },
-  tagItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  tagItemText: {
-    fontSize: 16,
-    marginLeft: 12,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 20,
-  },
-  modalButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    minWidth: 120,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: '#f1f3f4',
-  },
-  saveButton: {
-    backgroundColor: '#007AFF',
-  },
-  cancelButtonText: {
-    color: '#666',
-    fontWeight: '600',
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  actionsContainer: {
-    marginTop: 30,
-    marginBottom: 30,
-    width: '100%',
-    backgroundColor: '#f0f0f0',
-    padding: 10,
-    borderRadius: 8,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1,
-  },
-  editButton: {
-    backgroundColor: '#FF9500',
-  },
-  deleteButton: {
-    backgroundColor: '#FF3B30',
-  },
-  tagButton: {
-    backgroundColor: '#5856D6',
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 16,
-    marginLeft: 10,
-  },
-});
 
 const MenuItemDetailScreen = () => {
   const route = useRoute();
@@ -210,11 +93,7 @@ const MenuItemDetailScreen = () => {
       `Вы уверены, что хотите удалить "${item?.name}"?`,
       [
         { text: 'Отмена', style: 'cancel' },
-        {
-          text: 'Удалить',
-          style: 'destructive',
-          onPress: deleteItem
-        }
+        { text: 'Удалить', style: 'destructive', onPress: deleteItem }
       ]
     );
   };
@@ -326,10 +205,10 @@ const MenuItemDetailScreen = () => {
         {item.tags && item.tags.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Теги</Text>
-            <View style={localStyles.tagsContainer}>
+            <View style={styles.tagsContainer}>
               {item.tags.map(tag => (
-                <View key={tag.id} style={localStyles.tagChip}>
-                  <Text style={localStyles.tagText}>{tag.name}</Text>
+                <View key={tag.id} style={styles.tagChip}>
+                  <Text style={styles.tagText}>{tag.name}</Text>
                 </View>
               ))}
             </View>
@@ -337,29 +216,29 @@ const MenuItemDetailScreen = () => {
         )}
 
         {isAdmin && (
-          <View style={localStyles.actionsContainer}>
+          <View style={styles.detailActionsContainer}>
             <TouchableOpacity
-              style={[localStyles.actionButton, localStyles.editButton]}
+              style={[styles.detailActionButton, styles.detailEditButton]}
               onPress={handleEdit}
             >
               <Ionicons name="create-outline" size={20} color="#fff" />
-              <Text style={localStyles.actionButtonText}>Редактировать</Text>
+              <Text style={styles.detailActionButtonText}>Редактировать</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[localStyles.actionButton, localStyles.deleteButton]}
+              style={[styles.detailActionButton, styles.detailDeleteButton]}
               onPress={handleDelete}
             >
               <Ionicons name="trash-outline" size={20} color="#fff" />
-              <Text style={localStyles.actionButtonText}>Удалить</Text>
+              <Text style={styles.detailActionButtonText}>Удалить</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[localStyles.actionButton, localStyles.tagButton]}
+              style={[styles.detailActionButton, styles.detailTagButton]}
               onPress={openEditTags}
             >
               <Ionicons name="pricetags-outline" size={20} color="#fff" />
-              <Text style={localStyles.actionButtonText}>Управление тегами</Text>
+              <Text style={styles.detailActionButtonText}>Управление тегами</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -371,14 +250,14 @@ const MenuItemDetailScreen = () => {
         transparent
         onRequestClose={() => setEditTagsModalVisible(false)}
       >
-        <View style={localStyles.modalOverlay}>
-          <View style={localStyles.modalContent}>
-            <Text style={localStyles.modalTitle}>Выберите теги</Text>
-            <ScrollView style={localStyles.modalScroll}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Выберите теги</Text>
+            <ScrollView style={styles.modalScroll}>
               {allTags.map(tag => (
                 <TouchableOpacity
                   key={tag.id}
-                  style={localStyles.tagItem}
+                  style={styles.tagItem}
                   onPress={() => toggleTag(tag.id)}
                 >
                   <Ionicons
@@ -386,26 +265,26 @@ const MenuItemDetailScreen = () => {
                     size={24}
                     color={selectedTagIds.has(tag.id) ? "#007AFF" : "#999"}
                   />
-                  <Text style={localStyles.tagItemText}>{tag.name}</Text>
+                  <Text style={styles.tagItemText}>{tag.name}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <View style={localStyles.modalButtons}>
+            <View style={styles.modalButtons}>
               <TouchableOpacity
-                style={[localStyles.modalButton, localStyles.cancelButton]}
+                style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setEditTagsModalVisible(false)}
               >
-                <Text style={localStyles.cancelButtonText}>Отмена</Text>
+                <Text style={styles.cancelButtonText}>Отмена</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[localStyles.modalButton, localStyles.saveButton]}
+                style={[styles.modalButton, styles.saveButton]}
                 onPress={saveTags}
                 disabled={savingTags}
               >
                 {savingTags ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={localStyles.saveButtonText}>Сохранить</Text>
+                  <Text style={styles.saveButtonText}>Сохранить</Text>
                 )}
               </TouchableOpacity>
             </View>

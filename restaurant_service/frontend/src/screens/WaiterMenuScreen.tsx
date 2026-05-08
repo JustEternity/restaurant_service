@@ -368,7 +368,7 @@ const WaiterMenu = () => {
           )}
         </TouchableOpacity>
         {(isNewOrderMode || isEditMode) && (
-          <TouchableOpacity style={localStyles.addToCartButton} onPress={() => addToCart(item)}>
+          <TouchableOpacity style={styles.addToCartButton} onPress={() => addToCart(item)}>
             <Ionicons name="add" size={22} color="#fff" />
           </TouchableOpacity>
         )}
@@ -425,15 +425,15 @@ const WaiterMenu = () => {
               <View>
                 <Ionicons name="cart-outline" size={28} color="#007AFF" />
                 {cart.length > 0 && (
-                  <View style={localStyles.cartBadge}>
-                    <Text style={localStyles.cartBadgeText}>{cart.reduce((s, i) => s + i.quantity, 0)}</Text>
+                  <View style={styles.cartBadge}>
+                    <Text style={styles.cartBadgeText}>{cart.reduce((s, i) => s + i.quantity, 0)}</Text>
                   </View>
                 )}
               </View>
             </TouchableOpacity>
           )}
           {isEditMode && (
-            <TouchableOpacity onPress={saveEditedOrder} style={localStyles.saveButton}>
+            <TouchableOpacity onPress={saveEditedOrder} style={styles.saveButton}>
               <Text style={{ color: '#fff', fontWeight: '600' }}>Сохранить</Text>
             </TouchableOpacity>
           )}
@@ -527,7 +527,7 @@ const WaiterMenu = () => {
                   </View>
                 )}
                 {(isNewOrderMode || isEditMode) && (
-                  <TouchableOpacity style={localStyles.modalAddToCartButton} onPress={() => { addToCart(selectedItem); handleCloseModal(); }}>
+                  <TouchableOpacity style={styles.modalAddToCartButton} onPress={() => { addToCart(selectedItem); handleCloseModal(); }}>
                     <Text style={{ color: '#fff', fontWeight: '600' }}>Добавить в корзину</Text>
                   </TouchableOpacity>
                 )}
@@ -538,10 +538,10 @@ const WaiterMenu = () => {
       </Modal>
 
       <Modal visible={cartModalVisible} animationType="slide" transparent>
-        <View style={localStyles.cartModalOverlay}>
-          <View style={localStyles.cartModalContent}>
-            <View style={localStyles.modalHeader}>
-              <Text style={localStyles.modalTitle}>Корзина</Text>
+        <View style={styles.cartModalOverlay}>
+          <View style={styles.cartModalContent}>
+            <View style={styles.cartModalHeader}>
+              <Text style={styles.modalTitle}>Корзина</Text>
               <TouchableOpacity onPress={() => setCartModalVisible(false)}>
                 <Ionicons name="close" size={28} color="#333" />
               </TouchableOpacity>
@@ -553,20 +553,20 @@ const WaiterMenu = () => {
                   : null;
                 const isLocked = existing && existing.current_status !== 'waiting';
                 return (
-                  <View key={cartItem.id || cartItem.item.id} style={[localStyles.cartItem, isLocked && { opacity: 0.6 }]}>
+                  <View key={cartItem.id || cartItem.item.id} style={[styles.cartItem, isLocked && { opacity: 0.6 }]}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontWeight: '600' }}>{cartItem.item.name}</Text>
                       <Text style={{ color: '#666' }}>{cartItem.item.price} ₽</Text>
                       {!isLocked && (
                         <TextInput
-                          style={localStyles.commentInput}
+                          style={styles.commentInput}
                           placeholder="Комментарий"
                           value={cartItem.comment}
                           onChangeText={(text) => updateCartItem(cartItem.id || cartItem.item.id, cartItem.quantity, text)}
                         />
                       )}
                     </View>
-                    <View style={localStyles.quantityControl}>
+                    <View style={styles.quantityControl}>
                       {!isLocked ? (
                         <>
                           <TouchableOpacity onPress={() => updateCartItem(cartItem.id || cartItem.item.id, cartItem.quantity - 1)}>
@@ -588,14 +588,14 @@ const WaiterMenu = () => {
                 );
               })}
             </ScrollView>
-            <View style={localStyles.cartFooter}>
-              <Text style={localStyles.totalText}>Итого: {getTotalPrice()} ₽</Text>
+            <View style={styles.cartFooter}>
+              <Text style={styles.totalText}>Итого: {getTotalPrice()} ₽</Text>
               {isNewOrderMode ? (
-                <TouchableOpacity style={localStyles.submitOrderButton} onPress={submitOrder}>
+                <TouchableOpacity style={styles.submitOrderButton} onPress={submitOrder}>
                   <Text style={{ color: '#fff', fontWeight: '600' }}>Оформить заказ</Text>
                 </TouchableOpacity>
               ) : isEditMode ? (
-                <TouchableOpacity style={localStyles.submitOrderButton} onPress={saveEditedOrder}>
+                <TouchableOpacity style={styles.submitOrderButton} onPress={saveEditedOrder}>
                   <Text style={{ color: '#fff', fontWeight: '600' }}>Сохранить</Text>
                 </TouchableOpacity>
               ) : null}
@@ -606,101 +606,5 @@ const WaiterMenu = () => {
     </View>
   );
 };
-
-const localStyles = {
-  addToCartButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 10,
-  },
-  cartBadge: {
-    position: 'absolute',
-    right: -6,
-    top: -4,
-    backgroundColor: '#ff3b30',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cartBadgeText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-  modalAddToCartButton: {
-    backgroundColor: '#007AFF',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  cartModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  cartModalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '90%',
-  },
-  cartItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  commentInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 8,
-    marginTop: 8,
-    fontSize: 14,
-  },
-  quantityControl: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 12,
-  },
-  cartFooter: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  totalText: { fontSize: 18, fontWeight: '700' },
-  submitOrderButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 24,
-  },
-  saveButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  modalTitle: { fontSize: 20, fontWeight: '700' },
-};
-
-Object.assign(styles, localStyles);
 
 export default WaiterMenu;

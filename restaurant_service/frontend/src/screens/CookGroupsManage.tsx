@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import styles from '../design/CookGroupsManageStyles';
 
 interface CookGroup {
   id: number;
@@ -339,71 +340,5 @@ const CookGroupManagement = () => {
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 10, fontSize: 16, color: '#666' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 15,
-    paddingTop: 15,
-    paddingBottom: 15,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-  },
-  backButton: { padding: 4 },
-  headerTitle: { fontSize: 20, fontWeight: '600', color: '#1a1a1a' },
-  addButton: { padding: 4 },
-  listContainer: { padding: 16 },
-  groupItem: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  groupInfo: { flex: 1 },
-  groupName: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 4 },
-  groupActions: { flexDirection: 'row', alignItems: 'center' },
-  actionButton: { padding: 8, marginLeft: 8 },
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
-  emptyText: { fontSize: 16, color: '#999', marginTop: 16, marginBottom: 20 },
-  createButton: { backgroundColor: '#007AFF', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8 },
-  createButtonText: { color: '#fff', fontWeight: '600' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '80%', backgroundColor: '#fff', borderRadius: 12, padding: 20 },
-  modalTitle: { fontSize: 18, fontWeight: '600', marginBottom: 16, textAlign: 'center' },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 12 },
-  modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  cancelButton: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#f1f3f4', marginRight: 8, alignItems: 'center' },
-  cancelButtonText: { color: '#666', fontWeight: '600' },
-  saveButton: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#007AFF', marginLeft: 8, alignItems: 'center' },
-  saveButtonText: { color: '#fff', fontWeight: '600' },
-  detailModalContent: { width: '90%', maxHeight: '80%', backgroundColor: '#fff', borderRadius: 12, padding: 20 },
-  detailHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  detailTitle: { fontSize: 18, fontWeight: '600', color: '#333' },
-  detailLoader: { marginVertical: 40 },
-  detailSection: { marginBottom: 24 },
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 12 },
-  detailItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8f9fa', padding: 12, borderRadius: 8, marginBottom: 8 },
-  detailItemText: { fontSize: 14, color: '#333' },
-  emptyDetail: { fontSize: 14, color: '#999', textAlign: 'center', paddingVertical: 20 },
-  addDetailButton: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
-  addDetailButtonText: { fontSize: 14, color: '#007AFF', marginLeft: 8 },
-  selectModalContent: { width: '80%', maxHeight: '70%', backgroundColor: '#fff', borderRadius: 12, padding: 20 },
-  selectItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-  selectItemText: { fontSize: 16, color: '#333' },
-  closeSelectButton: { marginTop: 20, paddingVertical: 12, borderRadius: 8, backgroundColor: '#007AFF', alignItems: 'center' },
-  closeSelectButtonText: { color: '#fff', fontWeight: '600' },
-});
 
 export default CookGroupManagement;

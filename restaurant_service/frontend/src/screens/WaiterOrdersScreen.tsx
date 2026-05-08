@@ -8,6 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
 import api from '../services/api';
+import styles from '../design/WaiterOrdersStyles';
 
 interface PlateInOrder {
   id: number; plate_id: number; count: number; comment: string | null;
@@ -290,55 +291,5 @@ const WaiterOrders = () => {
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 10, fontSize: 16, color: '#666' },
-  header: { padding: 20, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
-  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#333' },
-  headerSubtitle: { fontSize: 14, color: '#666', marginTop: 4 },
-  listContainer: { padding: 16 },
-  orderCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  readyOrderCard: { backgroundColor: '#fce4ec', borderWidth: 1, borderColor: '#e91e8c' },
-  orderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  orderIdContainer: { flexDirection: 'row', alignItems: 'center' },
-  orderId: { fontSize: 18, fontWeight: '600', color: '#333', marginRight: 10 },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  statusText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  orderTime: { fontSize: 14, color: '#666' },
-  orderInfo: { gap: 6 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  infoText: { fontSize: 14, color: '#333' },
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
-  emptyText: { fontSize: 16, color: '#999', marginTop: 15 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#333' },
-  modalBody: { padding: 20 },
-  orderDetails: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 16, marginBottom: 20 },
-  detailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  detailLabel: { width: 120, fontSize: 14, color: '#666' },
-  detailValue: { flex: 1, fontSize: 14, color: '#333', fontWeight: '500' },
-  platesTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12, color: '#333' },
-  plateItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-  plateInfo: { flex: 1, marginRight: 10 },
-  plateName: { fontSize: 16, fontWeight: '500', color: '#333', marginBottom: 4 },
-  plateComment: { fontSize: 13, color: '#888', marginBottom: 4, fontStyle: 'italic' },
-  platePrice: { fontSize: 14, color: '#007AFF', fontWeight: '500' },
-  plateStatusContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cookingStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  cookingStatusText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  servedButton: { backgroundColor: '#8e44ad', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  servedButtonText: { color: '#fff', fontWeight: '600', fontSize: 12 },
-  totalContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#eee' },
-  totalText: { fontSize: 18, fontWeight: '600', color: '#333' },
-  totalValue: { fontSize: 20, fontWeight: 'bold', color: '#007AFF' },
-  actionsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 24 },
-  editOrderButton: { backgroundColor: '#007AFF', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  completeOrderButton: { backgroundColor: '#27ae60', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  editOrderButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-});
 
 export default WaiterOrders;
