@@ -22,6 +22,8 @@ import styles from '../design/WaiterMenuStyles';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
+import { getPhotoUrl } from '../utils/imageUrl';
+
 interface Category {
   id: number;
   name: string;
@@ -295,11 +297,14 @@ const WaiterMenu = () => {
 
   const getTotalPrice = () => cart.reduce((sum, i) => sum + i.item.price * i.quantity, 0);
 
+  const [submitting, setSubmitting] = useState(false);
+
   const submitOrder = async () => {
     if (cart.length === 0) {
       Alert.alert('Корзина пуста', 'Добавьте хотя бы одно блюдо');
       return;
     }
+    setSubmitting(true);
     try {
       const payload = {
         waiter: user?.id,
@@ -315,13 +320,21 @@ const WaiterMenu = () => {
       setCart([]);
       setCartModalVisible(false);
       navigation.replace('MenuList');
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось создать заказ');
+    } catch (error: any) {
+      if (error.response?.status === 409) {
+        Alert.alert('Стол занят', 'Кто-то уже создал заказ для этого стола. Обновите список заказов.');
+        navigation.replace('MenuList')
+      } else {
+        Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось создать заказ');
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const saveEditedOrder = async () => {
     if (!orderId) return;
+    setSubmitting(true);
     try {
       const platesToSend = cart.map(i => ({
         id: i.id,
@@ -335,8 +348,10 @@ const WaiterMenu = () => {
       setCart([]);
       setCartModalVisible(false);
       navigation.replace('MenuList');
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось обновить заказ');
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось обновить заказ');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -361,7 +376,7 @@ const WaiterMenu = () => {
             <Text style={styles.menuItemPrice}>{item.price} ₽</Text>
           </View>
           {item.photo ? (
-            <Image source={{ uri: item.photo }} style={styles.menuItemImage} resizeMode="cover" />
+            <Image source={{ uri: getPhotoUrl(item.photo) ?? undefined }} style={styles.menuItemImage} resizeMode="cover" />
           ) : (
             <View style={[styles.menuItemImage, styles.noImage]}>
               <Ionicons name="fast-food-outline" size={30} color="#999" />
@@ -505,7 +520,11 @@ const WaiterMenu = () => {
             {selectedItem && (
               <ScrollView>
                 {selectedItem.photo ? (
-                  <Image source={{ uri: selectedItem.photo }} style={styles.modalImage} />
+                  <Image
+                    source={{ uri: getPhotoUrl(selectedItem.photo) ?? undefined }}
+                    style={styles.modalImage}
+                    resizeMode="cover"
+                  />
                 ) : (
                   <View style={[styles.modalImage, styles.modalNoImage]}>
                     <Ionicons name="fast-food-outline" size={60} color="#ccc" />
@@ -592,12 +611,28 @@ const WaiterMenu = () => {
             <View style={styles.cartFooter}>
               <Text style={styles.totalText}>Итого: {getTotalPrice()} ₽</Text>
               {isNewOrderMode ? (
-                <TouchableOpacity style={styles.submitOrderButton} onPress={submitOrder}>
-                  <Text style={{ color: '#fff', fontWeight: '600' }}>Оформить заказ</Text>
+                <TouchableOpacity
+                  style={styles.submitOrderButton}
+                  onPress={submitOrder}
+                  disabled={submitting}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={{ color: '#fff', fontWeight: '600' }}>Оформить заказ</Text>
+                  )}
                 </TouchableOpacity>
               ) : isEditMode ? (
-                <TouchableOpacity style={styles.submitOrderButton} onPress={saveEditedOrder}>
-                  <Text style={{ color: '#fff', fontWeight: '600' }}>Сохранить</Text>
+                <TouchableOpacity
+                  style={styles.submitOrderButton}
+                  onPress={saveEditedOrder}
+                  disabled={submitting}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={{ color: '#fff', fontWeight: '600' }}>Сохранить</Text>
+                  )}
                 </TouchableOpacity>
               ) : null}
             </View>

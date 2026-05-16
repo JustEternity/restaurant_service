@@ -15,6 +15,8 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import styles from '../design/MenuItemScreenStyles';
 
+import { getPhotoUrl } from '../utils/imageUrl';
+
 interface Tag {
   id: number;
   name: string;
@@ -165,7 +167,11 @@ const MenuItemDetailScreen = () => {
   return (
     <ScrollView style={styles.container}>
       {item.photo ? (
-        <Image source={{ uri: item.photo }} style={styles.image} resizeMode="cover" />
+        <Image
+          source={{ uri: getPhotoUrl(item.photo) ?? undefined }}
+          style={styles.image}
+          resizeMode="cover"
+        />
       ) : (
         <View style={[styles.image, styles.noImage]}>
           <Ionicons name="fast-food-outline" size={80} color="#999" />

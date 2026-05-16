@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TextInput,
   TouchableOpacity,
   ScrollView,
@@ -10,13 +9,18 @@ import {
   ActivityIndicator,
   Switch,
   Modal,
-  FlatList
+  FlatList,
+  Image as RNImage
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import styles from '../design/EditMenuItemStyles';
+
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { getPhotoUrl } from '../utils/imageUrl';
 
 interface Category {
   id: number;
@@ -50,6 +54,9 @@ const MenuItemFormScreen = () => {
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [tagSelectionModal, setTagSelectionModal] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState<Set<number>>(new Set());
+
+  const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const [formData, setFormData] = useState<MenuItemFormData>({
     name: '',
@@ -123,6 +130,59 @@ const MenuItemFormScreen = () => {
     setFormData(prev => ({ ...prev, tag_ids: Array.from(newSet) }));
   };
 
+  const pickImage = async () => {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+          Alert.alert('Нужен доступ к фото');
+          return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 1,
+      });
+
+      if (result.canceled) return;
+
+      const manipResult = await ImageManipulator.manipulateAsync(
+          result.assets[0].uri,
+          [{ resize: { width: 800 } }],
+          { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      const uri = manipResult.uri;
+
+      if (isEditMode && itemId) {
+          await uploadPhotoToServer(itemId, uri);
+      } else {
+          setSelectedImageUri(uri);
+      }
+  };
+
+  const uploadPhotoToServer = async (menuId: number, uri: string) => {
+      setUploadingPhoto(true);
+      try {
+          const formDataObj = new FormData();
+          formDataObj.append('file', {
+              uri,
+              name: 'photo.jpg',
+              type: 'image/jpeg',
+          } as any);
+
+          const resp = await api.post(`/menu/${menuId}/upload-photo`, formDataObj, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+          });
+
+          setFormData(prev => ({ ...prev, photo: resp.data.photo_url }));
+          setSelectedImageUri(null);
+          Alert.alert('Готово', 'Фото загружено');
+      } catch (error: any) {
+          Alert.alert('Ошибка', error.message);
+      } finally {
+          setUploadingPhoto(false);
+      }
+  };
+
   const handleSave = async () => {
     if (!formData.name.trim()) {
       Alert.alert('Ошибка', 'Введите название блюда');
@@ -151,12 +211,15 @@ const MenuItemFormScreen = () => {
     try {
       if (isEditMode) {
         await api.put(`/menu/${itemId}`, payload);
-      } else {
-        await api.post('/menu/', payload);
-      }
-
-      Alert.alert('Успешно', isEditMode ? 'Блюдо обновлено' : 'Блюдо создано');
-      navigation.goBack();
+    } else {
+        const response = await api.post('/menu/', payload);
+        const newItemId = response.data.id;
+        if (selectedImageUri) {
+            await uploadPhotoToServer(newItemId, selectedImageUri);
+        }
+    }
+    Alert.alert('Успешно', isEditMode ? 'Блюдо обновлено' : 'Блюдо создано');
+    navigation.goBack();
     } catch (error: any) {
       const errMsg = error.response?.data?.detail || error.message || 'Ошибка сохранения';
       Alert.alert('Ошибка', errMsg);
@@ -235,13 +298,20 @@ const MenuItemFormScreen = () => {
           ))}
         </View>
 
-        <Text style={styles.label}>Фото (URL)</Text>
-        <TextInput
-          style={styles.input}
-          value={formData.photo}
-          onChangeText={text => setFormData(prev => ({ ...prev, photo: text }))}
-          placeholder="https://example.com/image.jpg"
-        />
+        <Text style={styles.label}>Фото</Text>
+        <TouchableOpacity style={styles.imagePickerButton} onPress={pickImage} disabled={uploadingPhoto}>
+            <Ionicons name="image-outline" size={24} color="#007AFF" />
+            <Text style={styles.imagePickerText}>
+                {uploadingPhoto ? 'Загрузка...' : 'Выбрать фото'}
+            </Text>
+        </TouchableOpacity>
+        {(selectedImageUri || formData.photo) && (
+            <RNImage
+                source={{ uri: (selectedImageUri || getPhotoUrl(formData.photo)) ?? undefined }}
+                style={styles.previewImage}
+                resizeMode="cover"
+            />
+        )}
 
         <View style={styles.switchContainer}>
           <Text style={styles.label}>Доступно</Text>

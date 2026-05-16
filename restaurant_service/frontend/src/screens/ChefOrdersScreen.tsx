@@ -90,6 +90,9 @@ const ChefOrders = () => {
   const [groupCooks, setGroupCooks] = useState<Cook[]>([]);
   const [selectedCookId, setSelectedCookId] = useState<number | null>(null);
 
+  const [loadingChange, setLoadingChange] = useState(false);
+  const [loadingRollback, setLoadingRollback] = useState(false);
+
   const plateToSpecializations = useRef<Map<number, Set<number>>>(new Map());
 
   const loadAllowedPlateIds = useCallback(async (): Promise<Set<number>> => {
@@ -278,19 +281,23 @@ const ChefOrders = () => {
 
   const changePlateStatus = async () => {
     if (!selectedItem || !targetStatus || !selectedCookId) return;
+    setLoadingChange(true);
     try {
-      await api.put(
-        `/orders/plate/${selectedItem.plate_order_id}/status/${targetStatus}?change_by=${selectedCookId}`
-      );
+      await api.put(`/orders/plate/${selectedItem.plate_order_id}/status/${targetStatus}?change_by=${selectedCookId}`);
       setChangeStatusModalVisible(false);
       setDetailModalVisible(false);
       loadData();
       Alert.alert('Успех', `Статус изменён на "${getStatusLabel(targetStatus)}"`);
     } catch (error: any) {
-      Alert.alert('Ошибка', error.response?.data?.detail || error.message || 'Не удалось изменить статус');
+      const msg = error.response?.status === 409
+        ? "Этот статус уже установлен другим поваром"
+        : (error.response?.data?.detail || error.message || 'Не удалось изменить статус');
+      Alert.alert('Ошибка', msg);
       setChangeStatusModalVisible(false);
       setDetailModalVisible(false);
       loadData();
+    } finally {
+      setLoadingChange(false);
     }
   };
 
@@ -304,21 +311,33 @@ const ChefOrders = () => {
     }
   };
 
-  const rollbackStatus = async (plateOrderId: number) => {
+  const rollbackStatus = async (plateOrderId: number, expectedCurrentStatus: string) => {
+    setLoadingRollback(true);
     try {
-      await api.delete(`/cooking-status-history/rollback/${plateOrderId}`);
+        await api.delete(`/cooking-status-history/rollback/${plateOrderId}`, {
+        params: { expected_current_status: expectedCurrentStatus }
+      });
       Alert.alert('Успешно', 'Статус откачен');
       setDetailModalVisible(false);
       loadData();
     } catch (error: any) {
-      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось откатить статус');
+      const msg = error.response?.status === 409
+        ? "Статус уже изменен другим поваром"
+        : (error.response?.data?.detail || error.message || 'Не удалось откатить статус');
+      Alert.alert('Ошибка', msg);
+      setDetailModalVisible(false);
+      loadData();
+    } finally {
+      setLoadingRollback(false);
     }
   };
 
   const { addHandler } = useWebSocket();
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
-      if (data.type === 'new_order') {
+      if (data.type === 'new_order' ||
+        data.type === 'plate_status_changed' ||
+        data.type === 'order_updated') {
         handleRefresh();
       }
     });
@@ -470,10 +489,9 @@ const ChefOrders = () => {
                     style={[styles.changeStatusButton, { backgroundColor: '#e74c3c' }]}
                     onPress={() => {
                       setDetailModalVisible(false);
-                      rollbackStatus(selectedItem.plate_order_id);
+                      rollbackStatus(selectedItem.plate_order_id, selectedItem.current_status);
                     }}
                   >
-                    <Ionicons name="arrow-undo-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
                     <Text style={styles.changeStatusButtonText}>Откатить статус</Text>
                   </TouchableOpacity>
                 )}

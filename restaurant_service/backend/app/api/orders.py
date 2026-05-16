@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, desc
+from sqlalchemy import select, delete, text, exists, and_
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 from typing import List, Optional
@@ -168,6 +168,23 @@ async def create_order(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
+    tables_sorted = sorted(order_data.tables)
+
+    if tables_sorted:
+        lock_key = hash(f"tables:{','.join(map(str, tables_sorted))}") % 2_147_483_647
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
+    if tables_sorted:
+        conflict_stmt = select(exists().where(
+            and_(
+                Order.status == "active",
+                TableForOrder.table.in_(tables_sorted),
+                TableForOrder.order == Order.id
+            )
+        ))
+        result = await db.execute(conflict_stmt)
+        if result.scalar():
+            raise HTTPException(status_code=409, detail="Один или несколько столов уже заняты активным заказом")
     waiter = await db.get(User, order_data.waiter)
     if not waiter:
         raise HTTPException(status_code=404, detail="Официант не найден")
@@ -308,7 +325,11 @@ async def update_plate_status(
     if status not in allowed_statuses:
         raise HTTPException(status_code=400, detail=f"Недопустимый статус. Допустимые: {', '.join(allowed_statuses)}")
 
+    lock_key = hash(f"plate_status:{plate_id}") % 2_147_483_647
+    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
     stmt = select(PlateForOrder).where(PlateForOrder.id == plate_id).options(
+        selectinload(PlateForOrder.statuses_of_plate).selectinload(CookingStatusHistory.status_to_plate),
         selectinload(PlateForOrder.order),
         selectinload(PlateForOrder.menu_item)
     )
@@ -317,6 +338,10 @@ async def update_plate_status(
 
     if not plate:
         raise HTTPException(status_code=404, detail="Блюдо в заказе не найдено")
+
+    current_status = get_current_status(plate)
+    if current_status == status:
+        raise HTTPException(status_code=409, detail=f"Статус уже '{status}'")
 
     history = CookingStatusHistory(
         change_time=datetime.utcnow(),
@@ -341,6 +366,16 @@ async def update_plate_status(
         "order_id": plate.order.id if plate.order else None,
         "message": f"Статус блюда изменён на {status}"
     }, "admin")
+
+    cooks_to_notify = await get_cooks_to_notify(plate.order.id, db)
+    if cooks_to_notify:
+        await manager.broadcast_to_users({
+            "type": "plate_status_changed",
+            "plate_id": plate_id,
+            "new_status": status,
+            "order_id": plate.order.id,
+            "message": f"Статус блюда изменён на {status}"
+        }, list(cooks_to_notify))
 
     if status == "ready" and plate.order:
         await manager.send_personal_message({

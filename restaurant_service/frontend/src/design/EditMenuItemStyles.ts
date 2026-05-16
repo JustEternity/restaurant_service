@@ -113,6 +113,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalCloseButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  imagePickerButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      borderWidth: 1,
+      borderColor: '#ddd',
+      borderRadius: 8,
+      marginBottom: 12,
+  },
+  imagePickerText: {
+      marginLeft: 8,
+      fontSize: 16,
+      color: '#007AFF',
+  },
+  previewImage: {
+      width: '100%',
+      height: 200,
+      borderRadius: 8,
+      marginBottom: 12,
+  },
 });
 
 export default styles;

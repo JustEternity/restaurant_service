@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text, desc
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime, date
@@ -12,6 +12,9 @@ from app.schemas.history_schemas import (
     CookingStatusHistoryUpdate,
     CookingStatusHistoryResponse
 )
+
+from app.websocket.manager import manager
+from app.api.orders import get_cooks_to_notify
 
 router = APIRouter(prefix="/cooking-status-history", tags=["История статусов блюд"])
 
@@ -157,18 +160,14 @@ async def create_cooking_status_history(history_data: CookingStatusHistoryCreate
         order_number=order_number
     )
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
-from sqlalchemy.orm import selectinload
-from app.db_models import CookingStatusHistory, PlateForOrder, User, Menu, Order
-
 @router.delete("/rollback/{plate_for_order_id}")
-async def rollback_status(plate_for_order_id: int, db: AsyncSession = Depends(get_async_db)):
-    """
-    Отменить последнее изменение статуса приготовления (удалить последнюю запись истории).
-    Разрешено только если последний статус 'preparing' или 'ready'.
-    """
+async def rollback_status(
+    plate_for_order_id: int,
+    expected_current_status: str = Query(..., description="Ожидаемый текущий статус"),
+    db: AsyncSession = Depends(get_async_db)):
+    lock_key = hash(f"plate_rollback:{plate_for_order_id}") % 2_147_483_647
+    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
     stmt = select(CookingStatusHistory).where(
         CookingStatusHistory.ordered_plate == plate_for_order_id
     ).order_by(CookingStatusHistory.change_time.desc())
@@ -182,6 +181,9 @@ async def rollback_status(plate_for_order_id: int, db: AsyncSession = Depends(ge
     if last_record.new_status not in ("preparing", "ready"):
         raise HTTPException(status_code=400, detail="Откат возможен только со статусов 'preparing' или 'ready'")
 
+    if last_record.new_status != expected_current_status:
+        raise HTTPException(status_code=409, detail="Статус уже откачен другим пользователем")
+
     await db.delete(last_record)
     await db.commit()
 
@@ -193,6 +195,18 @@ async def rollback_status(plate_for_order_id: int, db: AsyncSession = Depends(ge
         else:
             plate_for_order.current_status = "waiting"
         await db.commit()
+
+    order_id_result = await db.execute(
+        select(PlateForOrder.order_id).where(PlateForOrder.id == plate_for_order_id)
+    )
+    order_id = order_id_result.scalar_one_or_none()
+
+    cooks_to_notify = await get_cooks_to_notify(order_id, db)
+    if cooks_to_notify:
+        await manager.broadcast_to_users({
+            "type": "plate_status_changed",
+            "message": "Статус блюда изменен"
+        }, list(cooks_to_notify))
 
     return {"message": "Последний статус успешно отменён", "new_status": plate_for_order.current_status if plate_for_order else None}
 

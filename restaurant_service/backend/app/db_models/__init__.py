@@ -12,6 +12,7 @@ from .cook_group import CookGroup
 from .cooks_in_groups import CooksInGroup
 from .plates_for_specialization import PlatesForSpecialization
 from .specialization import Specialization
+from .hallmap_settings import HallMapSettings
 
 __all__ = [
     'Base',
@@ -31,5 +32,6 @@ __all__ = [
     'CookGroup',
     'CooksInGroup',
     'PlatesForSpecialization',
-    'Specialization'
+    'Specialization',
+    'HallMapSettings'
 ]

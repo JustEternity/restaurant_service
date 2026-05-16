@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from typing import List, Optional
@@ -9,6 +9,55 @@ from app.database import get_async_db
 from app.schemas.menu_schemas import *
 
 router = APIRouter(prefix="/menu", tags=["Меню"])
+
+
+import os, uuid
+from pathlib import Path
+
+UPLOAD_DIR = Path("uploads/menu")
+ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_SIZE = 5 * 1024 * 1024
+
+@router.post("/{menu_id}/upload-photo")
+async def upload_menu_photo(
+    menu_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_async_db)
+):
+    menu_item = await db.get(Menu, menu_id)
+    if not menu_item:
+        raise HTTPException(status_code=404, detail="Блюдо не найдено")
+
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Разрешены только JPEG, PNG, WebP")
+
+    content = await file.read()
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=400, detail="Файл слишком большой (макс. 5MB)")
+
+    if file.content_type == "image/jpeg" and content[:2] != b'\xff\xd8':
+        raise HTTPException(status_code=400, detail="Файл повреждён или не JPEG")
+    if file.content_type == "image/png" and content[:4] != b'\x89PNG':
+        raise HTTPException(status_code=400, detail="Файл повреждён или не PNG")
+
+    ext = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+    filename = f"{menu_id}_{uuid.uuid4().hex}.{ext}"
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    file_path = UPLOAD_DIR / filename
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    if menu_item.photo:
+        old_path = UPLOAD_DIR / menu_item.photo.split('/')[-1]
+        if old_path.exists():
+            old_path.unlink()
+
+    menu_item.photo = f"menu/{filename}"
+    await db.commit()
+
+    return {"photo_url": f"/uploads/{menu_item.photo}"}
+
 
 # ===== ЭНДПОИНТЫ ДЛЯ БЛЮД =====
 @router.get("/", response_model=List[MenuResponse])
@@ -52,7 +101,7 @@ async def get_all_menu(
             id=item.id,
             name=item.name,
             description=item.description,
-            photo=item.photo,
+            photo=f"/uploads/{item.photo}" if item.photo else None,
             price=item.price,
             category=item.category,
             is_available=item.is_available,
@@ -87,7 +136,7 @@ async def get_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db)):
         id=item.id,
         name=item.name,
         description=item.description,
-        photo=item.photo,
+        photo=f"/uploads/{item.photo}" if item.photo else None,
         price=item.price,
         category=item.category,
         is_available=item.is_available,
@@ -136,7 +185,7 @@ async def create_menu_item(menu_data: MenuCreate, db: AsyncSession = Depends(get
         id=menu_item.id,
         name=menu_item.name,
         description=menu_item.description,
-        photo=menu_item.photo,
+        photo=f"/uploads/{menu_item.photo}" if menu_item.photo else None,
         price=menu_item.price,
         category=menu_item.category,
         is_available=menu_item.is_available,
@@ -193,7 +242,7 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
         id=item.id,
         name=item.name,
         description=item.description,
-        photo=item.photo,
+        photo=f"/uploads/{item.photo}" if item.photo else None,
         price=item.price,
         category=item.category,
         is_available=item.is_available,

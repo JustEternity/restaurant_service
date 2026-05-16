@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   TouchableOpacity,
   Alert,
@@ -9,6 +10,7 @@ import {
   Dimensions,
   Modal,
   ScrollView,
+  TextInput,
 } from 'react-native';
 import {
   GestureHandlerRootView,
@@ -23,10 +25,13 @@ import Animated, {
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
 import api from '../services/api';
-import styles from '../design/HallMapStyles'
+import styles from '../design/HallMapStyles';
+import { getPhotoUrl } from '../utils/imageUrl';
 
 const { width, height } = Dimensions.get('window');
 
@@ -77,6 +82,26 @@ const HallMap = () => {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [orderModalVisible, setOrderModalVisible] = useState(false);
   const [loadingOrder, setLoadingOrder] = useState(false);
+
+  const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
+  const [tableSize, setTableSize] = useState<number>(30);
+  const [tempTableSize, setTempTableSize] = useState<string>('30');
+  const [savingSize, setSavingSize] = useState(false);
+  const [uploadingBg, setUploadingBg] = useState(false);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await api.get('/hallmap/settings');
+      if (res.data.hallmap_image) {
+        setBackgroundImage(res.data.hallmap_image);
+      }
+      const size = Number(res.data.table_size) || 30;
+      setTableSize(size);
+      setTempTableSize(String(size));
+    } catch (error) {
+      console.error('Ошибка загрузки настроек схемы', error);
+    }
+  }, []);
 
   const safeSetTables = (updater: Table[] | ((prev: Table[]) => Table[])) => {
     setTables((prev: Table[]) => {
@@ -132,6 +157,7 @@ const HallMap = () => {
 
   useEffect(() => {
     manualRefresh();
+    loadSettings();
   }, []);
 
   const { addHandler } = useWebSocket();
@@ -258,6 +284,59 @@ const HallMap = () => {
     }
   };
 
+  const saveTableSize = async () => {
+    const size = parseFloat(tempTableSize) || 30;
+    setSavingSize(true);
+    try {
+      await api.put('/hallmap/settings', { table_size: size });
+      setTableSize(size);
+      Alert.alert('Готово', 'Размер столов обновлён');
+    } catch (error) {
+      Alert.alert('Ошибка', 'Не удалось обновить размер');
+    } finally {
+      setSavingSize(false);
+    }
+  };
+
+  const pickBackground = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Нужен доступ к фото');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 1,
+    });
+    if (result.canceled) return;
+
+    const manipResult = await ImageManipulator.manipulateAsync(
+      result.assets[0].uri,
+      [{ resize: { width: 800 } }],
+      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+    );
+
+    const formData = new FormData();
+    formData.append('file', {
+      uri: manipResult.uri,
+      name: 'floorplan.jpg',
+      type: 'image/jpeg',
+    } as any);
+
+    setUploadingBg(true);
+    try {
+      const res = await api.post('/hallmap/upload-background', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setBackgroundImage(res.data.url);
+      Alert.alert('Готово', 'Фон схемы обновлён');
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.message);
+    } finally {
+      setUploadingBg(false);
+    }
+  };
+
   const getOrderStatusText = (status: string) => {
     switch (status) {
       case 'active': return 'Активен';
@@ -313,11 +392,20 @@ const HallMap = () => {
                 table.status === 'occupied' && !readyTableIds.has(table.id) && styles.tableOccupied,
                 readyTableIds.has(table.id) && styles.tableReady,
                 selectedTableIds.includes(table.id) && !isAdmin && styles.tableSelected,
+                {
+                  width: tableSize * 2,
+                  height: tableSize * 2,
+                  borderRadius: tableSize,
+                },
               ]}
             >
               <Text style={styles.tableNumber}>{table.number}</Text>
               <Text style={styles.tableStatus}>
-                {readyTableIds.has(table.id) ? 'Готово подать' : (table.status === 'free' ? 'Свободен' : 'Занят')}
+                {readyTableIds.has(table.id)
+                  ? 'Готово подать'
+                  : table.status === 'free'
+                  ? 'Свободен'
+                  : 'Занят'}
               </Text>
             </View>
           </TouchableOpacity>
@@ -326,34 +414,37 @@ const HallMap = () => {
     );
   };
 
-  const renderTable = (table: Table) => {
-    if (isAdmin) {
-      return <DraggableTable key={table.id} table={table} />;
-    } else {
-      return (
-        <TouchableOpacity
-          key={table.id}
-          style={[styles.tableContainer, { left: table.pos_x, top: table.pos_y }]}
-          activeOpacity={0.8}
-          onPress={() => toggleTableSelection(table)}
-        >
-          <View
-            style={[
-              styles.table,
-              table.status === 'occupied' && !readyTableIds.has(table.id) && styles.tableOccupied,
-              readyTableIds.has(table.id) && styles.tableReady,
-              selectedTableIds.includes(table.id) && !isAdmin && styles.tableSelected,
-            ]}
-          >
-            <Text style={styles.tableNumber}>{table.number}</Text>
-            <Text style={styles.tableStatus}>
-              {readyTableIds.has(table.id) ? 'Готово подать' : (table.status === 'free' ? 'Свободен' : 'Занят')}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      );
-    }
-  };
+  const renderStaticTable = (table: Table) => (
+    <TouchableOpacity
+      key={table.id}
+      style={[styles.tableContainer, { left: table.pos_x, top: table.pos_y }]}
+      activeOpacity={0.8}
+      onPress={() => toggleTableSelection(table)}
+    >
+      <View
+        style={[
+          styles.table,
+          table.status === 'occupied' && !readyTableIds.has(table.id) && styles.tableOccupied,
+          readyTableIds.has(table.id) && styles.tableReady,
+          selectedTableIds.includes(table.id) && !isAdmin && styles.tableSelected,
+          {
+            width: tableSize * 2,
+            height: tableSize * 2,
+            borderRadius: tableSize,
+          },
+        ]}
+      >
+        <Text style={styles.tableNumber}>{table.number}</Text>
+        <Text style={styles.tableStatus}>
+          {readyTableIds.has(table.id)
+            ? 'Готово подать'
+            : table.status === 'free'
+            ? 'Свободен'
+            : 'Занят'}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
 
   if (initialLoading) {
     return (
@@ -387,12 +478,46 @@ const HallMap = () => {
                 <Ionicons name="move-outline" size={22} color={isEditMode ? '#fff' : '#007AFF'} />
               </TouchableOpacity>
               {isEditMode && (
-                <TouchableOpacity
-                  style={[styles.addButton, isAddingMode && styles.addButtonActive]}
-                  onPress={() => setIsAddingMode(!isAddingMode)}
-                >
-                  <Ionicons name="add" size={24} color="#fff" />
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    style={[styles.addButton, isAddingMode && styles.addButtonActive]}
+                    onPress={() => setIsAddingMode(!isAddingMode)}
+                  >
+                    <Ionicons name="add" size={24} color="#fff" />
+                  </TouchableOpacity>
+                  <View style={styles.sizeRow}>
+                    <TextInput
+                      style={styles.sizeInput}
+                      value={tempTableSize}
+                      onChangeText={setTempTableSize}
+                      keyboardType="numeric"
+                      placeholder="30"
+                      placeholderTextColor="#999"
+                    />
+                    <TouchableOpacity
+                      style={styles.sizeSaveButton}
+                      onPress={saveTableSize}
+                      disabled={savingSize}
+                    >
+                      {savingSize ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.sizeSaveButtonText}>OK</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.bgButton}
+                    onPress={pickBackground}
+                    disabled={uploadingBg}
+                  >
+                    {uploadingBg ? (
+                      <ActivityIndicator size="small" color="#007AFF" />
+                    ) : (
+                      <Ionicons name="image-outline" size={22} color="#007AFF" />
+                    )}
+                  </TouchableOpacity>
+                </>
               )}
             </>
           )}
@@ -410,7 +535,16 @@ const HallMap = () => {
         onPress={handleMapPress}
         disabled={!isAdmin || !isAddingMode}
       >
-        {safeTables.map((table) => renderTable(table))}
+        {backgroundImage && (
+          <Image
+            source={{ uri: getPhotoUrl(backgroundImage) ?? undefined }}
+            style={StyleSheet.absoluteFillObject}
+            resizeMode="contain"
+          />
+        )}
+        {isAdmin
+          ? safeTables.map((table) => <DraggableTable key={table.id} table={table} />)
+          : safeTables.map((table) => renderStaticTable(table))}
       </TouchableOpacity>
 
       {selectedTableIds.length > 0 && !isAdmin && (
