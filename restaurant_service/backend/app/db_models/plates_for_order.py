@@ -20,10 +20,10 @@ class PlateForOrder(BaseModel):
     course_number = Column(Integer)
 
     # Внешние ключи
-    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
     plate_id = Column(Integer, ForeignKey("menu.id"), nullable=False)
 
     # Связи
     order = relationship("Order", back_populates="plates")
     menu_item = relationship("Menu", back_populates="order_items")
-    statuses_of_plate = relationship("CookingStatusHistory", back_populates="status_to_plate")
+    statuses_of_plate = relationship("CookingStatusHistory", back_populates="status_to_plate", cascade="all")

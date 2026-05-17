@@ -41,6 +41,7 @@ const WaiterOrders = () => {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [activatingCourse, setActivatingCourse] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -129,6 +130,32 @@ const WaiterOrders = () => {
       Alert.alert('Ошибка', detail);
     } finally {
       setActivatingCourse(false);
+    }
+  };
+
+  const cancelOrder = () => {
+    if (!selectedOrder) return;
+    Alert.alert(
+      'Отменить заказ',
+      `Вы уверены, что хотите отменить заказ #${selectedOrder.id}?`,
+      [
+        { text: 'Нет', style: 'cancel' },
+        { text: 'Отменить', style: 'destructive', onPress: executeCancel },
+      ]
+    );
+  };
+
+  const executeCancel = async () => {
+    setCancelling(true);
+    try {
+      await api.delete(`/orders/${selectedOrder!.id}`);
+      setModalVisible(false);
+      await loadOrders();
+      Alert.alert('Заказ отменён', `Заказ #${selectedOrder!.id} отменён`);
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось отменить заказ');
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -355,6 +382,19 @@ const WaiterOrders = () => {
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
                         <Text style={styles.editOrderButtonText}>Следующий курс</Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  {selectedOrder.status === 'active' && (
+                    <TouchableOpacity
+                      style={[styles.cancelOrderButton, { flex: 1, marginRight: 8 }]}
+                      onPress={cancelOrder}
+                      disabled={cancelling}
+                    >
+                      {cancelling ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.editOrderButtonText}>Отменить</Text>
                       )}
                     </TouchableOpacity>
                   )}
