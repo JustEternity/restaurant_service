@@ -8,6 +8,7 @@ class PlateInOrderCreate(BaseModel):
     count: int = 1
     comment: Optional[str] = None
     initial_status: str = "waiting"
+    course_number: int
 
 class OrderCreate(BaseModel):
     waiter: int
@@ -28,6 +29,7 @@ class PlateInOrderResponse(BaseModel):
     current_status: Optional[str] = None
     price: float
     plate_name: Optional[str] = None
+    course_number: int
 
     class Config:
         from_attributes = True
@@ -50,3 +52,4 @@ class PlateInOrderUpdate(BaseModel):
     comment: Optional[str] = None
     new_status: Optional[str] = None
     price: Optional[float] = None
+    course_number: int

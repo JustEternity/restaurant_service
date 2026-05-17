@@ -17,6 +17,7 @@ class PlateForOrder(BaseModel):
     count = Column(Integer, nullable=False)
     comment = Column(Text)
     price = Column(NUMERIC, nullable=False)
+    course_number = Column(Integer)
 
     # Внешние ключи
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)

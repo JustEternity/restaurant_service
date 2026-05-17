@@ -49,6 +49,7 @@ interface ExistingPlate {
   comment: string | null;
   price: number;
   current_status: string;
+  course_number?: number;
 }
 
 interface CartItem {
@@ -56,6 +57,7 @@ interface CartItem {
   quantity: number;
   comment: string;
   id?: number;
+  course_number: number;
 }
 
 type RootStackParamList = {
@@ -109,6 +111,7 @@ const WaiterMenu = () => {
         quantity: ep.count,
         comment: ep.comment || '',
         id: ep.id,
+        course_number: ep.course_number || 1,
       }));
       setCart(initialCart);
     }
@@ -258,7 +261,7 @@ const WaiterMenu = () => {
             idx === existingWaitingIndex ? { ...ci, quantity: ci.quantity + 1 } : ci
           );
         }
-        return [...prev, { item, quantity: 1, comment: '', id: undefined }];
+        return [...prev, { item, quantity: 1, comment: '', id: undefined, course_number: 1 }];
       } else {
         const existing = prev.find(i => i.item.id === item.id);
         if (existing) {
@@ -266,7 +269,7 @@ const WaiterMenu = () => {
             i.item.id === item.id ? { ...i, quantity: i.quantity + 1 } : i
           );
         }
-        return [...prev, { item, quantity: 1, comment: '' }];
+        return [...prev, { item, quantity: 1, comment: '', course_number: 1 }];
       }
     });
   };
@@ -276,6 +279,17 @@ const WaiterMenu = () => {
       const compareId = i.id || i.item.id;
       if (compareId === idOrPlateId) {
         return { ...i, quantity: Math.max(1, quantity), comment: comment ?? i.comment };
+      }
+      return i;
+    }));
+  };
+
+  const updateCourseNumber = (idOrPlateId: number, newCourse: number) => {
+    const clamped = Math.min(10, Math.max(1, newCourse));
+    setCart(prev => prev.map(i => {
+      const compareId = i.id || i.item.id;
+      if (compareId === idOrPlateId) {
+        return { ...i, course_number: clamped };
       }
       return i;
     }));
@@ -297,11 +311,33 @@ const WaiterMenu = () => {
 
   const getTotalPrice = () => cart.reduce((sum, i) => sum + i.item.price * i.quantity, 0);
 
+  const validateCourses = (items: CartItem[]): string | null => {
+    if (items.length === 0) return null;
+    const courseNumbers = Array.from(new Set(items.map(i => i.course_number))).sort((a, b) => a - b);
+    if (courseNumbers[0] !== 1) {
+      return 'Курсы должны начинаться с 1';
+    }
+    const maxCourse = courseNumbers[courseNumbers.length - 1];
+    if (courseNumbers.length !== maxCourse) {
+      const missing: number[] = [];
+      for (let c = 1; c <= maxCourse; c++) {
+        if (!courseNumbers.includes(c)) missing.push(c);
+      }
+      return `Пропущены курсы: ${missing.join(', ')}`;
+    }
+    return null;
+  };
+
   const [submitting, setSubmitting] = useState(false);
 
   const submitOrder = async () => {
     if (cart.length === 0) {
       Alert.alert('Корзина пуста', 'Добавьте хотя бы одно блюдо');
+      return;
+    }
+    const validationError = validateCourses(cart);
+    if (validationError) {
+      Alert.alert('Ошибка курсов', validationError);
       return;
     }
     setSubmitting(true);
@@ -313,6 +349,7 @@ const WaiterMenu = () => {
           plate_id: i.item.id,
           count: i.quantity,
           comment: i.comment,
+          course_number: i.course_number,
         })),
       };
       await api.post('/orders/', payload);
@@ -334,6 +371,11 @@ const WaiterMenu = () => {
 
   const saveEditedOrder = async () => {
     if (!orderId) return;
+    const validationError = validateCourses(cart);
+    if (validationError) {
+      Alert.alert('Ошибка курсов', validationError);
+      return;
+    }
     setSubmitting(true);
     try {
       const platesToSend = cart.map(i => ({
@@ -342,6 +384,7 @@ const WaiterMenu = () => {
         count: i.quantity,
         comment: i.comment,
         initial_status: 'waiting',
+        course_number: i.course_number,
       }));
       await api.put(`/orders/${orderId}/plates`, platesToSend);
       Alert.alert('Заказ обновлён', 'Изменения сохранены');
@@ -585,6 +628,22 @@ const WaiterMenu = () => {
                           onChangeText={(text) => updateCartItem(cartItem.id || cartItem.item.id, cartItem.quantity, text)}
                         />
                       )}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                        <Text style={{ fontSize: 14, color: '#333' }}>Курс: </Text>
+                        {!isLocked ? (
+                          <>
+                            <TouchableOpacity onPress={() => updateCourseNumber(cartItem.id || cartItem.item.id, cartItem.course_number - 1)}>
+                              <Ionicons name="chevron-down" size={20} color="#007AFF" />
+                            </TouchableOpacity>
+                            <Text style={{ marginHorizontal: 6, fontSize: 16, fontWeight: '500' }}>{cartItem.course_number}</Text>
+                            <TouchableOpacity onPress={() => updateCourseNumber(cartItem.id || cartItem.item.id, cartItem.course_number + 1)}>
+                              <Ionicons name="chevron-up" size={20} color="#007AFF" />
+                            </TouchableOpacity>
+                          </>
+                        ) : (
+                          <Text style={{ fontSize: 16 }}>{cartItem.course_number}</Text>
+                        )}
+                      </View>
                     </View>
                     <View style={styles.quantityControl}>
                       {!isLocked ? (

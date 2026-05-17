@@ -20,7 +20,7 @@ def get_current_status(plate: PlateForOrder):
         return sorted_statuses[-1].new_status
     return None
 
-async def get_cooks_to_notify(order_id: int, db: AsyncSession):
+async def get_cooks_to_notify(order_id: int, db: AsyncSession, plates_for_first_course: Optional[List[int]] = None):
     """
     Возвращает список id поваров у которых в специализациях есть блюда из заказа (order_id)
     """
@@ -30,7 +30,10 @@ async def get_cooks_to_notify(order_id: int, db: AsyncSession):
     if not order or not order.plates:
         return set()
 
-    plate_ids = [p.plate_id for p in order.plates]
+    if plates_for_first_course is not None:
+        plate_ids = [p.plate_id for p in order.plates if p.id in plates_for_first_course]
+    else:
+        plate_ids = [p.plate_id for p in order.plates]
 
     stmt = (
         select(PlatesForSpecialization.specialization)
@@ -108,7 +111,8 @@ async def get_all_orders(
                 comment=plate.comment,
                 current_status=get_current_status(plate),
                 price=plate.price,
-                plate_name=plate.menu_item.name if plate.menu_item else None
+                plate_name=plate.menu_item.name if plate.menu_item else None,
+                course_number=plate.course_number
             ))
         response.append(OrderResponse(
             id=order.id,
@@ -149,7 +153,8 @@ async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
             comment=plate.comment,
             current_status=get_current_status(plate),
             price=plate.price,
-            plate_name=plate.menu_item.name if plate.menu_item else None
+            plate_name=plate.menu_item.name if plate.menu_item else None,
+            course_number=plate.course_number
         ))
     return OrderResponse(
         id=order.id,
@@ -220,6 +225,7 @@ async def create_order(
         db.add(TableForOrder(order=order.id, table=table.id))
         table.status = "occupied"
 
+    first_plates = []
     for plate_data in order_data.plates:
         dish = dishes_dict[plate_data.plate_id]
         price = dish.price if dish.price else 0.0
@@ -228,19 +234,22 @@ async def create_order(
             plate_id=plate_data.plate_id,
             count=plate_data.count,
             comment=plate_data.comment,
-            price=price
+            price=price,
+            course_number=plate_data.course_number
         )
         db.add(plate)
         await db.flush()
+        first_plates.append(plate)
 
         # Создаём первую запись в истории статуса
-        history = CookingStatusHistory(
-            change_time=datetime.utcnow(),
-            new_status=plate_data.initial_status,
-            change_by=current_user.id,
-            ordered_plate=plate.id
-        )
-        db.add(history)
+        if plate.course_number == 1:
+            history = CookingStatusHistory(
+                change_time=datetime.utcnow(),
+                new_status=plate_data.initial_status,
+                change_by=current_user.id,
+                ordered_plate=plate.id
+            )
+            db.add(history)
 
     await db.commit()
     await db.refresh(order, attribute_names=["waiter_user", "tables", "plates"])
@@ -253,7 +262,8 @@ async def create_order(
         "message": f"Создан заказ официантом {order_data.waiter}"
     }, "admin")
 
-    cooks_to_notify = await get_cooks_to_notify(order.id, db)
+    first_plates = [p.id for p in first_plates if p.course_number == 1]
+    cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=first_plates)
     if cooks_to_notify:
         await manager.broadcast_to_users({
             "type": "new_order",
@@ -261,6 +271,56 @@ async def create_order(
             "message": "Поступил новый заказ"
         }, list(cooks_to_notify))
     return await get_order(order.id, db)
+
+@router.post("/{order_id}/activate-next-course")
+async def activate_next_course(
+    order_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    stmt = select(Order).where(Order.id == order_id).options(
+        selectinload(Order.plates).selectinload(PlateForOrder.statuses_of_plate)
+    )
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+    if order.status != "active":
+        raise HTTPException(status_code=400, detail="Заказ не активен")
+
+    max_activated = 0
+    for plate in order.plates:
+        if plate.statuses_of_plate:
+            if plate.course_number > max_activated:
+                max_activated = plate.course_number
+
+    next_course = max_activated + 1
+
+    next_course_plates = [p for p in order.plates if p.course_number == next_course]
+    if not next_course_plates:
+        raise HTTPException(status_code=400, detail="Все курсы уже активированы или следующий курс отсутствует")
+
+    for plate in next_course_plates:
+        history = CookingStatusHistory(
+            change_time=datetime.utcnow(),
+            new_status="waiting",
+            change_by=current_user.id,
+            ordered_plate=plate.id
+        )
+        db.add(history)
+
+    await db.commit()
+
+    plate_ids = [p.id for p in next_course_plates]
+    cooks = await get_cooks_to_notify(order.id, db, plates_for_first_course=plate_ids)
+    if cooks:
+        await manager.broadcast_to_users({
+            "type": "new_order",
+            "order_id": order.id,
+            "message": f"Активирован курс {next_course}"
+        }, list(cooks))
+
+    return {"message": f"Курс {next_course} отправлен на кухню", "course": next_course}
 
 @router.put("/{order_id}", response_model=OrderResponse)
 async def update_order(order_id: int, order_data: OrderUpdate, db: AsyncSession = Depends(get_async_db)):
@@ -416,34 +476,52 @@ async def add_plate_to_order(
     if not dish:
         raise HTTPException(status_code=404, detail="Блюдо не найдено в меню")
 
+    stmt = select(PlateForOrder).where(PlateForOrder.order_id == order_id).options(
+        selectinload(PlateForOrder.statuses_of_plate)
+    )
+    result = await db.execute(stmt)
+    existing_plates = result.scalars().all()
+
+    max_activated = 0
+    for ep in existing_plates:
+        if ep.statuses_of_plate:
+            if ep.course_number > max_activated:
+                max_activated = ep.course_number
+
     price = dish.price if dish.price else 0.0
     plate = PlateForOrder(
         order_id=order_id,
         plate_id=plate_data.plate_id,
         count=plate_data.count,
         comment=plate_data.comment,
-        price=price
+        price=price,
+        course_number=plate_data.course_number
     )
     db.add(plate)
     await db.flush()
 
-    history = CookingStatusHistory(
-        change_time=datetime.utcnow(),
-        new_status=plate_data.initial_status,
-        change_by=current_user.id,
-        ordered_plate=plate.id
-    )
-    db.add(history)
+    if plate.course_number <= max_activated:
+        history = CookingStatusHistory(
+            change_time=datetime.utcnow(),
+            new_status=plate_data.initial_status,
+            change_by=current_user.id,
+            ordered_plate=plate.id
+        )
+        db.add(history)
 
     await db.commit()
     await db.refresh(plate, attribute_names=["menu_item", "statuses_of_plate"])
-    cooks_to_notify = await get_cooks_to_notify(order.id, db)
-    if cooks_to_notify:
-        await manager.broadcast_to_users({
-            "type": "new_order",
-            "order_id": order.id,
-            "message": "Поступил новый заказ"
-        }, list(cooks_to_notify))
+
+    if plate.course_number <= max_activated:
+        cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=[plate.id])
+        if cooks_to_notify:
+            plate_name = plate.menu_item.name if plate.menu_item else "Блюдо"
+            await manager.broadcast_to_users({
+                "type": "new_order",
+                "order_id": order.id,
+                "message": f"Добавлено блюдо «{plate_name}» (курс {plate.course_number})"
+            }, list(cooks_to_notify))
+
     return PlateInOrderResponse(
         id=plate.id,
         plate_id=plate.plate_id,
@@ -451,7 +529,8 @@ async def add_plate_to_order(
         comment=plate.comment,
         current_status=get_current_status(plate),
         price=plate.price,
-        plate_name=plate.menu_item.name if plate.menu_item else None
+        plate_name=plate.menu_item.name if plate.menu_item else None,
+        course_number=plate.course_number
     )
 
 @router.put("/plates/{plate_id}", response_model=PlateInOrderResponse)
@@ -523,8 +602,15 @@ async def update_order_plates(
     if order.status not in ["active", "waiting"]:
         raise HTTPException(status_code=400, detail="Нельзя редактировать завершённый или отменённый заказ")
 
+    max_activated = 0
+    for plate in order.plates:
+        if plate.statuses_of_plate:
+            if plate.course_number > max_activated:
+                max_activated = plate.course_number
+
     existing_plates_dict = {p.id: p for p in order.plates}
     kept_plate_ids = set()
+    new_activated_plate_ids = []
 
     for plate_in in plates_data:
         dish = await db.get(Menu, plate_in.plate_id)
@@ -545,17 +631,20 @@ async def update_order_plates(
                 plate_id=plate_in.plate_id,
                 count=plate_in.count,
                 comment=plate_in.comment,
-                price=price
+                price=price,
+                course_number=plate_in.course_number
             )
             db.add(new_plate)
             await db.flush()
-            history = CookingStatusHistory(
-                change_time=datetime.utcnow(),
-                new_status=plate_in.initial_status,
-                change_by=current_user.id,
-                ordered_plate=new_plate.id
-            )
-            db.add(history)
+            if new_plate.course_number <= max_activated:
+                history = CookingStatusHistory(
+                    change_time=datetime.utcnow(),
+                    new_status=plate_in.initial_status,
+                    change_by=current_user.id,
+                    ordered_plate=new_plate.id
+                )
+                db.add(history)
+                new_activated_plate_ids.append(new_plate.id)
             kept_plate_ids.add(new_plate.id)
 
     for plate in order.plates:
@@ -566,7 +655,7 @@ async def update_order_plates(
     await db.commit()
     await db.refresh(order, attribute_names=["plates", "tables"])
 
-    cooks_to_notify = await get_cooks_to_notify(order.id, db)
+    cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=new_activated_plate_ids)
     if cooks_to_notify:
         await manager.broadcast_to_users({
             "type": "new_order",

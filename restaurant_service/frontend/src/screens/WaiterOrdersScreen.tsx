@@ -11,12 +11,24 @@ import api from '../services/api';
 import styles from '../design/WaiterOrdersStyles';
 
 interface PlateInOrder {
-  id: number; plate_id: number; count: number; comment: string | null;
-  current_status: string; price: number; plate_name: string;
+  id: number;
+  plate_id: number;
+  count: number;
+  comment: string | null;
+  current_status: string | null;
+  price: number;
+  plate_name: string;
+  course_number: number;
 }
+
 interface Order {
-  id: number; waiter: number; status: string; timestart: string;
-  endtime: string | null; waiter_name: string; table_numbers: number[];
+  id: number;
+  waiter: number;
+  status: string;
+  timestart: string;
+  endtime: string | null;
+  waiter_name: string;
+  table_numbers: number[];
   plates: PlateInOrder[];
 }
 
@@ -28,6 +40,7 @@ const WaiterOrders = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [activatingCourse, setActivatingCourse] = useState(false);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -69,8 +82,13 @@ const WaiterOrders = () => {
       params: {
         orderId: selectedOrder.id,
         existingPlates: selectedOrder.plates.map(p => ({
-          plate_id: p.plate_id, count: p.count, comment: p.comment,
-          price: p.price, current_status: p.current_status, id: p.id,
+          plate_id: p.plate_id,
+          count: p.count,
+          comment: p.comment,
+          price: p.price,
+          current_status: p.current_status,
+          id: p.id,
+          course_number: p.course_number,
         })),
       },
     });
@@ -98,6 +116,22 @@ const WaiterOrders = () => {
     }
   };
 
+  const handleActivateNextCourse = async () => {
+    if (!selectedOrder) return;
+    setActivatingCourse(true);
+    try {
+      const res = await api.post(`/orders/${selectedOrder.id}/activate-next-course`);
+      await loadOrders();
+      await refreshSelectedOrder();
+      Alert.alert('Успех', res.data.message || 'Следующий курс отправлен на кухню');
+    } catch (error: any) {
+      const detail = error.response?.data?.detail || 'Не удалось активировать следующий курс';
+      Alert.alert('Ошибка', detail);
+    } finally {
+      setActivatingCourse(false);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return '#2ecc71';
@@ -116,17 +150,41 @@ const WaiterOrders = () => {
   };
   const getCookingStatusText = (status: string) => {
     switch (status) {
-      case 'waiting': return 'Ожидает'; case 'preparing': return 'Готовится';
-      case 'ready': return 'Готово'; case 'served': return 'Подано';
+      case 'waiting': return 'Ожидает';
+      case 'preparing': return 'Готовится';
+      case 'ready': return 'Готово';
+      case 'served': return 'Подано';
       default: return status;
     }
   };
   const getCookingStatusColor = (status: string) => {
     switch (status) {
-      case 'waiting': return '#f39c12'; case 'preparing': return '#3498db';
-      case 'ready': return '#2ecc71'; case 'served': return '#95a5a6';
+      case 'waiting': return '#f39c12';
+      case 'preparing': return '#3498db';
+      case 'ready': return '#2ecc71';
+      case 'served': return '#95a5a6';
       default: return '#7f8c8d';
     }
+  };
+
+  const hasInactiveCourses = (order: Order) => {
+    const courseNumbers = Array.from(new Set(order.plates.map(p => p.course_number)));
+    for (const course of courseNumbers) {
+      const platesInCourse = order.plates.filter(p => p.course_number === course);
+      const allInactive = platesInCourse.every(p => p.current_status === null);
+      if (allInactive) return true;
+    }
+    return false;
+  };
+
+  const groupPlatesByCourse = (plates: PlateInOrder[]) => {
+    const map = new Map<number, PlateInOrder[]>();
+    plates.forEach(p => {
+      const arr = map.get(p.course_number) || [];
+      arr.push(p);
+      map.set(p.course_number, arr);
+    });
+    return Array.from(map.entries()).sort(([a], [b]) => a - b);
   };
 
   const renderOrderItem = ({ item }: { item: Order }) => {
@@ -173,8 +231,10 @@ const WaiterOrders = () => {
         <Text style={styles.platePrice}>{plate.count} x {plate.price} ₽ = {(plate.count * plate.price).toFixed(2)} ₽</Text>
       </View>
       <View style={styles.plateStatusContainer}>
-        <View style={[styles.cookingStatusBadge, { backgroundColor: getCookingStatusColor(plate.current_status) }]}>
-          <Text style={styles.cookingStatusText}>{getCookingStatusText(plate.current_status)}</Text>
+        <View style={[styles.cookingStatusBadge, { backgroundColor: getCookingStatusColor(plate.current_status || 'waiting') }]}>
+          <Text style={styles.cookingStatusText}>
+            {plate.current_status ? getCookingStatusText(plate.current_status) : 'Не отправлено'}
+          </Text>
         </View>
         {plate.current_status === 'ready' && (
           <TouchableOpacity style={styles.servedButton} onPress={() => markAsServed(plate.id)}>
@@ -261,20 +321,41 @@ const WaiterOrders = () => {
                     </View>
                   )}
                 </View>
+
                 <Text style={styles.platesTitle}>Блюда в заказе:</Text>
-                {selectedOrder.plates.map(plate => (
-                  <View key={plate.id}>{renderPlateItem(plate)}</View>
+                {groupPlatesByCourse(selectedOrder.plates).map(([courseNumber, plates]) => (
+                  <View key={courseNumber} style={{ marginBottom: 10 }}>
+                    <Text style={styles.courseTitle}>Курс {courseNumber}</Text>
+                    {plates.map(plate => (
+                      <View key={plate.id}>{renderPlateItem(plate)}</View>
+                    ))}
+                  </View>
                 ))}
+
                 <View style={styles.totalContainer}>
                   <Text style={styles.totalText}>Итого:</Text>
                   <Text style={styles.totalValue}>
                     {selectedOrder.plates.reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽
                   </Text>
                 </View>
+
                 <View style={styles.actionsRow}>
                   {selectedOrder.status === 'active' && (
                     <TouchableOpacity style={[styles.editOrderButton, { flex: 1, marginRight: 8 }]} onPress={handleEditOrder}>
                       <Text style={styles.editOrderButtonText}>Редактировать</Text>
+                    </TouchableOpacity>
+                  )}
+                  {selectedOrder.status === 'active' && hasInactiveCourses(selectedOrder) && (
+                    <TouchableOpacity
+                      style={[styles.activateCourseButton, { flex: 1, marginRight: 8 }]}
+                      onPress={handleActivateNextCourse}
+                      disabled={activatingCourse}
+                    >
+                      {activatingCourse ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.editOrderButtonText}>Следующий курс</Text>
+                      )}
                     </TouchableOpacity>
                   )}
                   {allServed && selectedOrder.status === 'active' && (

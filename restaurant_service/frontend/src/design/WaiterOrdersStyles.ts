@@ -48,6 +48,20 @@ const styles = StyleSheet.create({
   editOrderButton: { backgroundColor: '#007AFF', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   completeOrderButton: { backgroundColor: '#27ae60', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   editOrderButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  courseTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 12,
+    marginBottom: 4,
+    color: '#333',
+  },
+  activateCourseButton: {
+    backgroundColor: '#f39c12',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
 
 export default styles;
