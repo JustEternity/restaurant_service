@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
@@ -38,6 +37,7 @@ interface OrderPlate {
   current_status: string;
   price: number;
   plate_name: string;
+  course_number: number;
 }
 
 interface Order {
@@ -51,6 +51,12 @@ interface Order {
   plates: OrderPlate[];
 }
 
+interface ActiveTask {
+  plate_order_id: number;
+  plate_id: number;
+  started_at: string;
+}
+
 interface FlatOrderedPlate {
   uid: string;
   plate_name: string;
@@ -62,6 +68,12 @@ interface FlatOrderedPlate {
   table_numbers: number[];
   timestart: string;
   plate_id: number;
+  course_number: number;
+  highlightedAsEarlyCourse?: boolean;
+  recommended?: boolean;
+  recommendedCookId?: number;
+  recommendedCookName?: string;
+  priorityScore?: number;
 }
 
 interface Cook {
@@ -177,6 +189,172 @@ const ChefOrders = () => {
     loadGroupCooks();
   }, []);
 
+  const fetchActiveTasks = useCallback(async (cookId: number): Promise<ActiveTask[]> => {
+    try {
+      const res = await api.get(`/orders/${cookId}/active-tasks`);
+      return res.data;
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const computeEarlyCourseHighlight = useCallback((plates: FlatOrderedPlate[]): FlatOrderedPlate[] => {
+    const orderMap = new Map<number, FlatOrderedPlate[]>();
+    plates.forEach(p => {
+      const arr = orderMap.get(p.order_id) || [];
+      arr.push(p);
+      orderMap.set(p.order_id, arr);
+    });
+
+    return plates.map(p => {
+      const siblings = orderMap.get(p.order_id) || [];
+      const minCourse = Math.min(...siblings.map(s => s.course_number));
+      const maxCourse = Math.max(...siblings.map(s => s.course_number));
+      const highlight = (minCourse !== maxCourse) && (p.course_number === minCourse);
+      return { ...p, highlightedAsEarlyCourse: highlight };
+    });
+  }, []);
+
+  const computeRecommendations = useCallback(async (
+    plates: FlatOrderedPlate[],
+    currentCookId: number,
+    groupCooks: Cook[]
+  ): Promise<FlatOrderedPlate[]> => {
+    if (plates.length === 0) return plates;
+
+    const tasksPromises = groupCooks.map(cook => fetchActiveTasks(cook.id));
+    const allTasks = await Promise.all(tasksPromises);
+    const tasksMap = new Map<number, ActiveTask[]>();
+    groupCooks.forEach((cook, idx) => tasksMap.set(cook.id, allTasks[idx]));
+
+    const uniquePlateIds = [...new Set(plates.map(p => p.plate_id))];
+
+    const avgCache = new Map<string, number>();
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const dateStr = (d: Date) => d.toISOString().split('T')[0];
+
+    await Promise.all(groupCooks.map(async (cook) => {
+      await Promise.all(uniquePlateIds.map(async (plateId) => {
+        const key = `${cook.id}_${plateId}`;
+        if (avgCache.has(key)) return;
+        try {
+          const res = await api.get('/statistics/kitchen/details', {
+            params: {
+              start_date: dateStr(thirtyDaysAgo),
+              end_date: dateStr(new Date()),
+              cook_id: cook.id,
+              plate_id: plateId
+            }
+          });
+          const avgItem = res.data.avg_preparation_time?.find((item: any) => item.plate_id === plateId);
+          if (avgItem && typeof avgItem.avg_minutes === 'number') {
+            avgCache.set(key, avgItem.avg_minutes);
+          }
+        } catch {}
+      }));
+    }));
+
+    const getAvg = (cookId: number, plateId: number): number => {
+      return avgCache.get(`${cookId}_${plateId}`) ?? 20;
+    };
+
+    const now = Date.now();
+    const busyUntilMap = new Map<number, number>();
+    for (const cook of groupCooks) {
+      const tasks = tasksMap.get(cook.id) || [];
+      let maxRemaining = 0;
+      for (const task of tasks) {
+        const avgTime = getAvg(cook.id, task.plate_id);
+        const elapsed = (now - new Date(task.started_at).getTime()) / 60000;
+        const remaining = Math.max(0, avgTime - elapsed);
+        if (remaining > maxRemaining) {
+          maxRemaining = remaining;
+        }
+      }
+      busyUntilMap.set(cook.id, maxRemaining);
+    }
+
+    const enrichedPlates = plates.map(plate => {
+      let bestCookId: number | null = null;
+      let bestCookName = '';
+      let bestTime = Infinity;
+
+      for (const cook of groupCooks) {
+        const specsOfPlate = plateToSpecializations.current.get(plate.plate_id);
+        if (!specsOfPlate || !cook.specialization || !specsOfPlate.has(cook.specialization.id)) {
+          continue;
+        }
+
+        const avgTime = getAvg(cook.id, plate.plate_id);
+        const completionTime = (busyUntilMap.get(cook.id) || 0) + avgTime;
+        if (completionTime < bestTime) {
+          bestTime = completionTime;
+          bestCookId = cook.id;
+          bestCookName = cook.name;
+        }
+      }
+
+      return {
+        ...plate,
+        recommendedCookId: bestCookId ?? undefined,
+        recommendedCookName: bestCookName || undefined,
+        recommended: bestCookId === currentCookId,
+        priorityScore: bestTime !== Infinity ? bestTime : undefined,
+      };
+    });
+
+    enrichedPlates.sort((a, b) => {
+      if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
+      if (a.highlightedAsEarlyCourse !== b.highlightedAsEarlyCourse) return a.highlightedAsEarlyCourse ? -1 : 1;
+      if (a.course_number !== b.course_number) return a.course_number - b.course_number;
+      return (a.priorityScore ?? Infinity) - (b.priorityScore ?? Infinity);
+    });
+
+    return enrichedPlates;
+  }, [fetchActiveTasks]);
+
+  const applyFilter = useCallback(async (
+    source: FlatOrderedPlate[],
+    statusF: StatusFilter,
+    specF: SpecializationFilter
+  ) => {
+    let filtered = source.filter(item => item.current_status === statusF);
+    if (specF !== 'all') {
+      filtered = filtered.filter(item => {
+        const specs = plateToSpecializations.current.get(item.plate_id);
+        return specs && specs.has(specF);
+      });
+    }
+
+    const withHighlight = computeEarlyCourseHighlight(filtered);
+
+    let withRecs: FlatOrderedPlate[];
+    if (specF !== 'all') {
+      try {
+        withRecs = await computeRecommendations(withHighlight, user?.id ?? 0, groupCooks);
+      } catch (error) {
+        console.error('Ошибка расчёта рекомендаций:', error);
+        withRecs = withHighlight.map(p => ({ ...p, recommended: false }));
+      }
+    } else {
+      withRecs = withHighlight.map(p => ({ ...p, recommended: false }));
+    }
+
+    const sortedItems = withRecs.sort((a, b) => {
+      if (a.highlightedAsEarlyCourse !== b.highlightedAsEarlyCourse) return a.highlightedAsEarlyCourse ? -1 : 1;
+      if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
+      if (a.course_number !== b.course_number) return a.course_number - b.course_number;
+      if (specF !== 'all') {
+        return (a.priorityScore ?? Infinity) - (b.priorityScore ?? Infinity);
+      } else {
+        return new Date(a.timestart).getTime() - new Date(b.timestart).getTime();
+      }
+    });
+
+    setFilteredItems(sortedItems);
+  }, [user?.id, groupCooks, computeEarlyCourseHighlight, computeRecommendations]);
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -211,6 +389,7 @@ const ChefOrders = () => {
               table_numbers: order.table_numbers,
               timestart: order.timestart,
               plate_id: plate.plate_id,
+              course_number: plate.course_number,
             });
           }
         }
@@ -219,33 +398,18 @@ const ChefOrders = () => {
       const flatList = Array.from(groupedMap.values());
       flatList.sort((a, b) => new Date(a.timestart).getTime() - new Date(b.timestart).getTime());
       setItems(flatList);
-      applyFilter(flatList, statusFilter, specializationFilter);
+      await applyFilter(flatList, statusFilter, specializationFilter);
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось загрузить заказы');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [loadAllowedPlateIds, statusFilter, specializationFilter]);
-
-  const applyFilter = (
-    source: FlatOrderedPlate[],
-    statusF: StatusFilter,
-    specF: SpecializationFilter
-  ) => {
-    let filtered = source.filter(item => item.current_status === statusF);
-    if (specF !== 'all') {
-      filtered = filtered.filter(item => {
-        const specs = plateToSpecializations.current.get(item.plate_id);
-        return specs && specs.has(specF);
-      });
-    }
-    setFilteredItems(filtered);
-  };
+  }, [loadAllowedPlateIds, statusFilter, specializationFilter, applyFilter]);
 
   useEffect(() => {
     applyFilter(items, statusFilter, specializationFilter);
-  }, [statusFilter, specializationFilter, items]);
+  }, [statusFilter, specializationFilter, items, applyFilter]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -314,7 +478,7 @@ const ChefOrders = () => {
   const rollbackStatus = async (plateOrderId: number, expectedCurrentStatus: string) => {
     setLoadingRollback(true);
     try {
-        await api.delete(`/cooking-status-history/rollback/${plateOrderId}`, {
+      await api.delete(`/cooking-status-history/rollback/${plateOrderId}`, {
         params: { expected_current_status: expectedCurrentStatus }
       });
       Alert.alert('Успешно', 'Статус откачен');
@@ -344,12 +508,63 @@ const ChefOrders = () => {
     return unsubscribe;
   }, [addHandler, handleRefresh]);
 
+  const grouped = useMemo(() => {
+    const personal: FlatOrderedPlate[] = [];
+    const otherMap = new Map<number, { cook: Cook; plates: FlatOrderedPlate[] }>();
+    const unassigned: FlatOrderedPlate[] = [];
+
+    if (specializationFilter === 'all') {
+      filteredItems.forEach(item => unassigned.push(item));
+      return { personal, otherMap, unassigned };
+    }
+
+    filteredItems.forEach(item => {
+      if (item.recommended) {
+        personal.push(item);
+      } else if (item.recommendedCookId && item.recommendedCookId !== user?.id) {
+        const cook = groupCooks.find(c => c.id === item.recommendedCookId);
+        if (cook) {
+          if (!otherMap.has(cook.id)) {
+            otherMap.set(cook.id, { cook, plates: [] });
+          }
+          otherMap.get(cook.id)!.plates.push(item);
+        } else {
+          unassigned.push(item);
+        }
+      } else {
+        unassigned.push(item);
+      }
+    });
+
+    return { personal, otherMap, unassigned };
+  }, [filteredItems, user?.id, groupCooks, specializationFilter]);
+
+  const renderSliderCard = (item: FlatOrderedPlate) => (
+    <TouchableOpacity key={item.uid} style={styles.recommendedCard} onPress={() => openDetail(item)}>
+      <Text style={styles.recPlateName} numberOfLines={1}>{item.plate_name}</Text>
+      <Text style={styles.recCount}>x{item.count}</Text>
+      <Text style={styles.recOrder}>Заказ #{item.order_id}</Text>
+      {item.highlightedAsEarlyCourse && <Ionicons name="timer-outline" size={14} color="#e67e22" />}
+    </TouchableOpacity>
+  );
+
   const renderItem = ({ item }: { item: FlatOrderedPlate }) => {
     const statusInfo = getStatusInfo(item.current_status);
+    const isRecommendedForCurrentUser = item.recommended && specializationFilter !== 'all';
+    const recommendedByOther = item.recommendedCookId && item.recommendedCookId !== user?.id;
+
     return (
       <TouchableOpacity style={styles.card} onPress={() => openDetail(item)} activeOpacity={0.7}>
+        {item.highlightedAsEarlyCourse && (
+          <View style={styles.earlyCourseIndicator} />
+        )}
         <View style={styles.cardHeader}>
-          <Text style={styles.plateName}>{item.plate_name}</Text>
+          <Text style={styles.plateName}>
+            {item.plate_name}
+            {isRecommendedForCurrentUser && (
+              <Ionicons name="star" size={16} color="#f1c40f" style={{ marginLeft: 6 }} />
+            )}
+          </Text>
           <Text style={styles.count}>x{item.count}</Text>
         </View>
         <View style={styles.cardFooter}>
@@ -363,6 +578,14 @@ const ChefOrders = () => {
         <Text style={styles.time}>
           {new Date(item.timestart).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
         </Text>
+        {item.highlightedAsEarlyCourse && (
+          <Text style={styles.earlyCourseLabel}> Повышенный приоритет</Text>
+        )}
+        {recommendedByOther && (
+          <Text style={styles.recommendedCookLabel}>
+            {item.recommendedCookName}
+          </Text>
+        )}
       </TouchableOpacity>
     );
   };
@@ -426,8 +649,26 @@ const ChefOrders = () => {
         </View>
       )}
 
+      {grouped.personal.length > 0 && (
+        <View style={styles.recommendedSection}>
+          <Text style={styles.sectionTitle}> {user?.name}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
+            {grouped.personal.map(item => renderSliderCard(item))}
+          </ScrollView>
+        </View>
+      )}
+
+      {Array.from(grouped.otherMap.entries()).map(([cookId, { cook, plates }]) => (
+        <View key={cookId} style={styles.recommendedSection}>
+          <Text style={styles.sectionTitle}> {cook.name} </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
+            {plates.map(item => renderSliderCard(item))}
+          </ScrollView>
+        </View>
+      ))}
+
       <FlatList
-        data={filteredItems}
+        data={grouped.unassigned}
         renderItem={renderItem}
         keyExtractor={(item) => item.uid}
         contentContainerStyle={styles.listContent}

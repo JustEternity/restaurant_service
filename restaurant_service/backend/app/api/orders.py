@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, text, exists, and_
+from sqlalchemy import select, delete, text, exists, and_, desc
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 from typing import List, Optional
@@ -129,6 +129,50 @@ async def get_all_orders(
 @router.get("/active", response_model=List[OrderResponse])
 async def get_active_orders(db: AsyncSession = Depends(get_async_db)):
     return await get_all_orders(status="active", db=db)
+
+
+@router.get("/{cook_id}/active-tasks")
+async def get_active_tasks(cook_id: int, db: AsyncSession = Depends(get_async_db)):
+    """
+    Возвращает список позиций заказа, которые в данный момент готовятся указанным поваром.
+    Статус последней записи в истории для позиции должен быть "preparing",
+    и change_by == cook_id.
+    """
+    # Подзапрос: для каждой позиции находим последнюю запись истории
+    subq = (
+        select(
+            CookingStatusHistory.ordered_plate,
+            CookingStatusHistory.new_status,
+            CookingStatusHistory.change_time,
+            CookingStatusHistory.change_by
+        )
+        .distinct(CookingStatusHistory.ordered_plate)
+        .order_by(CookingStatusHistory.ordered_plate, desc(CookingStatusHistory.change_time))
+        .subquery()
+    )
+
+    # Выбираем только те позиции, где последний статус = "preparing" и change_by = cook_id
+    stmt = (
+        select(PlateForOrder.id, PlateForOrder.plate_id, subq.c.change_time)
+        .join(subq, PlateForOrder.id == subq.c.ordered_plate)
+        .where(
+            subq.c.new_status == "preparing",
+            subq.c.change_by == cook_id
+        )
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    tasks = []
+    for row in rows:
+        tasks.append({
+            "plate_order_id": row.id,
+            "plate_id": row.plate_id,
+            "started_at": row.change_time.isoformat() if row.change_time else None
+        })
+
+    return tasks
 
 @router.get("/{order_id}", response_model=OrderResponse)
 async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
