@@ -22,12 +22,13 @@ import Animated, {
   useAnimatedStyle,
   runOnJS,
 } from 'react-native-reanimated';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { useAuth } from '../context/AuthContext';
+import { useOrderDraft } from '../context/OrderDraftContext';
 import { useWebSocket } from '../hooks/useWebSocket';
 import api from '../services/api';
 import styles from '../design/HallMapStyles';
@@ -63,17 +64,21 @@ interface Order {
 }
 
 type RootStackParamList = {
-  WaiterMenu: { selectedTableIds: number[] };
+  HallMap: { clearDraft?: boolean };
+  WaiterMenu: { selectedTableIds?: number[] };
 };
 
 const HallMap = () => {
   const { user } = useAuth();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
+  const route = useRoute();
   const isAdmin = user?.role === 'admin';
+
+  const { draft, setTableIds, clearDraft, activateDraft } = useOrderDraft();
 
   const [tables, setTables] = useState<Table[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [selectedTableIds, setSelectedTableIds] = useState<number[]>([]);
+  const [selectedTableIds, setSelectedTableIds] = useState<number[]>(draft.tableIds);
   const [readyTableIds, setReadyTableIds] = useState<Set<number>>(new Set());
 
   const [isEditMode, setIsEditMode] = useState(false);
@@ -88,6 +93,22 @@ const HallMap = () => {
   const [tempTableSize, setTempTableSize] = useState<string>('30');
   const [savingSize, setSavingSize] = useState(false);
   const [uploadingBg, setUploadingBg] = useState(false);
+
+  useEffect(() => {
+    setSelectedTableIds(draft.tableIds);
+  }, [draft.tableIds]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      const params = route.params as any;
+      if (params?.clearDraft) {
+        clearDraft();
+        setSelectedTableIds([]);
+        navigation.setParams({ clearDraft: undefined });
+      }
+    });
+    return unsubscribe;
+  }, [navigation, clearDraft]);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -225,6 +246,7 @@ const HallMap = () => {
             await api.delete(`/tables/${id}`);
             safeSetTables((prev) => prev.filter((t) => t.id !== id));
             setSelectedTableIds((prev) => prev.filter((tid) => tid !== id));
+            setTableIds(selectedTableIds.filter(tid => tid !== id));
           } catch (error) {
             Alert.alert('Ошибка', 'Не удалось удалить стол');
           }
@@ -264,22 +286,35 @@ const HallMap = () => {
       return;
     }
     if (!isAdmin) {
-      setSelectedTableIds((prev) =>
-        prev.includes(table.id) ? prev.filter((tid) => tid !== table.id) : [...prev, table.id]
-      );
+      setSelectedTableIds(prev => {
+        const newSelection = prev.includes(table.id)
+          ? prev.filter(tid => tid !== table.id)
+          : [...prev, table.id];
+        setTableIds(newSelection);
+        return newSelection;
+      });
     }
   };
 
   const clearSelection = () => {
     setSelectedTableIds([]);
+    setTableIds([]);
   };
 
   const handleCreateOrderPress = () => {
     if (selectedTableIds.length === 0) return;
     if (!isAdmin) {
+      activateDraft();
       navigation.navigate('Меню', {
         screen: 'MenuList',
-        params: { selectedTableIds },
+      });
+    }
+  };
+
+  const handleContinueOrder = () => {
+    if (!isAdmin) {
+      navigation.navigate('Меню', {
+        screen: 'MenuList',
       });
     }
   };
@@ -547,15 +582,28 @@ const HallMap = () => {
           : safeTables.map((table) => renderStaticTable(table))}
       </TouchableOpacity>
 
-      {selectedTableIds.length > 0 && !isAdmin && (
-        <View style={styles.orderButtonContainer}>
-          <TouchableOpacity style={styles.orderButton} onPress={handleCreateOrderPress}>
-            <Ionicons name="receipt-outline" size={24} color="#fff" />
-            <Text style={styles.orderButtonText}>
-              Создать заказ ({selectedTableIds.length})
-            </Text>
-          </TouchableOpacity>
-        </View>
+      {!isAdmin && (
+        <>
+          {draft.isActive ? (
+            <View style={styles.orderButtonContainer}>
+              <TouchableOpacity style={styles.orderButton} onPress={handleContinueOrder}>
+                <Ionicons name="cart-outline" size={24} color="#fff" />
+                <Text style={styles.orderButtonText}>Продолжить заказ</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            selectedTableIds.length > 0 && (
+              <View style={styles.orderButtonContainer}>
+                <TouchableOpacity style={styles.orderButton} onPress={handleCreateOrderPress}>
+                  <Ionicons name="receipt-outline" size={24} color="#fff" />
+                  <Text style={styles.orderButtonText}>
+                    Создать заказ ({selectedTableIds.length})
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )
+          )}
+        </>
       )}
 
       {isAddingMode && (

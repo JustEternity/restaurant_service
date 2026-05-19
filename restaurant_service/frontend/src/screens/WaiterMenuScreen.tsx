@@ -21,7 +21,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import styles from '../design/WaiterMenuStyles';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
-
+import { useOrderDraft } from '../context/OrderDraftContext';
 import { getPhotoUrl } from '../utils/imageUrl';
 
 interface Category {
@@ -61,18 +61,22 @@ interface CartItem {
 }
 
 type RootStackParamList = {
-  MenuList: undefined;
+  HallMap: { clearDraft?: boolean };
   MenuItemForm: { itemId?: number };
-  WaiterMenu: { selectedTableIds?: number[]; orderId: number; existingPlates: ExistingPlate[] };
+  WaiterMenu: { selectedTableIds?: number[]; orderId?: number; existingPlates?: ExistingPlate[] };
 };
 
 const WaiterMenu = () => {
   const { user } = useAuth();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const route = useRoute();
-  const selectedTableIds = (route.params as any)?.selectedTableIds || [];
+  const { draft, updateCart, clearDraft } = useOrderDraft();
+
   const orderId = (route.params as any)?.orderId;
   const existingPlates: ExistingPlate[] = (route.params as any)?.existingPlates || [];
+
+  const isEditMode = !!orderId;
+  const isNewOrderMode = !isEditMode && draft.isActive;
 
   const [categoriesTree, setCategoriesTree] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -84,16 +88,31 @@ const WaiterMenu = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartModalVisible, setCartModalVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const swipeableRefs = new Map();
   const isAdmin = user?.role === 'admin';
-  const isNewOrderMode = selectedTableIds.length > 0;
-  const isEditMode = !!orderId;
 
   const currentCategory = categoryPath.length > 0 ? categoryPath[categoryPath.length - 1] : null;
   const currentLevelCategories = categoryPath.length === 0
     ? categoriesTree
     : currentCategory?.children || [];
+
+  useEffect(() => {
+    if (isNewOrderMode) {
+      if (draft.cart.length > 0) {
+        setCart(draft.cart);
+      } else {
+        setCart([]);
+      }
+    }
+  }, [isNewOrderMode]);
+
+  useEffect(() => {
+    if (isNewOrderMode) {
+      updateCart(cart);
+    }
+  }, [cart, isNewOrderMode]);
 
   useEffect(() => {
     if (isEditMode && existingPlates.length > 0) {
@@ -122,7 +141,16 @@ const WaiterMenu = () => {
       setCart(prev => prev.map(ci => {
         const menuItem = menuItems.find(m => m.id === ci.item.id);
         if (menuItem) {
-          return { ...ci, item: { ...ci.item, name: menuItem.name, description: menuItem.description, photo: menuItem.photo, category_name: menuItem.category_name } };
+          return {
+            ...ci,
+            item: {
+              ...ci.item,
+              name: menuItem.name,
+              description: menuItem.description,
+              photo: menuItem.photo,
+              category_name: menuItem.category_name,
+            },
+          };
         }
         return ci;
       }));
@@ -157,7 +185,6 @@ const WaiterMenu = () => {
     try {
       const response = await api.get('/menu/categories/?flat=false');
       const data: Category[] = response.data;
-
       const deduplicateChildren = (cat: Category) => {
         if (cat.children && cat.children.length > 0) {
           const unique = cat.children.filter(
@@ -328,11 +355,20 @@ const WaiterMenu = () => {
     return null;
   };
 
-  const [submitting, setSubmitting] = useState(false);
+  const handleCancelOrder = () => {
+    clearDraft();
+    setCart([]);
+    setCartModalVisible(false);
+    navigation.navigate('Зал', { clearDraft: true });
+  };
 
   const submitOrder = async () => {
     if (cart.length === 0) {
       Alert.alert('Корзина пуста', 'Добавьте хотя бы одно блюдо');
+      return;
+    }
+    if (draft.tableIds.length === 0) {
+      Alert.alert('Нет столов', 'Вернитесь к схеме зала и выберите столы');
       return;
     }
     const validationError = validateCourses(cart);
@@ -344,7 +380,7 @@ const WaiterMenu = () => {
     try {
       const payload = {
         waiter: user?.id,
-        tables: selectedTableIds,
+        tables: draft.tableIds,
         plates: cart.map(i => ({
           plate_id: i.item.id,
           count: i.quantity,
@@ -354,13 +390,14 @@ const WaiterMenu = () => {
       };
       await api.post('/orders/', payload);
       Alert.alert('Успех', 'Заказ создан');
+      clearDraft();
       setCart([]);
       setCartModalVisible(false);
-      navigation.replace('MenuList');
+      navigation.navigate('Зал', { clearDraft: true });
     } catch (error: any) {
       if (error.response?.status === 409) {
         Alert.alert('Стол занят', 'Кто-то уже создал заказ для этого стола. Обновите список заказов.');
-        navigation.replace('MenuList')
+        navigation.navigate('Зал', { clearDraft: true });
       } else {
         Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось создать заказ');
       }
@@ -490,6 +527,14 @@ const WaiterMenu = () => {
                 )}
               </View>
             </TouchableOpacity>
+          )}
+          {isNewOrderMode && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 'auto' }}>
+              <Ionicons name="grid-outline" size={20} color="#007AFF" style={{ marginRight: 4 }} />
+              <Text style={{ color: '#007AFF', fontWeight: '500' }}>
+                Столов: {draft.tableIds.length}
+              </Text>
+            </View>
           )}
           {isEditMode && (
             <TouchableOpacity onPress={saveEditedOrder} style={styles.saveButton}>
@@ -669,31 +714,32 @@ const WaiterMenu = () => {
             </ScrollView>
             <View style={styles.cartFooter}>
               <Text style={styles.totalText}>Итого: {getTotalPrice()} ₽</Text>
-              {isNewOrderMode ? (
+
+              {isNewOrderMode && (
                 <TouchableOpacity
-                  style={styles.submitOrderButton}
-                  onPress={submitOrder}
-                  disabled={submitting}
+                  style={[styles.submitOrderButton, { backgroundColor: '#e74c3c', marginBottom: 8 }]}
+                  onPress={handleCancelOrder}
                 >
-                  {submitting ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={{ color: '#fff', fontWeight: '600' }}>Оформить заказ</Text>
-                  )}
+                  <Text style={{ color: '#fff', fontWeight: '600' }}>Отменить</Text>
                 </TouchableOpacity>
-              ) : isEditMode ? (
-                <TouchableOpacity
-                  style={styles.submitOrderButton}
-                  onPress={saveEditedOrder}
-                  disabled={submitting}
-                >
-                  {submitting ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={{ color: '#fff', fontWeight: '600' }}>Сохранить</Text>
-                  )}
-                </TouchableOpacity>
-              ) : null}
+              )}
+
+              <TouchableOpacity
+                style={[
+                  styles.submitOrderButton,
+                  (draft.tableIds.length === 0 || cart.length === 0) && { opacity: 0.5 },
+                ]}
+                onPress={isNewOrderMode ? submitOrder : saveEditedOrder}
+                disabled={draft.tableIds.length === 0 || cart.length === 0 || submitting}
+              >
+                {submitting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={{ color: '#fff', fontWeight: '600' }}>
+                    {isNewOrderMode ? 'Оформить заказ' : 'Сохранить'}
+                  </Text>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         </View>

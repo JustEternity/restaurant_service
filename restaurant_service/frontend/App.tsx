@@ -3,6 +3,7 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { OrderDraftProvider } from './src/context/OrderDraftContext';
 import { ChefDrawer, WaiterDrawer, AdminDrawer } from './src/navigation/DrawerRoleNavigators';
 import AuthScreen from './src/screens/AuthScreen';
 import LoadingScreen from './src/components/LoadingScreen';
@@ -42,7 +43,9 @@ function AppNavigator() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppNavigator />
+      <OrderDraftProvider>
+        <AppNavigator/>
+      </OrderDraftProvider>
     </AuthProvider>
   );
 }
