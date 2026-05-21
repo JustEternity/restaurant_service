@@ -268,7 +268,7 @@ async def create_order(
         raise HTTPException(status_code=404, detail="Одно или несколько блюд не найдены")
     dishes_dict = {d.id: d for d in dishes}
 
-    timestart = order_data.timestart or datetime.utcnow()
+    timestart = order_data.timestart or datetime.now()
     order = Order(
         waiter=order_data.waiter,
         status=order_data.status,
@@ -299,7 +299,7 @@ async def create_order(
 
         if not dish.is_selfserve and plate.course_number == 1:
             history = CookingStatusHistory(
-                change_time=datetime.utcnow(),
+                change_time=datetime.now(),
                 new_status=plate_data.initial_status,
                 change_by=current_user.id,
                 ordered_plate=plate.id
@@ -364,7 +364,7 @@ async def activate_next_course(
         if plate.menu_item and plate.menu_item.is_selfserve:
             continue
         history = CookingStatusHistory(
-            change_time=datetime.utcnow(),
+            change_time=datetime.now(),
             new_status="waiting",
             change_by=current_user.id,
             ordered_plate=plate.id
@@ -420,7 +420,7 @@ async def complete_order(order_id: int, db: AsyncSession = Depends(get_async_db)
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
     order.status = "completed"
-    order.endtime = datetime.utcnow()
+    order.endtime = datetime.now()
     for link in order.tables:
         if link.table_for_order:
             link.table_for_order.status = "free"
@@ -467,7 +467,7 @@ async def update_plate_status(
         raise HTTPException(status_code=409, detail=f"Статус уже '{status}'")
 
     history = CookingStatusHistory(
-        change_time=datetime.utcnow(),
+        change_time=datetime.now(),
         new_status=status,
         change_by=change_by,
         ordered_plate=plate.id
@@ -568,7 +568,7 @@ async def add_plate_to_order(
 
     if not dish.is_selfserve and plate.course_number <= max_activated:
         history = CookingStatusHistory(
-            change_time=datetime.utcnow(),
+            change_time=datetime.now(),
             new_status=plate_data.initial_status,
             change_by=current_user.id,
             ordered_plate=plate.id
@@ -627,7 +627,7 @@ async def update_plate_in_order(
         if plate_data.new_status not in allowed_statuses:
             raise HTTPException(status_code=400, detail=f"Недопустимый статус. Допустимые: {', '.join(allowed_statuses)}")
         history = CookingStatusHistory(
-            change_time=datetime.utcnow(),
+            change_time=datetime.now(),
             new_status=plate_data.new_status,
             change_by=None,
             ordered_plate=plate.id
@@ -710,7 +710,7 @@ async def update_order_plates(
             await db.flush()
             if not dish.is_selfserve and new_plate.course_number <= max_activated:
                 history = CookingStatusHistory(
-                    change_time=datetime.utcnow(),
+                    change_time=datetime.now(),
                     new_status=plate_in.initial_status,
                     change_by=current_user.id,
                     ordered_plate=new_plate.id
