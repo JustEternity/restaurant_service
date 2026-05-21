@@ -23,7 +23,7 @@ def get_current_status(plate: PlateForOrder):
 async def get_cooks_to_notify(order_id: int, db: AsyncSession, plates_for_first_course: Optional[List[int]] = None):
     """
     Возвращает список id поваров, у которых в специализациях есть блюда из заказа (order_id).
-    Блюда с is_selfserve=True игнорируются.
+    Блюда с is_selfserve=True или is_considered=False игнорируются.
     """
     stmt = select(Order).where(Order.id == order_id).options(
         selectinload(Order.plates).selectinload(PlateForOrder.menu_item)
@@ -37,12 +37,12 @@ async def get_cooks_to_notify(order_id: int, db: AsyncSession, plates_for_first_
         plate_ids = []
         for p in order.plates:
             if p.id in plates_for_first_course:
-                if not (p.menu_item and p.menu_item.is_selfserve):
+                if not (p.menu_item and p.menu_item.is_selfserve) and p.is_considered:
                     plate_ids.append(p.plate_id)
     else:
         plate_ids = [
             p.plate_id for p in order.plates
-            if not (p.menu_item and p.menu_item.is_selfserve)
+            if not (p.menu_item and p.menu_item.is_selfserve) and p.is_considered
         ]
 
     if not plate_ids:
@@ -126,7 +126,8 @@ async def get_all_orders(
                 price=plate.price,
                 plate_name=plate.menu_item.name if plate.menu_item else None,
                 course_number=plate.course_number,
-                is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False
+                is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False,
+                is_considered=plate.is_considered
             ))
         response.append(OrderResponse(
             id=order.id,
@@ -144,13 +145,13 @@ async def get_all_orders(
 async def get_active_orders(db: AsyncSession = Depends(get_async_db)):
     return await get_all_orders(status="active", db=db)
 
-
 @router.get("/{cook_id}/active-tasks")
 async def get_active_tasks(cook_id: int, db: AsyncSession = Depends(get_async_db)):
     """
     Возвращает список позиций заказа, которые в данный момент готовятся указанным поваром.
     Статус последней записи в истории для позиции должен быть "preparing",
     и change_by == cook_id.
+    Блюда с is_considered=False не учитываются.
     """
     subq = (
         select(
@@ -169,7 +170,8 @@ async def get_active_tasks(cook_id: int, db: AsyncSession = Depends(get_async_db
         .join(subq, PlateForOrder.id == subq.c.ordered_plate)
         .where(
             subq.c.new_status == "preparing",
-            subq.c.change_by == cook_id
+            subq.c.change_by == cook_id,
+            PlateForOrder.is_considered == True
         )
     )
 
@@ -211,7 +213,8 @@ async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
             price=plate.price,
             plate_name=plate.menu_item.name if plate.menu_item else None,
             course_number=plate.course_number,
-            is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False
+            is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False,
+            is_considered=plate.is_considered
         ))
     return OrderResponse(
         id=order.id,
@@ -223,6 +226,20 @@ async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
         table_numbers=table_numbers,
         plates=plates_resp
     )
+
+@router.put("/plate/{plate_id}/consider")
+async def toggle_plate_consider(
+    plate_id: int,
+    is_considered: bool,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Включить/исключить блюдо из заказа"""
+    plate = await db.get(PlateForOrder, plate_id)
+    if not plate:
+        raise HTTPException(status_code=404, detail="Блюдо в заказе не найдено")
+    plate.is_considered = is_considered
+    await db.commit()
+    return {"message": f"Блюдо {'учтено' if is_considered else 'исключено из заказа'}"}
 
 @router.post("/", response_model=OrderResponse)
 async def create_order(
@@ -696,6 +713,7 @@ async def update_order_plates(
                 existing.count = plate_in.count
                 existing.comment = plate_in.comment
                 existing.price = price
+                existing.is_considered = plate_in.is_considered
             kept_plate_ids.add(plate_in.id)
         else:
             new_plate = PlateForOrder(
@@ -704,7 +722,8 @@ async def update_order_plates(
                 count=plate_in.count,
                 comment=plate_in.comment,
                 price=price,
-                course_number=plate_in.course_number
+                course_number=plate_in.course_number,
+                is_considered=plate_in.is_considered
             )
             db.add(new_plate)
             await db.flush()

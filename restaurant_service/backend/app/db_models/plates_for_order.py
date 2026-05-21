@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Text, ForeignKey, VARCHAR, NUMERIC
+from sqlalchemy import Column, Integer, Text, ForeignKey, NUMERIC, BOOLEAN
 from sqlalchemy.orm import relationship
 from .base import BaseModel
 import enum
@@ -18,6 +18,7 @@ class PlateForOrder(BaseModel):
     comment = Column(Text)
     price = Column(NUMERIC, nullable=False)
     course_number = Column(Integer)
+    is_considered = Column(BOOLEAN)
 
     # Внешние ключи
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)

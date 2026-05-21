@@ -9,6 +9,7 @@ class PlateInOrderCreate(BaseModel):
     comment: Optional[str] = None
     initial_status: str = "waiting"
     course_number: int
+    is_considered: bool = True
 
 class OrderCreate(BaseModel):
     waiter: int
@@ -31,6 +32,7 @@ class PlateInOrderResponse(BaseModel):
     plate_name: Optional[str] = None
     course_number: int
     is_selfserve: bool = False
+    is_considered: bool = True
 
     class Config:
         from_attributes = True
@@ -54,3 +56,4 @@ class PlateInOrderUpdate(BaseModel):
     new_status: Optional[str] = None
     price: Optional[float] = None
     course_number: int
+    is_considered: bool = True

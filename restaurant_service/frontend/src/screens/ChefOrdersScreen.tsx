@@ -38,6 +38,7 @@ interface OrderPlate {
   price: number;
   plate_name: string;
   course_number: number;
+  is_considered: boolean;
 }
 
 interface Order {
@@ -371,6 +372,7 @@ const ChefOrders = () => {
       const groupedMap = new Map<string, FlatOrderedPlate>();
       for (const order of orders) {
         for (const plate of order.plates) {
+          if (plate.is_considered === false) continue;
           if (!allowedPlateIds.has(plate.plate_id)) continue;
           const key = `${order.id}_${plate.id}`;
           const existing = groupedMap.get(key);

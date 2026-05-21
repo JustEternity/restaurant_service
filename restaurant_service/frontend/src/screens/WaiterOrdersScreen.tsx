@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, ActivityIndicator,
   RefreshControl, Alert, Modal, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Swipeable from 'react-native-gesture-handler/Swipeable';
+import { RectButton } from 'react-native-gesture-handler';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -20,6 +22,7 @@ interface PlateInOrder {
   plate_name: string;
   course_number: number;
   is_selfserve: boolean;
+  is_considered: boolean;
 }
 
 interface Order {
@@ -43,6 +46,8 @@ const WaiterOrders = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [activatingCourse, setActivatingCourse] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+
+  const swipeableRefs = useRef<Map<number, Swipeable>>(new Map());
 
   const loadOrders = useCallback(async () => {
     try {
@@ -91,6 +96,7 @@ const WaiterOrders = () => {
           current_status: p.current_status,
           id: p.id,
           course_number: p.course_number,
+          is_considered: p.is_considered,
         })),
       },
     });
@@ -115,6 +121,18 @@ const WaiterOrders = () => {
       await refreshSelectedOrder();
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось обновить статус блюда');
+    }
+  };
+
+  const toggleConsiderPlate = async (plateId: number, currentConsider: boolean) => {
+    const newConsider = !currentConsider;
+    try {
+      await api.put(`/orders/plate/${plateId}/consider?is_considered=${newConsider}`);
+      swipeableRefs.current.get(plateId)?.close();
+      await loadOrders();
+      await refreshSelectedOrder();
+    } catch (error) {
+      Alert.alert('Ошибка', 'Не удалось изменить учёт блюда');
     }
   };
 
@@ -196,11 +214,11 @@ const WaiterOrders = () => {
   };
 
   const hasInactiveCourses = (order: Order) => {
-    const nonSelfServePlates = order.plates.filter(p => !p.is_selfserve);
-    if (nonSelfServePlates.length === 0) return false;
-    const courseNumbers = Array.from(new Set(nonSelfServePlates.map(p => p.course_number)));
+    const consideredPlates = order.plates.filter(p => !p.is_selfserve && p.is_considered);
+    if (consideredPlates.length === 0) return false;
+    const courseNumbers = Array.from(new Set(consideredPlates.map(p => p.course_number)));
     for (const course of courseNumbers) {
-      const platesInCourse = nonSelfServePlates.filter(p => p.course_number === course);
+      const platesInCourse = consideredPlates.filter(p => p.course_number === course);
       const allInactive = platesInCourse.every(p => p.current_status === null);
       if (allInactive) return true;
     }
@@ -218,7 +236,8 @@ const WaiterOrders = () => {
   };
 
   const renderOrderItem = ({ item }: { item: Order }) => {
-    const hasReady = item.plates.some(p => p.current_status === 'ready');
+    const consideredPlates = item.plates.filter(p => p.is_considered);
+    const hasReady = consideredPlates.some(p => p.current_status === 'ready');
     return (
       <TouchableOpacity
         style={[styles.orderCard, hasReady && styles.readyOrderCard]}
@@ -242,41 +261,74 @@ const WaiterOrders = () => {
           </View>
           <View style={styles.infoRow}>
             <Ionicons name="receipt-outline" size={16} color="#666" />
-            <Text style={styles.infoText}>Позиций: {item.plates.reduce((sum, p) => sum + p.count, 0)}</Text>
+            <Text style={styles.infoText}>Позиций: {consideredPlates.reduce((sum, p) => sum + p.count, 0)}</Text>
           </View>
           <View style={styles.infoRow}>
             <Ionicons name="cash-outline" size={16} color="#666" />
-            <Text style={styles.infoText}>Сумма: {item.plates.reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽</Text>
+            <Text style={styles.infoText}>Сумма: {consideredPlates.reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽</Text>
           </View>
         </View>
       </TouchableOpacity>
     );
   };
 
-  const renderPlateItem = (plate: PlateInOrder) => (
-    <View style={styles.plateItem}>
-      <View style={styles.plateInfo}>
-        <Text style={styles.plateName}>
-          {plate.plate_name}
-          {plate.is_selfserve ? ' (официант)' : ''}
-        </Text>
-        {plate.comment && <Text style={styles.plateComment}>Комментарий: {plate.comment}</Text>}
-        <Text style={styles.platePrice}>{plate.count} x {plate.price} ₽ = {(plate.count * plate.price).toFixed(2)} ₽</Text>
-      </View>
-      <View style={styles.plateStatusContainer}>
-        <View style={[styles.cookingStatusBadge, { backgroundColor: getCookingStatusColor(plate.current_status || 'waiting') }]}>
-          <Text style={styles.cookingStatusText}>
-            {plate.current_status ? getCookingStatusText(plate.current_status) : 'Не отправлено'}
+  const renderPlateItem = (plate: PlateInOrder) => {
+    const renderRightActions = () => {
+      return (
+        <RectButton
+          style={[
+            styles.swipeButton,
+            { backgroundColor: plate.is_considered ? '#e67e22' : '#2ecc71' }
+          ]}
+          onPress={() => toggleConsiderPlate(plate.id, plate.is_considered)}
+        >
+          <Ionicons
+            name={plate.is_considered ? 'remove-circle-outline' : 'add-circle-outline'}
+            size={24}
+            color="#fff"
+          />
+          <Text style={styles.swipeButtonText}>
+            {plate.is_considered ? 'Исключить' : 'Вернуть'}
           </Text>
+        </RectButton>
+      );
+    };
+
+    return (
+      <Swipeable
+        key={plate.id}
+        ref={(ref) => {
+          if (ref) swipeableRefs.current.set(plate.id, ref);
+        }}
+        renderRightActions={renderRightActions}
+        overshootRight={false}
+      >
+        <View style={[styles.plateItem, !plate.is_considered && { opacity: 0.5 }]}>
+          <View style={styles.plateInfo}>
+            <Text style={styles.plateName}>
+              {plate.plate_name}
+              {plate.is_selfserve ? ' (официант)' : ''}
+              {!plate.is_considered && ' (исключено)'}
+            </Text>
+            {plate.comment && <Text style={styles.plateComment}>Комментарий: {plate.comment}</Text>}
+            <Text style={styles.platePrice}>{plate.count} x {plate.price} ₽ = {(plate.count * plate.price).toFixed(2)} ₽</Text>
+          </View>
+          <View style={styles.plateStatusContainer}>
+            <View style={[styles.cookingStatusBadge, { backgroundColor: getCookingStatusColor(plate.current_status || 'waiting') }]}>
+              <Text style={styles.cookingStatusText}>
+                {plate.current_status ? getCookingStatusText(plate.current_status) : 'Не отправлено'}
+              </Text>
+            </View>
+            {(plate.current_status === 'ready' || (plate.is_selfserve && plate.current_status !== 'served')) && plate.is_considered && (
+              <TouchableOpacity style={styles.servedButton} onPress={() => markAsServed(plate.id)}>
+                <Text style={styles.servedButtonText}>Подано</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
-        {(plate.current_status === 'ready' || (plate.is_selfserve && plate.current_status !== 'served')) && (
-          <TouchableOpacity style={styles.servedButton} onPress={() => markAsServed(plate.id)}>
-            <Text style={styles.servedButtonText}>Подано</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
+      </Swipeable>
+    );
+  };
 
   const { addHandler } = useWebSocket();
   useEffect(() => {
@@ -300,7 +352,7 @@ const WaiterOrders = () => {
     );
   }
 
-  const allServed = selectedOrder?.plates.every(p => p.current_status === 'served');
+  const allServed = selectedOrder?.plates.filter(p => p.is_considered).every(p => p.current_status === 'served');
 
   return (
     <View style={styles.container}>
@@ -366,9 +418,11 @@ const WaiterOrders = () => {
                 ))}
 
                 <View style={styles.totalContainer}>
-                  <Text style={styles.totalText}>Итого:</Text>
+                  <Text style={styles.totalText}>Итого (учтённые):</Text>
                   <Text style={styles.totalValue}>
-                    {selectedOrder.plates.reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽
+                    {selectedOrder.plates
+                      .filter(p => p.is_considered)
+                      .reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽
                   </Text>
                 </View>
 
