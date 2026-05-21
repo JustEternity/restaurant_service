@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
@@ -12,7 +11,6 @@ import {
   TextInput,
   ScrollView,
   Switch,
-  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -48,6 +46,15 @@ interface MenuItem {
   name: string;
   description: string;
   price: number;
+  category?: number | null;
+  category_name?: string;
+}
+
+interface CategoryNode {
+  id: number;
+  name: string;
+  parent_category: number | null;
+  children: CategoryNode[];
 }
 
 type ActiveFilter = 'all' | 'active' | 'inactive';
@@ -85,6 +92,8 @@ const AdminStaff = () => {
   const [linkedPlates, setLinkedPlates] = useState<MenuItem[]>([]);
   const [allMenuItems, setAllMenuItems] = useState<MenuItem[]>([]);
   const [platesLoading, setPlatesLoading] = useState(false);
+  const [categoriesTree, setCategoriesTree] = useState<CategoryNode[]>([]);
+  const [expandedCategories, setExpandedCategories] = useState<Set<number>>(new Set());
 
   const handleManageGroups = () => navigation.navigate('CookGroupManagement');
 
@@ -159,11 +168,7 @@ const AdminStaff = () => {
   const handleDeleteUser = (u: User) => {
     Alert.alert('Удаление сотрудника', `Вы уверены, что хотите удалить сотрудника ${u.name}?`, [
       { text: 'Отмена', style: 'cancel' },
-      {
-        text: 'Удалить',
-        style: 'destructive',
-        onPress: () => deleteUser(u.id),
-      },
+      { text: 'Удалить', style: 'destructive', onPress: () => deleteUser(u.id) },
     ]);
   };
 
@@ -191,7 +196,6 @@ const AdminStaff = () => {
         specialization_id: editData.role === 'cook' ? editData.specialization_id : null,
       };
       if (editData.password.trim()) updateData.password = editData.password;
-
       const response = await api.put(`/users/${selectedUser?.id}`, updateData);
       const updatedUser: User = response.data;
       setStaff((prev) => prev.map((u) => (u.id === selectedUser?.id ? updatedUser : u)));
@@ -252,21 +256,12 @@ const AdminStaff = () => {
     }
   };
 
-  const loadAllMenuItems = async () => {
-    if (allMenuItems.length > 0) return;
-    try {
-      const res = await api.get('/menu/');
-      setAllMenuItems(res.data);
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось загрузить меню');
-    }
-  };
-
   const handleOpenSpecModal = () => {
     setMode('list');
     setSpecModalVisible(true);
     loadSpecializations();
-    loadAllMenuItems();
+    api.get('/menu/').then(res => setAllMenuItems(res.data)).catch(() => {});
+    api.get('/menu/categories/tree').then(res => setCategoriesTree(res.data)).catch(() => {});
   };
 
   const handleCreateSpec = async () => {
@@ -306,8 +301,14 @@ const AdminStaff = () => {
     setMode('plates');
     setPlatesLoading(true);
     try {
-      const res = await api.get(`/plates-specializations/specialization/${spec.id}`);
-      const linkedData: any[] = res.data;
+      const [menuRes, treeRes, linkedRes] = await Promise.all([
+        api.get('/menu/'),
+        api.get('/menu/categories/tree'),
+        api.get(`/plates-specializations/specialization/${spec.id}`)
+      ]);
+      setAllMenuItems(menuRes.data);
+      setCategoriesTree(Array.isArray(treeRes.data) ? treeRes.data : []);
+      const linkedData: any[] = linkedRes.data;
       const plates: MenuItem[] = linkedData.map((link) => ({
         id: link.plate_id,
         name: link.plate_name,
@@ -316,38 +317,163 @@ const AdminStaff = () => {
       }));
       setLinkedPlates(plates);
     } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось загрузить связанные блюда');
+      Alert.alert('Ошибка', 'Не удалось загрузить данные');
     } finally {
       setPlatesLoading(false);
     }
   };
 
-  const addPlateToSpec = async (plateId: number) => {
+  const linkedPlatesIds = useMemo(() => new Set(linkedPlates.map(p => p.id)), [linkedPlates]);
+
+  const categoryPlatesMap = useMemo(() => {
+    const map = new Map<number, MenuItem[]>();
+    const byCategory = new Map<number, MenuItem[]>();
+    allMenuItems.forEach(item => {
+      if (item.category != null) {
+        if (!byCategory.has(item.category)) byCategory.set(item.category, []);
+        byCategory.get(item.category)!.push(item);
+      }
+    });
+
+    const collect = (node: CategoryNode): MenuItem[] => {
+      let plates: MenuItem[] = [];
+      if (byCategory.has(node.id)) plates.push(...byCategory.get(node.id)!);
+      for (const child of node.children) {
+        plates.push(...collect(child));
+      }
+      map.set(node.id, plates);
+      return plates;
+    };
+
+    categoriesTree.forEach(root => collect(root));
+    return map;
+  }, [allMenuItems, categoriesTree]);
+
+  const addPlatesToSpec = async (plateIds: number[]) => {
     if (!selectedSpec) return;
-    try {
-      await api.post('/plates-specializations/', {
-        plate_id: plateId,
-        specialization_id: selectedSpec.id,
-      });
-      const addedPlate = allMenuItems.find((p) => p.id === plateId);
-      if (addedPlate) setLinkedPlates((prev) => [...prev, addedPlate]);
-    } catch (error: any) {
-      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось добавить блюдо');
+    for (const plateId of plateIds) {
+      try {
+        await api.post('/plates-specializations/', {
+          plate_id: plateId,
+          specialization_id: selectedSpec.id,
+        });
+      } catch (e) {
+      }
     }
+    const newLinked = allMenuItems.filter(m => plateIds.includes(m.id) || linkedPlatesIds.has(m.id));
+    setLinkedPlates(newLinked);
   };
 
-  const removePlateFromSpec = async (plateId: number) => {
+  const removePlatesFromSpec = async (plateIds: number[]) => {
     if (!selectedSpec) return;
     try {
       const res = await api.get(`/plates-specializations/specialization/${selectedSpec.id}`);
       const links: any[] = res.data;
-      const link = links.find((l) => l.plate_id === plateId);
-      if (!link) throw new Error('Связь не найдена');
-      await api.delete(`/plates-specializations/${link.id}`);
-      setLinkedPlates((prev) => prev.filter((p) => p.id !== plateId));
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось удалить связь');
+      const toDelete = links
+        .filter((l: any) => plateIds.includes(l.plate_id))
+        .map((l: any) => l.id);
+      for (const linkId of toDelete) {
+        await api.delete(`/plates-specializations/${linkId}`);
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Не удалось удалить некоторые связи');
     }
+    setLinkedPlates(prev => prev.filter(p => !plateIds.includes(p.id)));
+  };
+
+  const handleToggleCategory = async (node: CategoryNode, currentlyChecked: boolean) => {
+    const plates = categoryPlatesMap.get(node.id) || [];
+    if (plates.length === 0) return;
+
+    if (currentlyChecked) {
+      const idsToRemove = plates.filter(p => linkedPlatesIds.has(p.id)).map(p => p.id);
+      if (idsToRemove.length > 0) {
+        await removePlatesFromSpec(idsToRemove);
+      }
+    } else {
+      const idsToAdd = plates.filter(p => !linkedPlatesIds.has(p.id)).map(p => p.id);
+      if (idsToAdd.length > 0) {
+        await addPlatesToSpec(idsToAdd);
+      }
+    }
+  };
+
+  const toggleExpandCategory = (id: number) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const renderCategoryNode = (node: CategoryNode, depth: number) => {
+    const ownPlates = allMenuItems.filter(item => item.category === node.id);
+
+    const allSubPlates = categoryPlatesMap.get(node.id) || [];
+    const allChecked = allSubPlates.length > 0 && allSubPlates.every(p => linkedPlatesIds.has(p.id));
+    const someChecked = allSubPlates.some(p => linkedPlatesIds.has(p.id));
+    const indeterminate = !allChecked && someChecked;
+
+    const isExpanded = expandedCategories.has(node.id);
+    const hasChildren = node.children.length > 0 || ownPlates.length > 0;
+
+    return (
+      <View key={node.id}>
+        <View style={[styles.categoryRow, { paddingLeft: 16 + depth * 20 }]}>
+          <TouchableOpacity onPress={() => handleToggleCategory(node, allChecked)} style={styles.checkbox}>
+            <Ionicons
+              name={allChecked ? 'checkbox' : indeterminate ? 'remove-circle' : 'square-outline'}
+              size={24}
+              color={allChecked ? '#2ecc71' : indeterminate ? '#f39c12' : '#aaa'}
+            />
+          </TouchableOpacity>
+          {hasChildren ? (
+            <TouchableOpacity onPress={() => toggleExpandCategory(node.id)} style={styles.expandButton}>
+              <Ionicons
+                name={isExpanded ? 'chevron-down' : 'chevron-forward'}
+                size={20}
+                color="#666"
+              />
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 28 }} />
+          )}
+          <Text style={styles.categoryName}>{node.name}</Text>
+          <Text style={styles.plateCount}>({allSubPlates.length})</Text>
+        </View>
+
+        {isExpanded && (
+          <View>
+            {ownPlates.map(plate => {
+              const isLinked = linkedPlatesIds.has(plate.id);
+              return (
+                <View key={plate.id} style={[styles.plateRow, { paddingLeft: 16 + (depth + 1) * 20 }]}>
+                  <TouchableOpacity
+                    style={styles.checkbox}
+                    onPress={async () => {
+                      if (isLinked) {
+                        await removePlatesFromSpec([plate.id]);
+                      } else {
+                        await addPlatesToSpec([plate.id]);
+                      }
+                    }}
+                  >
+                    <Ionicons
+                      name={isLinked ? 'checkbox' : 'square-outline'}
+                      size={22}
+                      color={isLinked ? '#2ecc71' : '#aaa'}
+                    />
+                  </TouchableOpacity>
+                  <Text style={styles.plateName}>{plate.name}</Text>
+                </View>
+              );
+            })}
+            {node.children.map(child => renderCategoryNode(child, depth + 1))}
+          </View>
+        )}
+      </View>
+    );
   };
 
   const closeSpecModal = () => {
@@ -355,6 +481,7 @@ const AdminStaff = () => {
     setMode('list');
     setSelectedSpec(null);
     setLinkedPlates([]);
+    setExpandedCategories(new Set());
   };
 
   const renderUserItem = ({ item }: { item: User }) => (
@@ -556,20 +683,14 @@ const AdminStaff = () => {
                 <View style={styles.modalActions}>
                   <TouchableOpacity
                     style={[styles.modalActionButton, styles.editButton]}
-                    onPress={() => {
-                      setModalVisible(false);
-                      handleEditUser(selectedUser);
-                    }}
+                    onPress={() => { setModalVisible(false); handleEditUser(selectedUser); }}
                   >
                     <Ionicons name="create-outline" size={20} color="#fff" />
                     <Text style={styles.modalActionButtonText}>Редактировать</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.modalActionButton, styles.deleteButton]}
-                    onPress={() => {
-                      setModalVisible(false);
-                      handleDeleteUser(selectedUser);
-                    }}
+                    onPress={() => { setModalVisible(false); handleDeleteUser(selectedUser); }}
                   >
                     <Ionicons name="trash-outline" size={20} color="#fff" />
                     <Text style={styles.modalActionButtonText}>Удалить</Text>
@@ -662,12 +783,7 @@ const AdminStaff = () => {
                           style={[styles.specChip, editData.specialization_id === spec.id && styles.specChipActive]}
                           onPress={() => setEditData({ ...editData, specialization_id: spec.id })}
                         >
-                          <Text
-                            style={[
-                              styles.specChipText,
-                              editData.specialization_id === spec.id && styles.specChipTextActive,
-                            ]}
-                          >
+                          <Text style={[styles.specChipText, editData.specialization_id === spec.id && styles.specChipTextActive]}>
                             {spec.name}
                           </Text>
                         </TouchableOpacity>
@@ -699,8 +815,8 @@ const AdminStaff = () => {
       </Modal>
 
       <Modal visible={specModalVisible} animationType="slide" transparent onRequestClose={closeSpecModal}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <View style={mode === 'list' ? styles.modalOverlayCenter : styles.modalOverlayBottom}>
+          <View style={mode === 'list' ? styles.modalContentList : styles.modalContentPlates}>
             {mode === 'list' ? (
               <>
                 <View style={styles.modalHeaderSpecs}>
@@ -755,35 +871,16 @@ const AdminStaff = () => {
                 </View>
                 {platesLoading ? (
                   <ActivityIndicator style={{ margin: 20 }} />
+                ) : categoriesTree.length === 0 && allMenuItems.length === 0 ? (
+                  <View style={styles.emptyContainer}>
+                    <Ionicons name="folder-open-outline" size={48} color="#ccc" />
+                    <Text style={styles.emptyText}>Нет данных меню и категорий</Text>
+                  </View>
                 ) : (
-                  <>
-                    <Text style={styles.sectionTitle}>Доступные блюда</Text>
-                    <FlatList
-                      data={allMenuItems.filter((m) => !linkedPlates.some((lp) => lp.id === m.id))}
-                      keyExtractor={(item) => item.id.toString()}
-                      style={{ maxHeight: 200 }}
-                      renderItem={({ item }) => (
-                        <TouchableOpacity style={styles.menuItem} onPress={() => addPlateToSpec(item.id)}>
-                          <Text>{item.name}</Text>
-                          <Ionicons name="add-circle-outline" size={22} color="#2ecc71" />
-                        </TouchableOpacity>
-                      )}
-                    />
-                    <Text style={styles.sectionTitle}>Привязанные блюда</Text>
-                    <FlatList
-                      data={linkedPlates}
-                      keyExtractor={(item) => item.id.toString()}
-                      style={{ maxHeight: 200 }}
-                      renderItem={({ item }) => (
-                        <View style={styles.menuItem}>
-                          <Text>{item.name}</Text>
-                          <TouchableOpacity onPress={() => removePlateFromSpec(item.id)}>
-                            <Ionicons name="close-circle-outline" size={22} color="#e74c3c" />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                    />
-                  </>
+                  <ScrollView style={{ flex: 1 }}>
+                    <Text style={[styles.sectionTitle, { marginLeft: 16, marginTop: 8 }]}>Выберите категории</Text>
+                    {categoriesTree.map((root) => renderCategoryNode(root, 0))}
+                  </ScrollView>
                 )}
               </>
             )}

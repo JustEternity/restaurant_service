@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 from typing import List
+from pydantic import BaseModel
 
 from app.database import get_async_db
 from app.db_models import CookGroup, CooksInGroup, User
@@ -206,3 +207,53 @@ async def remove_cook_from_group(
         raise HTTPException(status_code=404, detail="Повар не найден в группе")
     await db.commit()
     return {"message": "Повар удалён из группы"}
+
+class BatchCookToGroup(BaseModel):
+    user_ids: List[int]
+
+@router.post("/{group_id}/cooks/batch")
+async def add_cooks_to_group_batch(
+    group_id: int,
+    payload: BatchCookToGroup,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Добавить нескольких поваров в группу (только для администраторов)"""
+    if not current_user.role_of_user:
+        await db.refresh(current_user, attribute_names=["role_of_user"])
+    if current_user.role_of_user.name != "admin":
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    group = await db.get(CookGroup, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
+
+    stmt = select(User).where(User.id.in_(payload.user_ids)).options(selectinload(User.role_of_user))
+    result = await db.execute(stmt)
+    users = result.scalars().all()
+
+    if len(users) != len(payload.user_ids):
+        missing = set(payload.user_ids) - {u.id for u in users}
+        raise HTTPException(status_code=404, detail=f"Пользователи с ID {missing} не найдены")
+
+    for u in users:
+        if not u.role_of_user or u.role_of_user.name != "cook":
+            raise HTTPException(status_code=400, detail=f"Пользователь {u.id} не является поваром")
+
+    exist_stmt = select(CooksInGroup.cook).where(
+        CooksInGroup.group == group_id,
+        CooksInGroup.cook.in_(payload.user_ids)
+    )
+    exist_result = await db.execute(exist_stmt)
+    existing_cook_ids = {row[0] for row in exist_result}
+    if existing_cook_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Повара с ID {existing_cook_ids} уже состоят в группе"
+        )
+
+    for cook_id in payload.user_ids:
+        db.add(CooksInGroup(group=group_id, cook=cook_id))
+
+    await db.commit()
+    return {"message": f"{len(payload.user_ids)} поваров добавлены в группу"}

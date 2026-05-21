@@ -44,8 +44,10 @@ const CookGroupManagement = () => {
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [groupCooks, setGroupCooks] = useState<User[]>([]);
   const [allCooks, setAllCooks] = useState<User[]>([]);
-  const [cookModalVisible, setCookModalVisible] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
+
+  const [selectModalVisible, setSelectModalVisible] = useState(false);
+  const [selectedCookIds, setSelectedCookIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     loadGroups();
@@ -134,7 +136,6 @@ const CookGroupManagement = () => {
         setGroups(prev => [...prev, savedGroup]);
       }
       setModalVisible(false);
-      Alert.alert('Успешно', editingGroup ? 'Группа обновлена' : 'Группа создана');
     } catch (error: any) {
       console.error(error);
       Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось сохранить группу');
@@ -154,7 +155,6 @@ const CookGroupManagement = () => {
             try {
               await api.delete(`/cook-groups/${group.id}`);
               setGroups(prev => prev.filter(g => g.id !== group.id));
-              Alert.alert('Успешно', 'Группа удалена');
             } catch (error: any) {
               Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось удалить группу');
             }
@@ -162,19 +162,6 @@ const CookGroupManagement = () => {
         },
       ]
     );
-  };
-
-  const addCookToGroup = async (userId: number) => {
-    if (!selectedGroup) return;
-    try {
-      await api.post(`/cook-groups/${selectedGroup.id}/cooks/`, { user_id: userId });
-      await loadGroupDetails(selectedGroup.id);
-    } catch (error: any) {
-      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось добавить повара');
-    } finally {
-      setCookModalVisible(false);
-      setDetailModalVisible(true);
-    }
   };
 
   const removeCookFromGroup = async (userId: number) => {
@@ -187,9 +174,35 @@ const CookGroupManagement = () => {
     }
   };
 
-  const handleAddCook = () => {
+  const openSelectModal = () => {
     setDetailModalVisible(false);
-    setCookModalVisible(true);
+    setSelectedCookIds(new Set());
+    setSelectModalVisible(true);
+  };
+
+  const toggleCookSelection = (cookId: number) => {
+    setSelectedCookIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(cookId)) {
+        newSet.delete(cookId);
+      } else {
+        newSet.add(cookId);
+      }
+      return newSet;
+    });
+  };
+
+  const addSelectedCooks = async () => {
+    if (!selectedGroup || selectedCookIds.size === 0) return;
+    try {
+      const ids = Array.from(selectedCookIds);
+      await api.post(`/cook-groups/${selectedGroup.id}/cooks/batch`, { user_ids: ids });
+      await loadGroupDetails(selectedGroup.id);
+      setSelectModalVisible(false);
+      setDetailModalVisible(true);
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось добавить поваров');
+    }
   };
 
   const renderGroupItem = ({ item }: { item: CookGroup }) => (
@@ -207,6 +220,8 @@ const CookGroupManagement = () => {
       </View>
     </TouchableOpacity>
   );
+
+  const availableCooks = allCooks.filter(cook => !groupCooks.some(gc => gc.id === cook.id));
 
   if (loading && !refreshing) {
     return (
@@ -302,9 +317,9 @@ const CookGroupManagement = () => {
                     style={{ maxHeight: 300 }}
                     ListEmptyComponent={<Text style={styles.emptyDetail}>Нет поваров</Text>}
                   />
-                  <TouchableOpacity style={styles.addDetailButton} onPress={handleAddCook}>
+                  <TouchableOpacity style={styles.addDetailButton} onPress={openSelectModal}>
                     <Ionicons name="add-circle-outline" size={20} color="#007AFF" />
-                    <Text style={styles.addDetailButtonText}>Добавить повара</Text>
+                    <Text style={styles.addDetailButtonText}>Добавить поваров</Text>
                   </TouchableOpacity>
                 </View>
               </ScrollView>
@@ -313,27 +328,48 @@ const CookGroupManagement = () => {
         </View>
       </Modal>
 
-      {/* Модалка выбора повара */}
-      <Modal visible={cookModalVisible} animationType="slide" transparent>
+      <Modal visible={selectModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.selectModalContent}>
-            <Text style={styles.modalTitle}>Выберите повара</Text>
+            <Text style={styles.modalTitle}>Выберите поваров</Text>
             <FlatList
-              data={allCooks.filter(cook => !groupCooks.some(gc => gc.id === cook.id))}
+              data={availableCooks}
+              keyExtractor={(item) => item.id.toString()}
               renderItem={({ item }) => (
-                <TouchableOpacity style={styles.selectItem} onPress={() => addCookToGroup(item.id)}>
+                <TouchableOpacity
+                  style={styles.selectItem}
+                  onPress={() => toggleCookSelection(item.id)}
+                >
                   <Text style={styles.selectItemText}>{item.name}</Text>
+                  {selectedCookIds.has(item.id) ? (
+                    <Ionicons name="checkbox" size={22} color="#2ecc71" />
+                  ) : (
+                    <Ionicons name="square-outline" size={22} color="#999" />
+                  )}
                 </TouchableOpacity>
               )}
-              keyExtractor={(item) => item.id.toString()}
               ListEmptyComponent={<Text style={styles.emptyDetail}>Нет доступных поваров</Text>}
             />
-            <TouchableOpacity style={styles.closeSelectButton} onPress={() => {
-              setCookModalVisible(false);
-              setDetailModalVisible(true);
-            }}>
-              <Text style={styles.closeSelectButtonText}>Закрыть</Text>
-            </TouchableOpacity>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => {
+                  setSelectModalVisible(false);
+                  setDetailModalVisible(true);
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveButton, selectedCookIds.size === 0 && { opacity: 0.5 }]}
+                onPress={addSelectedCooks}
+                disabled={selectedCookIds.size === 0}
+              >
+                <Text style={styles.saveButtonText}>
+                  Добавить ({selectedCookIds.size})
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

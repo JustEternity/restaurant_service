@@ -3,7 +3,7 @@ import {
     Dimensions
  } from "react-native";
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
@@ -85,6 +85,18 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalOverlayCenter: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalOverlayBottom: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -217,6 +229,62 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f0f0f0',
   },
   backButton: { padding: 4 },
+  categoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingRight: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eee',
+  },
+  checkbox: {
+    marginRight: 10,
+  },
+  expandButton: {
+    marginRight: 4,
+    width: 28,
+    alignItems: 'center',
+  },
+  categoryName: {
+    fontSize: 16,
+    flex: 1,
+    color: '#333',
+  },
+  plateCount: {
+    fontSize: 14,
+    color: '#888',
+    marginLeft: 6,
+  },
+  plateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingRight: 16,
+  },
+  plateName: {
+    fontSize: 15,
+    color: '#555',
+    marginLeft: 6,
+  },
+  modalContentList: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    width: '90%',
+    maxHeight: '70%',
+    alignSelf: 'center',
+  },
+  modalContentPlates: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    padding: 16,
+    width: '90%',
+    height: '80%',
+    overflow: 'hidden',
+  },
 });
 
 export default styles;
