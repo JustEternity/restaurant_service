@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
+  View, Text, FlatList, TouchableOpacity, ActivityIndicator,
   RefreshControl, Alert, Modal, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,7 @@ interface PlateInOrder {
   price: number;
   plate_name: string;
   course_number: number;
+  is_selfserve: boolean;
 }
 
 interface Order {
@@ -181,7 +182,7 @@ const WaiterOrders = () => {
       case 'preparing': return 'Готовится';
       case 'ready': return 'Готово';
       case 'served': return 'Подано';
-      default: return status;
+      default: return status || 'Не отправлено';
     }
   };
   const getCookingStatusColor = (status: string) => {
@@ -195,9 +196,11 @@ const WaiterOrders = () => {
   };
 
   const hasInactiveCourses = (order: Order) => {
-    const courseNumbers = Array.from(new Set(order.plates.map(p => p.course_number)));
+    const nonSelfServePlates = order.plates.filter(p => !p.is_selfserve);
+    if (nonSelfServePlates.length === 0) return false;
+    const courseNumbers = Array.from(new Set(nonSelfServePlates.map(p => p.course_number)));
     for (const course of courseNumbers) {
-      const platesInCourse = order.plates.filter(p => p.course_number === course);
+      const platesInCourse = nonSelfServePlates.filter(p => p.course_number === course);
       const allInactive = platesInCourse.every(p => p.current_status === null);
       if (allInactive) return true;
     }
@@ -253,7 +256,10 @@ const WaiterOrders = () => {
   const renderPlateItem = (plate: PlateInOrder) => (
     <View style={styles.plateItem}>
       <View style={styles.plateInfo}>
-        <Text style={styles.plateName}>{plate.plate_name}</Text>
+        <Text style={styles.plateName}>
+          {plate.plate_name}
+          {plate.is_selfserve ? ' (официант)' : ''}
+        </Text>
         {plate.comment && <Text style={styles.plateComment}>Комментарий: {plate.comment}</Text>}
         <Text style={styles.platePrice}>{plate.count} x {plate.price} ₽ = {(plate.count * plate.price).toFixed(2)} ₽</Text>
       </View>
@@ -263,7 +269,7 @@ const WaiterOrders = () => {
             {plate.current_status ? getCookingStatusText(plate.current_status) : 'Не отправлено'}
           </Text>
         </View>
-        {plate.current_status === 'ready' && (
+        {(plate.current_status === 'ready' || (plate.is_selfserve && plate.current_status !== 'served')) && (
           <TouchableOpacity style={styles.servedButton} onPress={() => markAsServed(plate.id)}>
             <Text style={styles.servedButtonText}>Подано</Text>
           </TouchableOpacity>

@@ -22,18 +22,31 @@ def get_current_status(plate: PlateForOrder):
 
 async def get_cooks_to_notify(order_id: int, db: AsyncSession, plates_for_first_course: Optional[List[int]] = None):
     """
-    Возвращает список id поваров у которых в специализациях есть блюда из заказа (order_id)
+    Возвращает список id поваров, у которых в специализациях есть блюда из заказа (order_id).
+    Блюда с is_selfserve=True игнорируются.
     """
-    stmt = select(Order).where(Order.id == order_id).options(selectinload(Order.plates))
+    stmt = select(Order).where(Order.id == order_id).options(
+        selectinload(Order.plates).selectinload(PlateForOrder.menu_item)
+    )
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order or not order.plates:
         return set()
 
     if plates_for_first_course is not None:
-        plate_ids = [p.plate_id for p in order.plates if p.id in plates_for_first_course]
+        plate_ids = []
+        for p in order.plates:
+            if p.id in plates_for_first_course:
+                if not (p.menu_item and p.menu_item.is_selfserve):
+                    plate_ids.append(p.plate_id)
     else:
-        plate_ids = [p.plate_id for p in order.plates]
+        plate_ids = [
+            p.plate_id for p in order.plates
+            if not (p.menu_item and p.menu_item.is_selfserve)
+        ]
+
+    if not plate_ids:
+        return set()
 
     stmt = (
         select(PlatesForSpecialization.specialization)
@@ -112,7 +125,8 @@ async def get_all_orders(
                 current_status=get_current_status(plate),
                 price=plate.price,
                 plate_name=plate.menu_item.name if plate.menu_item else None,
-                course_number=plate.course_number
+                course_number=plate.course_number,
+                is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False
             ))
         response.append(OrderResponse(
             id=order.id,
@@ -138,7 +152,6 @@ async def get_active_tasks(cook_id: int, db: AsyncSession = Depends(get_async_db
     Статус последней записи в истории для позиции должен быть "preparing",
     и change_by == cook_id.
     """
-    # Подзапрос: для каждой позиции находим последнюю запись истории
     subq = (
         select(
             CookingStatusHistory.ordered_plate,
@@ -151,7 +164,6 @@ async def get_active_tasks(cook_id: int, db: AsyncSession = Depends(get_async_db
         .subquery()
     )
 
-    # Выбираем только те позиции, где последний статус = "preparing" и change_by = cook_id
     stmt = (
         select(PlateForOrder.id, PlateForOrder.plate_id, subq.c.change_time)
         .join(subq, PlateForOrder.id == subq.c.ordered_plate)
@@ -198,7 +210,8 @@ async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
             current_status=get_current_status(plate),
             price=plate.price,
             plate_name=plate.menu_item.name if plate.menu_item else None,
-            course_number=plate.course_number
+            course_number=plate.course_number,
+            is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False
         ))
     return OrderResponse(
         id=order.id,
@@ -283,10 +296,8 @@ async def create_order(
         )
         db.add(plate)
         await db.flush()
-        first_plates.append(plate)
 
-        # Создаём первую запись в истории статуса
-        if plate.course_number == 1:
+        if not dish.is_selfserve and plate.course_number == 1:
             history = CookingStatusHistory(
                 change_time=datetime.utcnow(),
                 new_status=plate_data.initial_status,
@@ -294,6 +305,7 @@ async def create_order(
                 ordered_plate=plate.id
             )
             db.add(history)
+            first_plates.append(plate)
 
     await db.commit()
     await db.refresh(order, attribute_names=["waiter_user", "tables", "plates"])
@@ -306,14 +318,15 @@ async def create_order(
         "message": f"Создан заказ официантом {order_data.waiter}"
     }, "admin")
 
-    first_plates = [p.id for p in first_plates if p.course_number == 1]
-    cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=first_plates)
-    if cooks_to_notify:
-        await manager.broadcast_to_users({
-            "type": "new_order",
-            "order_id": order.id,
-            "message": "Поступил новый заказ"
-        }, list(cooks_to_notify))
+    if first_plates:
+        first_plate_ids = [p.id for p in first_plates]
+        cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=first_plate_ids)
+        if cooks_to_notify:
+            await manager.broadcast_to_users({
+                "type": "new_order",
+                "order_id": order.id,
+                "message": "Поступил новый заказ"
+            }, list(cooks_to_notify))
     return await get_order(order.id, db)
 
 @router.post("/{order_id}/activate-next-course")
@@ -323,7 +336,8 @@ async def activate_next_course(
     current_user: User = Depends(get_current_user)
 ):
     stmt = select(Order).where(Order.id == order_id).options(
-        selectinload(Order.plates).selectinload(PlateForOrder.statuses_of_plate)
+        selectinload(Order.plates).selectinload(PlateForOrder.statuses_of_plate),
+        selectinload(Order.plates).selectinload(PlateForOrder.menu_item)
     )
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
@@ -334,6 +348,8 @@ async def activate_next_course(
 
     max_activated = 0
     for plate in order.plates:
+        if plate.menu_item and plate.menu_item.is_selfserve:
+            continue
         if plate.statuses_of_plate:
             if plate.course_number > max_activated:
                 max_activated = plate.course_number
@@ -345,6 +361,8 @@ async def activate_next_course(
         raise HTTPException(status_code=400, detail="Все курсы уже активированы или следующий курс отсутствует")
 
     for plate in next_course_plates:
+        if plate.menu_item and plate.menu_item.is_selfserve:
+            continue
         history = CookingStatusHistory(
             change_time=datetime.utcnow(),
             new_status="waiting",
@@ -355,14 +373,15 @@ async def activate_next_course(
 
     await db.commit()
 
-    plate_ids = [p.id for p in next_course_plates]
-    cooks = await get_cooks_to_notify(order.id, db, plates_for_first_course=plate_ids)
-    if cooks:
-        await manager.broadcast_to_users({
-            "type": "new_order",
-            "order_id": order.id,
-            "message": f"Активирован курс {next_course}"
-        }, list(cooks))
+    activated_plate_ids = [p.id for p in next_course_plates if not (p.menu_item and p.menu_item.is_selfserve)]
+    if activated_plate_ids:
+        cooks = await get_cooks_to_notify(order.id, db, plates_for_first_course=activated_plate_ids)
+        if cooks:
+            await manager.broadcast_to_users({
+                "type": "new_order",
+                "order_id": order.id,
+                "message": f"Активирован курс {next_course}"
+            }, list(cooks))
 
     return {"message": f"Курс {next_course} отправлен на кухню", "course": next_course}
 
@@ -521,13 +540,16 @@ async def add_plate_to_order(
         raise HTTPException(status_code=404, detail="Блюдо не найдено в меню")
 
     stmt = select(PlateForOrder).where(PlateForOrder.order_id == order_id).options(
-        selectinload(PlateForOrder.statuses_of_plate)
+        selectinload(PlateForOrder.statuses_of_plate),
+        selectinload(PlateForOrder.menu_item)
     )
     result = await db.execute(stmt)
     existing_plates = result.scalars().all()
 
     max_activated = 0
     for ep in existing_plates:
+        if ep.menu_item and ep.menu_item.is_selfserve:
+            continue
         if ep.statuses_of_plate:
             if ep.course_number > max_activated:
                 max_activated = ep.course_number
@@ -544,7 +566,7 @@ async def add_plate_to_order(
     db.add(plate)
     await db.flush()
 
-    if plate.course_number <= max_activated:
+    if not dish.is_selfserve and plate.course_number <= max_activated:
         history = CookingStatusHistory(
             change_time=datetime.utcnow(),
             new_status=plate_data.initial_status,
@@ -556,7 +578,7 @@ async def add_plate_to_order(
     await db.commit()
     await db.refresh(plate, attribute_names=["menu_item", "statuses_of_plate"])
 
-    if plate.course_number <= max_activated:
+    if not dish.is_selfserve and plate.course_number <= max_activated:
         cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=[plate.id])
         if cooks_to_notify:
             plate_name = plate.menu_item.name if plate.menu_item else "Блюдо"
@@ -574,7 +596,8 @@ async def add_plate_to_order(
         current_status=get_current_status(plate),
         price=plate.price,
         plate_name=plate.menu_item.name if plate.menu_item else None,
-        course_number=plate.course_number
+        course_number=plate.course_number,
+        is_selfserve=dish.is_selfserve if dish else False
     )
 
 @router.put("/plates/{plate_id}", response_model=PlateInOrderResponse)
@@ -627,7 +650,9 @@ async def update_plate_in_order(
         comment=plate.comment,
         current_status=get_current_status(plate),
         price=plate.price,
-        plate_name=plate.menu_item.name if plate.menu_item else None
+        plate_name=plate.menu_item.name if plate.menu_item else None,
+        course_number=plate.course_number,
+        is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False
     )
 
 @router.put("/{order_id}/plates", response_model=OrderResponse)
@@ -639,6 +664,7 @@ async def update_order_plates(
 ):
     order = await db.get(Order, order_id, options=[
         selectinload(Order.plates).selectinload(PlateForOrder.statuses_of_plate),
+        selectinload(Order.plates).selectinload(PlateForOrder.menu_item),
         selectinload(Order.tables).selectinload(TableForOrder.table_for_order)
     ])
     if not order:
@@ -648,6 +674,8 @@ async def update_order_plates(
 
     max_activated = 0
     for plate in order.plates:
+        if plate.menu_item and plate.menu_item.is_selfserve:
+            continue
         if plate.statuses_of_plate:
             if plate.course_number > max_activated:
                 max_activated = plate.course_number
@@ -680,7 +708,7 @@ async def update_order_plates(
             )
             db.add(new_plate)
             await db.flush()
-            if new_plate.course_number <= max_activated:
+            if not dish.is_selfserve and new_plate.course_number <= max_activated:
                 history = CookingStatusHistory(
                     change_time=datetime.utcnow(),
                     new_status=plate_in.initial_status,
@@ -699,13 +727,14 @@ async def update_order_plates(
     await db.commit()
     await db.refresh(order, attribute_names=["plates", "tables"])
 
-    cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=new_activated_plate_ids)
-    if cooks_to_notify:
-        await manager.broadcast_to_users({
-            "type": "new_order",
-            "order_id": order.id,
-            "message": "Поступил новый заказ"
-        }, list(cooks_to_notify))
+    if new_activated_plate_ids:
+        cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=new_activated_plate_ids)
+        if cooks_to_notify:
+            await manager.broadcast_to_users({
+                "type": "new_order",
+                "order_id": order.id,
+                "message": "Поступил новый заказ"
+            }, list(cooks_to_notify))
     return await get_order(order.id, db)
 
 @router.delete("/plates/{plate_id}")

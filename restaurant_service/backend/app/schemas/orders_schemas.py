@@ -30,6 +30,7 @@ class PlateInOrderResponse(BaseModel):
     price: float
     plate_name: Optional[str] = None
     course_number: int
+    is_selfserve: bool = False
 
     class Config:
         from_attributes = True

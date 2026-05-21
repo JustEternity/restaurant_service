@@ -13,6 +13,7 @@ class Menu(BaseModel):
     price = Column(NUMERIC, nullable=True)
     category = Column(Integer, ForeignKey("category.id"), nullable=True)
     is_available = Column(BOOLEAN, nullable=False)
+    is_selfserve = Column(BOOLEAN)
 
     # Связи
     category_of_item = relationship("Category", back_populates="items_of_category")

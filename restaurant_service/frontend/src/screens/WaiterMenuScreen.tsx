@@ -40,6 +40,7 @@ interface MenuItem {
   category: number;
   is_available: boolean;
   category_name: string | null;
+  is_selfserve: boolean;
 }
 
 interface ExistingPlate {
@@ -126,6 +127,7 @@ const WaiterMenu = () => {
           category: 0,
           is_available: true,
           category_name: null,
+          is_selfserve: false,
         },
         quantity: ep.count,
         comment: ep.comment || '',
@@ -149,6 +151,7 @@ const WaiterMenu = () => {
               description: menuItem.description,
               photo: menuItem.photo,
               category_name: menuItem.category_name,
+              is_selfserve: menuItem.is_selfserve,
             },
           };
         }
@@ -183,7 +186,7 @@ const WaiterMenu = () => {
 
   const fetchCategories = async () => {
     try {
-      const response = await api.get('/menu/categories/?flat=false');
+      const response = await api.get('/menu/categories/tree');
       const data: Category[] = response.data;
       const deduplicateChildren = (cat: Category) => {
         if (cat.children && cat.children.length > 0) {
@@ -339,8 +342,9 @@ const WaiterMenu = () => {
   const getTotalPrice = () => cart.reduce((sum, i) => sum + i.item.price * i.quantity, 0);
 
   const validateCourses = (items: CartItem[]): string | null => {
-    if (items.length === 0) return null;
-    const courseNumbers = Array.from(new Set(items.map(i => i.course_number))).sort((a, b) => a - b);
+    const filtered = items.filter(i => !i.item.is_selfserve);
+    if (filtered.length === 0) return null;
+    const courseNumbers = Array.from(new Set(filtered.map(i => i.course_number))).sort((a, b) => a - b);
     if (courseNumbers[0] !== 1) {
       return 'Курсы должны начинаться с 1';
     }
@@ -451,7 +455,10 @@ const WaiterMenu = () => {
       <View style={styles.menuItemContent}>
         <TouchableOpacity style={{ flex: 1, flexDirection: 'row' }} onPress={() => handleItemPress(item)} activeOpacity={0.7}>
           <View style={styles.menuItemInfo}>
-            <Text style={styles.menuItemName}>{item.name}</Text>
+            <Text style={styles.menuItemName}>
+              {item.name}
+              {item.is_selfserve ? ' 🧑‍🍳' : ''}
+            </Text>
             <Text style={styles.menuItemDescription} numberOfLines={2}>{item.description}</Text>
             <Text style={styles.menuItemPrice}>{item.price} ₽</Text>
           </View>
@@ -623,6 +630,9 @@ const WaiterMenu = () => {
                   <Text style={styles.modalPrice}>{selectedItem.price} ₽</Text>
                   <Text style={styles.modalCategory}>{selectedItem.category_name}</Text>
                   <Text>{selectedItem.description || 'Описание отсутствует'}</Text>
+                  {selectedItem.is_selfserve && (
+                    <Text style={{ color: '#007AFF', marginTop: 5 }}>Подаётся официантом</Text>
+                  )}
                 </View>
                 {isAdmin && !isNewOrderMode && !isEditMode && (
                   <View style={styles.modalActions}>
@@ -673,22 +683,29 @@ const WaiterMenu = () => {
                           onChangeText={(text) => updateCartItem(cartItem.id || cartItem.item.id, cartItem.quantity, text)}
                         />
                       )}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                        <Text style={{ fontSize: 14, color: '#333' }}>Курс: </Text>
-                        {!isLocked ? (
-                          <>
-                            <TouchableOpacity onPress={() => updateCourseNumber(cartItem.id || cartItem.item.id, cartItem.course_number - 1)}>
-                              <Ionicons name="chevron-down" size={20} color="#007AFF" />
-                            </TouchableOpacity>
-                            <Text style={{ marginHorizontal: 6, fontSize: 16, fontWeight: '500' }}>{cartItem.course_number}</Text>
-                            <TouchableOpacity onPress={() => updateCourseNumber(cartItem.id || cartItem.item.id, cartItem.course_number + 1)}>
-                              <Ionicons name="chevron-up" size={20} color="#007AFF" />
-                            </TouchableOpacity>
-                          </>
-                        ) : (
-                          <Text style={{ fontSize: 16 }}>{cartItem.course_number}</Text>
-                        )}
-                      </View>
+                      {!cartItem.item.is_selfserve ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                          <Text style={{ fontSize: 14, color: '#333' }}>Курс: </Text>
+                          {!isLocked ? (
+                            <>
+                              <TouchableOpacity onPress={() => updateCourseNumber(cartItem.id || cartItem.item.id, cartItem.course_number - 1)}>
+                                <Ionicons name="chevron-down" size={20} color="#007AFF" />
+                              </TouchableOpacity>
+                              <Text style={{ marginHorizontal: 6, fontSize: 16, fontWeight: '500' }}>{cartItem.course_number}</Text>
+                              <TouchableOpacity onPress={() => updateCourseNumber(cartItem.id || cartItem.item.id, cartItem.course_number + 1)}>
+                                <Ionicons name="chevron-up" size={20} color="#007AFF" />
+                              </TouchableOpacity>
+                            </>
+                          ) : (
+                            <Text style={{ fontSize: 16 }}>{cartItem.course_number}</Text>
+                          )}
+                        </View>
+                      ) : (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                          <Ionicons name="hand-left-outline" size={16} color="#007AFF" />
+                          <Text style={{ fontSize: 14, color: '#007AFF', marginLeft: 4 }}>Подаётся официантом</Text>
+                        </View>
+                      )}
                     </View>
                     <View style={styles.quantityControl}>
                       {!isLocked ? (

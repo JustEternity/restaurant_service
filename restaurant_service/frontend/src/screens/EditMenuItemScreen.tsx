@@ -38,6 +38,7 @@ interface MenuItemFormData {
   price: string;
   category: number | null;
   is_available: boolean;
+  is_selfserve: boolean;
   photo: string;
   tag_ids: number[];
 }
@@ -64,6 +65,7 @@ const MenuItemFormScreen = () => {
     price: '',
     category: null,
     is_available: true,
+    is_selfserve: false,
     photo: '',
     tag_ids: [],
   });
@@ -107,6 +109,7 @@ const MenuItemFormScreen = () => {
         price: data.price ? data.price.toString() : '',
         category: data.category || null,
         is_available: data.is_available,
+        is_selfserve: data.is_selfserve ?? false,
         photo: data.photo || '',
         tag_ids: data.tags?.map((t: Tag) => t.id) || [],
       });
@@ -203,6 +206,7 @@ const MenuItemFormScreen = () => {
       price: parseFloat(formData.price),
       category: formData.category,
       is_available: formData.is_available,
+      is_selfserve: formData.is_selfserve,
       photo: formData.photo.trim() || '',
       tag_ids: formData.tag_ids,
     };
@@ -318,6 +322,15 @@ const MenuItemFormScreen = () => {
           <Switch
             value={formData.is_available}
             onValueChange={value => setFormData(prev => ({ ...prev, is_available: value }))}
+            trackColor={{ false: '#767577', true: '#007AFF' }}
+          />
+        </View>
+
+        <View style={styles.switchContainer}>
+          <Text style={styles.label}>Подаётся официантом</Text>
+          <Switch
+            value={formData.is_selfserve}
+            onValueChange={value => setFormData(prev => ({ ...prev, is_selfserve: value }))}
             trackColor={{ false: '#767577', true: '#007AFF' }}
           />
         </View>

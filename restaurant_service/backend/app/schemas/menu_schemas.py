@@ -10,6 +10,7 @@ class MenuCreate(BaseModel):
     category: int
     is_available: bool = True
     specialization_ids: List[int] = []
+    is_selfserve: bool = False
 
 class MenuUpdate(BaseModel):
     name: Optional[str] = None
@@ -19,6 +20,7 @@ class MenuUpdate(BaseModel):
     category: Optional[int] = None
     is_available: Optional[bool] = None
     specialization_ids: Optional[List[int]] = None
+    is_selfserve: bool = False
 
 class MenuResponse(BaseModel):
     id: int
@@ -29,6 +31,7 @@ class MenuResponse(BaseModel):
     category: Optional[int]
     category_name: Optional[str] = None
     is_available: bool
+    is_selfserve: bool = False
     specializations: List[SpecializationResponse] = []
 
     class Config:

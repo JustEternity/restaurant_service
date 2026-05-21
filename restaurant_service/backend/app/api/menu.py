@@ -106,7 +106,8 @@ async def get_all_menu(
             category=item.category,
             is_available=item.is_available,
             category_name=category_name,
-            specializations=specializations
+            specializations=specializations,
+            is_selfserve=item.is_selfserve
         ))
 
     return response_items
@@ -141,7 +142,8 @@ async def get_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db)):
         category=item.category,
         is_available=item.is_available,
         category_name=category_name,
-        specializations=specializations
+        specializations=specializations,
+        is_selfserve=item.is_selfserve
     )
 
 @router.post("/", response_model=MenuResponse)
@@ -157,7 +159,8 @@ async def create_menu_item(menu_data: MenuCreate, db: AsyncSession = Depends(get
         photo=menu_data.photo,
         price=menu_data.price,
         category=menu_data.category,
-        is_available=menu_data.is_available
+        is_available=menu_data.is_available,
+        is_selfserve=menu_data.is_selfserve
     )
     db.add(menu_item)
     await db.flush()
@@ -190,7 +193,8 @@ async def create_menu_item(menu_data: MenuCreate, db: AsyncSession = Depends(get
         category=menu_item.category,
         is_available=menu_item.is_available,
         category_name=category.name,
-        specializations=specializations_resp
+        specializations=specializations_resp,
+        is_selfserve=menu_item.is_selfserve
     )
 
 @router.put("/{menu_id}", response_model=MenuResponse)
@@ -206,7 +210,7 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
 
     update_data = menu_data.dict(exclude_unset=True)
 
-    for field in ["name", "description", "photo", "price", "is_available", "category"]:
+    for field in ["name", "description", "photo", "price", "is_available", "category", "is_selfserve"]:
         if field in update_data:
             setattr(item, field, update_data[field])
 
@@ -247,7 +251,8 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
         category=item.category,
         is_available=item.is_available,
         category_name=category_name,
-        specializations=specializations_resp
+        specializations=specializations_resp,
+        is_selfserve=item.is_selfserve
     )
 
 @router.delete("/{menu_id}")
