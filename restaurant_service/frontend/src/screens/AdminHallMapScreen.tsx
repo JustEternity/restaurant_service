@@ -11,6 +11,7 @@ import {
   Modal,
   ScrollView,
   TextInput,
+  LayoutChangeEvent,
 } from 'react-native';
 import {
   GestureHandlerRootView,
@@ -21,6 +22,7 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   runOnJS,
+  withTiming,
 } from 'react-native-reanimated';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -94,9 +96,185 @@ const HallMap = () => {
   const [savingSize, setSavingSize] = useState(false);
   const [uploadingBg, setUploadingBg] = useState(false);
 
+  const [imageNaturalSizeState, setImageNaturalSizeState] = useState<{ width: number; height: number } | null>(null);
+  const [mapLayoutState, setMapLayoutState] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+
+  const imageNaturalSize = useSharedValue<{ width: number; height: number } | null>(null);
+  const mapLayout = useSharedValue<{ width: number; height: number }>({ width: 0, height: 0 });
+  const mapScale = useSharedValue(1);
+  const mapTranslateX = useSharedValue(0);
+  const mapTranslateY = useSharedValue(0);
+  const savedScale = useSharedValue(1);
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
+  const focalX = useSharedValue(0);
+  const focalY = useSharedValue(0);
+  const minFitScale = useSharedValue(1);
+
   useEffect(() => {
-    setSelectedTableIds(draft.tableIds);
-  }, [draft.tableIds]);
+    imageNaturalSize.value = imageNaturalSizeState;
+  }, [imageNaturalSizeState]);
+
+  useEffect(() => {
+    mapLayout.value = mapLayoutState;
+  }, [mapLayoutState]);
+
+  const getImageSize = (url: string) => {
+    Image.getSize(url, (w, h) => {
+      const size = { width: w, height: h };
+      setImageNaturalSizeState(size);
+      imageNaturalSize.value = size;
+    }, () => console.warn('Не удалось получить размеры изображения'));
+  };
+
+  const recalcFit = useCallback(() => {
+    'worklet';
+    if (imageNaturalSize.value && mapLayout.value.width > 0 && mapLayout.value.height > 0) {
+      const scaleX = mapLayout.value.width / imageNaturalSize.value.width;
+      const scaleY = mapLayout.value.height / imageNaturalSize.value.height;
+      const fitScale = Math.min(scaleX, scaleY);
+      mapScale.value = fitScale;
+      minFitScale.value = fitScale;
+      mapTranslateX.value = 0;
+      mapTranslateY.value = 0;
+    }
+  }, []);
+
+  useEffect(() => {
+    recalcFit();
+  }, [imageNaturalSizeState, mapLayoutState, recalcFit]);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await api.get('/hallmap/settings');
+      if (res.data.hallmap_image) {
+        setBackgroundImage(res.data.hallmap_image);
+        const fullUrl = getPhotoUrl(res.data.hallmap_image);
+        if (fullUrl) getImageSize(fullUrl);
+      }
+      const size = Number(res.data.table_size) || 30;
+      setTableSize(size);
+      setTempTableSize(String(size));
+    } catch (error) {
+      console.error('Ошибка загрузки настроек схемы', error);
+    }
+  }, []);
+
+  useEffect(() => { loadSettings(); }, [loadSettings]);
+
+  const onMapWrapperLayout = (event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setMapLayoutState({ width, height });
+    mapLayout.value = { width, height };
+    recalcFit();
+  };
+
+  const getClampedTranslation = (tx: number, ty: number, scale: number) => {
+    'worklet';
+    if (!imageNaturalSize.value || mapLayout.value.width === 0 || mapLayout.value.height === 0)
+      return { tx, ty };
+    const imgW = imageNaturalSize.value.width * scale;
+    const imgH = imageNaturalSize.value.height * scale;
+
+    const centeredTx = (mapLayout.value.width - imgW) / 2;
+    const centeredTy = (mapLayout.value.height - imgH) / 2;
+
+    if (scale <= minFitScale.value + 0.001) {
+      return { tx: 0, ty: 0 };
+    }
+
+    const clampedX = imgW <= mapLayout.value.width
+      ? 0
+      : Math.min(Math.max(tx, centeredTx), -centeredTx);
+    const clampedY = imgH <= mapLayout.value.height
+      ? 0
+      : Math.min(Math.max(ty, centeredTy), -centeredTy);
+
+    return {
+      tx: clampedX,
+      ty: clampedY,
+    };
+  };
+
+  const pinchGesture = Gesture.Pinch()
+    .enabled(!isEditMode && !isAddingMode)
+    .onStart((event) => {
+      savedScale.value = mapScale.value;
+      savedTranslateX.value = mapTranslateX.value;
+      savedTranslateY.value = mapTranslateY.value;
+      focalX.value = event.focalX;
+      focalY.value = event.focalY;
+    })
+    .onUpdate((event) => {
+      const newScale = Math.max(minFitScale.value, savedScale.value * event.scale);
+      const scaleRatio = newScale / savedScale.value;
+      mapScale.value = newScale;
+      const imgW = imageNaturalSize.value ? imageNaturalSize.value.width * newScale : 0;
+      const imgH = imageNaturalSize.value ? imageNaturalSize.value.height * newScale : 0;
+      const centerOffsetX = (mapLayout.value.width - imgW) / 2;
+      const centerOffsetY = (mapLayout.value.height - imgH) / 2;
+      const focalAdjustedX = focalX.value - centerOffsetX;
+      const focalAdjustedY = focalY.value - centerOffsetY;
+      mapTranslateX.value = focalAdjustedX - (focalAdjustedX - savedTranslateX.value) * scaleRatio;
+      mapTranslateY.value = focalAdjustedY - (focalAdjustedY - savedTranslateY.value) * scaleRatio;
+      const clamped = getClampedTranslation(mapTranslateX.value, mapTranslateY.value, mapScale.value);
+      mapTranslateX.value = clamped.tx;
+      mapTranslateY.value = clamped.ty;
+    })
+    .onEnd(() => {
+      const { tx, ty } = getClampedTranslation(mapTranslateX.value, mapTranslateY.value, mapScale.value);
+      mapTranslateX.value = withTiming(tx, { duration: 300 });
+      mapTranslateY.value = withTiming(ty, { duration: 300 });
+    });
+
+  const panGesture = Gesture.Pan()
+    .enabled(!isEditMode && !isAddingMode)
+    .onStart(() => {
+      savedTranslateX.value = mapTranslateX.value;
+      savedTranslateY.value = mapTranslateY.value;
+    })
+    .onUpdate((event) => {
+      mapTranslateX.value = savedTranslateX.value + event.translationX;
+      mapTranslateY.value = savedTranslateY.value + event.translationY;
+      const clamped = getClampedTranslation(mapTranslateX.value, mapTranslateY.value, mapScale.value);
+      mapTranslateX.value = clamped.tx;
+      mapTranslateY.value = clamped.ty;
+    })
+    .onEnd(() => {
+      const { tx, ty } = getClampedTranslation(mapTranslateX.value, mapTranslateY.value, mapScale.value);
+      mapTranslateX.value = withTiming(tx, { duration: 300 });
+      mapTranslateY.value = withTiming(ty, { duration: 300 });
+    });
+
+  const composedGesture = Gesture.Simultaneous(pinchGesture, panGesture);
+
+  const animatedContainerStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: mapScale.value },
+      { translateX: mapTranslateX.value },
+      { translateY: mapTranslateY.value },
+    ],
+  }));
+
+  const getOriginalCoords = (screenX: number, screenY: number) => {
+    'worklet';
+    if (!imageNaturalSize.value || mapLayout.value.width === 0 || mapLayout.value.height === 0) {
+      return { x: screenX, y: screenY };
+    }
+    const scale = mapScale.value;
+    const tx = mapTranslateX.value;
+    const ty = mapTranslateY.value;
+    const imgW = imageNaturalSize.value.width * scale;
+    const imgH = imageNaturalSize.value.height * scale;
+    const centerOffsetX = (mapLayout.value.width - imgW) / 2;
+    const centerOffsetY = (mapLayout.value.height - imgH) / 2;
+    return {
+      x: (screenX - centerOffsetX - tx) / scale,
+      y: (screenY - centerOffsetY - ty) / scale,
+    };
+  };
+
+  useEffect(() => { setSelectedTableIds(draft.tableIds); }, [draft.tableIds]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -109,20 +287,6 @@ const HallMap = () => {
     });
     return unsubscribe;
   }, [navigation, clearDraft]);
-
-  const loadSettings = useCallback(async () => {
-    try {
-      const res = await api.get('/hallmap/settings');
-      if (res.data.hallmap_image) {
-        setBackgroundImage(res.data.hallmap_image);
-      }
-      const size = Number(res.data.table_size) || 30;
-      setTableSize(size);
-      setTempTableSize(String(size));
-    } catch (error) {
-      console.error('Ошибка загрузки настроек схемы', error);
-    }
-  }, []);
 
   const safeSetTables = (updater: Table[] | ((prev: Table[]) => Table[])) => {
     setTables((prev: Table[]) => {
@@ -155,20 +319,14 @@ const HallMap = () => {
       const readyNumbers = new Set<number>();
       orders.forEach(order => {
         const hasReady = order.plates.some(plate => plate.current_status === 'ready');
-        if (hasReady) {
-          order.table_numbers.forEach(num => readyNumbers.add(num));
-        }
+        if (hasReady) order.table_numbers.forEach(num => readyNumbers.add(num));
       });
       const ids = new Set<number>();
       currentTables.forEach(table => {
-        if (readyNumbers.has(table.number)) {
-          ids.add(table.id);
-        }
+        if (readyNumbers.has(table.number)) ids.add(table.id);
       });
       setReadyTableIds(ids);
-    } catch (error) {
-      console.error('Ошибка загрузки готовых заказов', error);
-    }
+    } catch (error) { console.error('Ошибка загрузки готовых заказов', error); }
   }, [user, isAdmin]);
 
   const manualRefresh = useCallback(async () => {
@@ -176,21 +334,14 @@ const HallMap = () => {
     await loadReadyTables(newTables);
   }, [loadTables, loadReadyTables]);
 
-  useEffect(() => {
-    manualRefresh();
-    loadSettings();
-  }, []);
+  useEffect(() => { manualRefresh(); }, [manualRefresh]);
 
   const { addHandler } = useWebSocket();
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
-      if (
-        data.type === 'plate_ready' ||
-        data.type === 'plate_status_changed' ||
-        data.type === 'order_completed' ||
-        data.type === 'order_created' ||
-        data.type === 'order_updated'
-      ) {
+      if (data.type === 'plate_ready' || data.type === 'plate_status_changed' ||
+          data.type === 'order_completed' || data.type === 'order_created' ||
+          data.type === 'order_updated') {
         manualRefresh();
       }
     });
@@ -199,39 +350,41 @@ const HallMap = () => {
 
   const updateTablePosition = async (id: number, pos_x: number, pos_y: number) => {
     if (!isAdmin) return;
-    try {
-      await api.put(`/tables/${id}`, { pos_x, pos_y });
-    } catch (error) {
-      console.error('Ошибка сохранения позиции стола:', error);
-    }
+    try { await api.put(`/tables/${id}`, { pos_x, pos_y }); }
+    catch (error) { console.error('Ошибка сохранения позиции стола:', error); }
   };
 
-  const handleDragEnd = (tableId: number, newX: number, newY: number) => {
-    if (!isAdmin) return;
-    updateTablePosition(tableId, newX, newY);
-    safeSetTables((prev) =>
-      prev.map((t) => (t.id === tableId ? { ...t, pos_x: newX, pos_y: newY } : t))
+  const handleTableDragEnd = (tableId: number, newX: number, newY: number) => {
+    if (!isAdmin || !imageNaturalSizeState) return;
+    const clampedX = Math.min(Math.max(newX, 0), imageNaturalSizeState.width);
+    const clampedY = Math.min(Math.max(newY, 0), imageNaturalSizeState.height);
+    updateTablePosition(tableId, clampedX, clampedY);
+    safeSetTables(prev =>
+      prev.map(t => (t.id === tableId ? { ...t, pos_x: clampedX, pos_y: clampedY } : t))
     );
   };
 
-  const createTable = async (x: number, y: number) => {
-    if (!isAdmin) return;
+  const createTableAt = async (x: number, y: number) => {
+    if (!isAdmin || !imageNaturalSizeState) return;
+    const clampedX = Math.min(Math.max(x, 0), imageNaturalSizeState.width);
+    const clampedY = Math.min(Math.max(y, 0), imageNaturalSizeState.height);
     try {
-      const newNumber = tables.length > 0 ? Math.max(...tables.map((t) => t.number)) + 1 : 1;
+      const newNumber = tables.length > 0 ? Math.max(...tables.map(t => t.number)) + 1 : 1;
       const response = await api.post('/tables/', {
-        number: newNumber,
-        pos_x: x,
-        pos_y: y,
-        status: 'free',
-        is_available: true,
+        number: newNumber, pos_x: clampedX, pos_y: clampedY,
+        status: 'free', is_available: true,
       });
       const newTable: Table = response.data;
-      if (newTable && newTable.id) {
-        safeSetTables((prev) => [...prev, newTable]);
-      }
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось создать стол');
-    }
+      if (newTable && newTable.id) safeSetTables(prev => [...prev, newTable]);
+    } catch (error) { Alert.alert('Ошибка', 'Не удалось создать стол'); }
+  };
+
+  const handleMapPress = (event: any) => {
+    if (!isAdmin || !isAddingMode) return;
+    const { locationX, locationY } = event.nativeEvent;
+    const { x, y } = getOriginalCoords(locationX, locationY);
+    createTableAt(x, y);
+    setIsAddingMode(false);
   };
 
   const deleteTable = (id: number) => {
@@ -244,22 +397,13 @@ const HallMap = () => {
         onPress: async () => {
           try {
             await api.delete(`/tables/${id}`);
-            safeSetTables((prev) => prev.filter((t) => t.id !== id));
-            setSelectedTableIds((prev) => prev.filter((tid) => tid !== id));
+            safeSetTables(prev => prev.filter(t => t.id !== id));
+            setSelectedTableIds(prev => prev.filter(tid => tid !== id));
             setTableIds(selectedTableIds.filter(tid => tid !== id));
-          } catch (error) {
-            Alert.alert('Ошибка', 'Не удалось удалить стол');
-          }
+          } catch (error) { Alert.alert('Ошибка', 'Не удалось удалить стол'); }
         },
       },
     ]);
-  };
-
-  const handleMapPress = (event: any) => {
-    if (!isAdmin || !isAddingMode) return;
-    const { locationX, locationY } = event.nativeEvent;
-    createTable(locationX, locationY);
-    setIsAddingMode(false);
   };
 
   const showOrderForTable = async (table: Table) => {
@@ -273,11 +417,8 @@ const HallMap = () => {
       } else {
         Alert.alert('Информация', 'Нет активного заказа для этого стола');
       }
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось загрузить заказ');
-    } finally {
-      setLoadingOrder(false);
-    }
+    } catch (error) { Alert.alert('Ошибка', 'Не удалось загрузить заказ'); }
+    finally { setLoadingOrder(false); }
   };
 
   const toggleTableSelection = (table: Table) => {
@@ -296,27 +437,18 @@ const HallMap = () => {
     }
   };
 
-  const clearSelection = () => {
-    setSelectedTableIds([]);
-    setTableIds([]);
-  };
+  const clearSelection = () => { setSelectedTableIds([]); setTableIds([]); };
 
   const handleCreateOrderPress = () => {
     if (selectedTableIds.length === 0) return;
     if (!isAdmin) {
       activateDraft();
-      navigation.navigate('Меню', {
-        screen: 'MenuList',
-      });
+      navigation.navigate('Меню', { screen: 'MenuList' });
     }
   };
 
   const handleContinueOrder = () => {
-    if (!isAdmin) {
-      navigation.navigate('Меню', {
-        screen: 'MenuList',
-      });
-    }
+    if (!isAdmin) navigation.navigate('Меню', { screen: 'MenuList' });
   };
 
   const saveTableSize = async () => {
@@ -326,22 +458,15 @@ const HallMap = () => {
       await api.put('/hallmap/settings', { table_size: size });
       setTableSize(size);
       Alert.alert('Готово', 'Размер столов обновлён');
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось обновить размер');
-    } finally {
-      setSavingSize(false);
-    }
+    } catch (error) { Alert.alert('Ошибка', 'Не удалось обновить размер'); }
+    finally { setSavingSize(false); }
   };
 
   const pickBackground = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Нужен доступ к фото');
-      return;
-    }
+    if (!permission.granted) { Alert.alert('Нужен доступ к фото'); return; }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 1,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1,
     });
     if (result.canceled) return;
 
@@ -353,9 +478,7 @@ const HallMap = () => {
 
     const formData = new FormData();
     formData.append('file', {
-      uri: manipResult.uri,
-      name: 'floorplan.jpg',
-      type: 'image/jpeg',
+      uri: manipResult.uri, name: 'floorplan.jpg', type: 'image/jpeg',
     } as any);
 
     setUploadingBg(true);
@@ -365,11 +488,8 @@ const HallMap = () => {
       });
       setBackgroundImage(res.data.url);
       Alert.alert('Готово', 'Фон схемы обновлён');
-    } catch (error: any) {
-      Alert.alert('Ошибка', error.message);
-    } finally {
-      setUploadingBg(false);
-    }
+    } catch (error: any) { Alert.alert('Ошибка', error.message); }
+    finally { setUploadingBg(false); }
   };
 
   const getOrderStatusText = (status: string) => {
@@ -391,35 +511,54 @@ const HallMap = () => {
     }
   };
 
-  const DraggableTable = ({ table }: { table: Table }) => {
-    const translateX = useSharedValue(table.pos_x);
-    const translateY = useSharedValue(table.pos_y);
+  const TableItem = ({ table, draggable }: { table: Table; draggable?: boolean }) => {
+    const translateX = useSharedValue(0);
+    const translateY = useSharedValue(0);
     const context = useSharedValue({ x: 0, y: 0 });
 
     const panGesture = Gesture.Pan()
-      .enabled(isEditMode)
-      .onStart(() => {
-        context.value = { x: translateX.value, y: translateY.value };
-      })
+      .enabled(!!draggable && isEditMode)
+      .onStart(() => { context.value = { x: translateX.value, y: translateY.value }; })
       .onUpdate((event) => {
         translateX.value = context.value.x + event.translationX;
         translateY.value = context.value.y + event.translationY;
       })
       .onEnd(() => {
-        runOnJS(handleDragEnd)(table.id, translateX.value, translateY.value);
+        const newPosX = table.pos_x + translateX.value;
+        const newPosY = table.pos_y + translateY.value;
+        runOnJS(handleTableDragEnd)(table.id, newPosX, newPosY);
+        translateX.value = 0;
+        translateY.value = 0;
       });
 
     const animatedStyle = useAnimatedStyle(() => ({
-      transform: [{ translateX: translateX.value }, { translateY: translateY.value }],
+      transform: [
+        { translateX: translateX.value },
+        { translateY: translateY.value },
+      ],
     }));
 
     return (
       <GestureDetector gesture={panGesture}>
-        <Animated.View style={[styles.tableContainer, animatedStyle]}>
+        <Animated.View
+          style={[
+            styles.tableContainer,
+            {
+              position: 'absolute',
+              left: table.pos_x - tableSize,
+              top: table.pos_y - tableSize,
+              width: tableSize * 2,
+              height: tableSize * 2,
+              borderRadius: tableSize,
+            },
+            animatedStyle,
+          ]}
+        >
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => toggleTableSelection(table)}
-            onLongPress={() => deleteTable(table)}
+            onLongPress={() => draggable && deleteTable(table)}
+            style={{ flex: 1 }}
           >
             <View
               style={[
@@ -427,11 +566,7 @@ const HallMap = () => {
                 table.status === 'occupied' && !readyTableIds.has(table.id) && styles.tableOccupied,
                 readyTableIds.has(table.id) && styles.tableReady,
                 selectedTableIds.includes(table.id) && !isAdmin && styles.tableSelected,
-                {
-                  width: tableSize * 2,
-                  height: tableSize * 2,
-                  borderRadius: tableSize,
-                },
+                { flex: 1 },
               ]}
             >
               <Text style={styles.tableNumber}>{table.number}</Text>
@@ -449,38 +584,6 @@ const HallMap = () => {
     );
   };
 
-  const renderStaticTable = (table: Table) => (
-    <TouchableOpacity
-      key={table.id}
-      style={[styles.tableContainer, { left: table.pos_x, top: table.pos_y }]}
-      activeOpacity={0.8}
-      onPress={() => toggleTableSelection(table)}
-    >
-      <View
-        style={[
-          styles.table,
-          table.status === 'occupied' && !readyTableIds.has(table.id) && styles.tableOccupied,
-          readyTableIds.has(table.id) && styles.tableReady,
-          selectedTableIds.includes(table.id) && !isAdmin && styles.tableSelected,
-          {
-            width: tableSize * 2,
-            height: tableSize * 2,
-            borderRadius: tableSize,
-          },
-        ]}
-      >
-        <Text style={styles.tableNumber}>{table.number}</Text>
-        <Text style={styles.tableStatus}>
-          {readyTableIds.has(table.id)
-            ? 'Готово подать'
-            : table.status === 'free'
-            ? 'Свободен'
-            : 'Занят'}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-
   if (initialLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -491,6 +594,7 @@ const HallMap = () => {
   }
 
   const safeTables = Array.isArray(tables) ? tables : [];
+  const imgSize = imageNaturalSizeState || { width: 0, height: 0 };
 
   return (
     <GestureHandlerRootView style={styles.container}>
@@ -564,23 +668,24 @@ const HallMap = () => {
         </View>
       </View>
 
-      <TouchableOpacity
-        activeOpacity={1}
-        style={styles.mapContainer}
-        onPress={handleMapPress}
-        disabled={!isAdmin || !isAddingMode}
-      >
-        {backgroundImage && (
-          <Image
-            source={{ uri: getPhotoUrl(backgroundImage) ?? undefined }}
-            style={StyleSheet.absoluteFillObject}
-            resizeMode="contain"
-          />
-        )}
-        {isAdmin
-          ? safeTables.map((table) => <DraggableTable key={table.id} table={table} />)
-          : safeTables.map((table) => renderStaticTable(table))}
-      </TouchableOpacity>
+      <View style={styles.mapWrapper} onLayout={onMapWrapperLayout}>
+        <GestureDetector gesture={composedGesture}>
+          <Animated.View style={[styles.mapTransformContainer, animatedContainerStyle]}>
+            <View style={{ width: imgSize.width, height: imgSize.height }}>
+              {backgroundImage && (
+                <Image
+                  source={{ uri: getPhotoUrl(backgroundImage) ?? undefined }}
+                  style={{ width: imgSize.width, height: imgSize.height }}
+                  resizeMode="contain"
+                />
+              )}
+              {isAdmin
+                ? safeTables.map(table => <TableItem key={table.id} table={table} draggable />)
+                : safeTables.map(table => <TableItem key={table.id} table={table} />)}
+            </View>
+          </Animated.View>
+        </GestureDetector>
+      </View>
 
       {!isAdmin && (
         <>

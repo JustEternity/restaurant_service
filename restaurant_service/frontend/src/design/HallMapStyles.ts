@@ -41,6 +41,45 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   addButtonActive: { backgroundColor: '#34c759' },
+  sizeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  sizeInput: {
+    width: 70,
+    height: 44,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    color: '#111',
+    backgroundColor: '#fff',
+    marginRight: 8,
+  },
+  sizeSaveButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sizeSaveButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  bgButton: {
+    marginLeft: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+  },
   mapContainer: { flex: 1, backgroundColor: '#e9ecef', position: 'relative' },
   tableContainer: { position: 'absolute', left: 0, top: 0 },
   table: {
@@ -132,6 +171,16 @@ const styles = StyleSheet.create({
   plateComment: { fontSize: 13, color: '#888', fontStyle: 'italic' },
   platePrice: { fontSize: 14, fontWeight: '500', marginRight: 10 },
   plateStatus: { fontSize: 14, color: '#007AFF' },
+  mapWrapper: {
+    flex: 1,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapTransformContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
 
 export default styles;
