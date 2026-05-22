@@ -90,6 +90,7 @@ const WaiterMenu = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartModalVisible, setCartModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [selectedImageAspectRatio, setSelectedImageAspectRatio] = useState<number | null>(null);
 
   const swipeableRefs = new Map();
   const isAdmin = user?.role === 'admin';
@@ -159,6 +160,26 @@ const WaiterMenu = () => {
       }));
     }
   }, [menuItems]);
+
+  useEffect(() => {
+    const uri = selectedItem?.photo ? getPhotoUrl(selectedItem.photo) : null;
+    if (!uri) {
+      setSelectedImageAspectRatio(null);
+      return;
+    }
+
+    Image.getSize(
+      uri,
+      (width, height) => {
+        if (width && height) {
+          setSelectedImageAspectRatio(width / height);
+        }
+      },
+      () => {
+        setSelectedImageAspectRatio(null);
+      }
+    );
+  }, [selectedItem?.photo]);
 
   useEffect(() => {
     loadData();
@@ -463,7 +484,7 @@ const WaiterMenu = () => {
             <Text style={styles.menuItemPrice}>{item.price} ₽</Text>
           </View>
           {item.photo ? (
-            <Image source={{ uri: getPhotoUrl(item.photo) ?? undefined }} style={styles.menuItemImage} resizeMode="cover" />
+            <Image source={{ uri: getPhotoUrl(item.photo) ?? undefined }} style={styles.menuItemImage} resizeMode="contain" />
           ) : (
             <View style={[styles.menuItemImage, styles.noImage]}>
               <Ionicons name="fast-food-outline" size={30} color="#999" />
@@ -482,21 +503,18 @@ const WaiterMenu = () => {
       return (
         <Swipeable
           ref={(ref) => { if (ref) swipeableRefs.set(item.id, ref); }}
-          renderRightActions={(progress, dragX) => {
-            const trans = dragX.interpolate({ inputRange: [-100, 0], outputRange: [0, 100] });
+          renderRightActions={() => {
             return (
               <View style={styles.swipeActions}>
-                <RectButton style={[styles.swipeButton, styles.editButton]} onPress={() => handleEditItem(item)}>
-                  <Animated.View style={{ transform: [{ translateX: trans }] }}>
+                <RectButton style={[styles.swipeCircleButton, styles.editButton]} onPress={() => handleEditItem(item)}>
+                  <View style={styles.swipeButtonContent}>
                     <Ionicons name="create-outline" size={22} color="#fff" />
-                    <Text style={styles.swipeButtonText}>Изменить</Text>
-                  </Animated.View>
+                  </View>
                 </RectButton>
-                <RectButton style={[styles.swipeButton, styles.deleteButton]} onPress={() => handleDeleteItem(item)}>
-                  <Animated.View style={{ transform: [{ translateX: trans }] }}>
+                <RectButton style={[styles.swipeCircleButton, styles.deleteButton]} onPress={() => handleDeleteItem(item)}>
+                  <View style={styles.swipeButtonContent}>
                     <Ionicons name="trash-outline" size={22} color="#fff" />
-                    <Text style={styles.swipeButtonText}>Удалить</Text>
-                  </Animated.View>
+                  </View>
                 </RectButton>
               </View>
             );
@@ -617,8 +635,11 @@ const WaiterMenu = () => {
                 {selectedItem.photo ? (
                   <Image
                     source={{ uri: getPhotoUrl(selectedItem.photo) ?? undefined }}
-                    style={styles.modalImage}
-                    resizeMode="cover"
+                    style={[
+                      styles.modalImage,
+                      selectedImageAspectRatio ? { aspectRatio: selectedImageAspectRatio } : styles.modalImageFallback,
+                    ]}
+                    resizeMode="contain"
                   />
                 ) : (
                   <View style={[styles.modalImage, styles.modalNoImage]}>

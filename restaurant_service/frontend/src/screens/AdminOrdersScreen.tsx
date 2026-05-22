@@ -22,7 +22,8 @@ interface PlateInOrder {
   plate_id: number;
   count: number;
   comment: string | null;
-  cooking_status: string;
+  cooking_status?: string | null;
+  current_status?: string | null;
   price: number;
   plate_name: string;
 }
@@ -94,13 +95,13 @@ const AdminOrders = () => {
     }
   };
 
-  const getCookingStatusText = (status: string) => {
+  const getCookingStatusText = (status: string | null | undefined) => {
     switch (status) {
       case 'waiting': return 'Ожидает';
       case 'preparing': return 'Готовится';
       case 'ready': return 'Готово';
       case 'served': return 'Подано';
-      default: return status;
+      default: return 'Не отправлено';
     }
   };
 
@@ -156,22 +157,26 @@ const AdminOrders = () => {
     </TouchableOpacity>
   );
 
-  const renderPlateItem = (plate: PlateInOrder) => (
-    <View style={styles.plateItem}>
-      <View style={styles.plateInfo}>
-        <Text style={styles.plateName}>{plate.plate_name}</Text>
-        {plate.comment && (
-          <Text style={styles.plateComment}>Комментарий: {plate.comment}</Text>
-        )}
-        <Text style={styles.platePrice}>
-          {plate.count} x {plate.price} ₽ = {(plate.count * plate.price).toFixed(2)} ₽
-        </Text>
+const renderPlateItem = (plate: PlateInOrder) => {
+    const cookingStatus = plate.cooking_status ?? plate.current_status ?? 'waiting';
+
+    return (
+      <View style={styles.plateItem}>
+        <View style={styles.plateInfo}>
+          <Text style={styles.plateName}>{plate.plate_name}</Text>
+          {plate.comment && (
+            <Text style={styles.plateComment}>Комментарий: {plate.comment}</Text>
+          )}
+          <Text style={styles.platePrice}>
+            {plate.count} x {plate.price} ₽ = {(plate.count * plate.price).toFixed(2)} ₽
+          </Text>
+        </View>
+        <View style={[styles.cookingStatusBadge, { backgroundColor: getCookingStatusColor(cookingStatus) }]}>
+          <Text style={styles.cookingStatusText}>{getCookingStatusText(cookingStatus)}</Text>
+        </View>
       </View>
-      <View style={[styles.cookingStatusBadge, { backgroundColor: getCookingStatusColor(plate.cooking_status) }]}>
-        <Text style={styles.cookingStatusText}>{getCookingStatusText(plate.cooking_status)}</Text>
-      </View>
-    </View>
-  );
+    );
+  };
 
   const { addHandler } = useWebSocket();
   useEffect(() => {

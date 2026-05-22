@@ -110,6 +110,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 8,
+    backgroundColor: '#f5f5f5',
   },
   noImage: {
     backgroundColor: '#f5f5f5',
@@ -131,14 +132,33 @@ const styles = StyleSheet.create({
   },
   swipeActions: {
     flexDirection: 'row',
-    width: 160,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingRight: 10,
   },
   swipeButton: {
     width: 80,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  swipeCircleButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 6,
+    padding: 0,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
+  },
   swipeButtonContent: {
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -208,6 +228,10 @@ const styles = StyleSheet.create({
   },
   modalImage: {
     width: '100%',
+    height: undefined,
+    backgroundColor: '#f5f5f5',
+  },
+  modalImageFallback: {
     height: 200,
   },
   modalNoImage: {

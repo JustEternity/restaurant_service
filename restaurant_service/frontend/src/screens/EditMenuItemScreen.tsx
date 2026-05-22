@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Switch,
   Modal,
-  FlatList,
   Image as RNImage
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -27,11 +26,6 @@ interface Category {
   name: string;
 }
 
-interface Tag {
-  id: number;
-  name: string;
-}
-
 interface MenuItemFormData {
   name: string;
   description: string;
@@ -40,7 +34,6 @@ interface MenuItemFormData {
   is_available: boolean;
   is_selfserve: boolean;
   photo: string;
-  tag_ids: number[];
 }
 
 const MenuItemFormScreen = () => {
@@ -52,12 +45,10 @@ const MenuItemFormScreen = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [allTags, setAllTags] = useState<Tag[]>([]);
-  const [tagSelectionModal, setTagSelectionModal] = useState(false);
-  const [selectedTagIds, setSelectedTagIds] = useState<Set<number>>(new Set());
 
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
 
   const [formData, setFormData] = useState<MenuItemFormData>({
     name: '',
@@ -67,14 +58,12 @@ const MenuItemFormScreen = () => {
     is_available: true,
     is_selfserve: false,
     photo: '',
-    tag_ids: [],
   });
 
   const isEditMode = !!itemId;
 
   useEffect(() => {
     loadCategories();
-    loadTags();
     if (isEditMode) {
       loadItem();
     }
@@ -86,15 +75,6 @@ const MenuItemFormScreen = () => {
       setCategories(response.data);
     } catch (error) {
       console.error('Ошибка загрузки категорий:', error);
-    }
-  };
-
-  const loadTags = async () => {
-    try {
-      const response = await api.get('/tags/');
-      setAllTags(response.data);
-    } catch (error) {
-      console.error('Ошибка загрузки тегов:', error);
     }
   };
 
@@ -111,26 +91,13 @@ const MenuItemFormScreen = () => {
         is_available: data.is_available,
         is_selfserve: data.is_selfserve ?? false,
         photo: data.photo || '',
-        tag_ids: data.tags?.map((t: Tag) => t.id) || [],
       });
-      setSelectedTagIds(new Set(data.tags?.map((t: Tag) => t.id) || []));
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось загрузить данные блюда');
       navigation.goBack();
     } finally {
       setLoading(false);
     }
-  };
-
-  const toggleTag = (tagId: number) => {
-    const newSet = new Set(selectedTagIds);
-    if (newSet.has(tagId)) {
-      newSet.delete(tagId);
-    } else {
-      newSet.add(tagId);
-    }
-    setSelectedTagIds(newSet);
-    setFormData(prev => ({ ...prev, tag_ids: Array.from(newSet) }));
   };
 
   const pickImage = async () => {
@@ -208,7 +175,6 @@ const MenuItemFormScreen = () => {
       is_available: formData.is_available,
       is_selfserve: formData.is_selfserve,
       photo: formData.photo.trim() || '',
-      tag_ids: formData.tag_ids,
     };
 
     setSaving(true);
@@ -280,27 +246,14 @@ const MenuItemFormScreen = () => {
         />
 
         <Text style={styles.label}>Категория *</Text>
-        <View style={styles.pickerContainer}>
-          {categories.map(cat => (
-            <TouchableOpacity
-              key={cat.id}
-              style={[
-                styles.categoryOption,
-                formData.category === cat.id && styles.categoryOptionSelected,
-              ]}
-              onPress={() => setFormData(prev => ({ ...prev, category: cat.id }))}
-            >
-              <Text
-                style={[
-                  styles.categoryOptionText,
-                  formData.category === cat.id && styles.categoryOptionTextSelected,
-                ]}
-              >
-                {cat.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <TouchableOpacity style={styles.tagSelector} onPress={() => setCategoryModalVisible(true)}>
+          <Text style={styles.tagSelectorText}>
+            {formData.category
+              ? categories.find(cat => cat.id === formData.category)?.name
+              : 'Выберите категорию'}
+          </Text>
+          <Ionicons name="chevron-forward" size={20} color="#666" />
+        </TouchableOpacity>
 
         <Text style={styles.label}>Фото</Text>
         <TouchableOpacity style={styles.imagePickerButton} onPress={pickImage} disabled={uploadingPhoto}>
@@ -335,28 +288,6 @@ const MenuItemFormScreen = () => {
           />
         </View>
 
-        <Text style={styles.label}>Теги</Text>
-        <TouchableOpacity style={styles.tagSelector} onPress={() => setTagSelectionModal(true)}>
-          <Text style={styles.tagSelectorText}>
-            {formData.tag_ids.length > 0
-              ? `Выбрано тегов: ${formData.tag_ids.length}`
-              : 'Выбрать теги'}
-          </Text>
-          <Ionicons name="chevron-forward" size={20} color="#666" />
-        </TouchableOpacity>
-
-        {formData.tag_ids.length > 0 && (
-          <View style={styles.selectedTags}>
-            {allTags
-              .filter(tag => formData.tag_ids.includes(tag.id))
-              .map(tag => (
-                <View key={tag.id} style={styles.tagChip}>
-                  <Text style={styles.tagChipText}>{tag.name}</Text>
-                </View>
-              ))}
-          </View>
-        )}
-
         <TouchableOpacity
           style={[styles.saveButton, saving && styles.saveButtonDisabled]}
           onPress={handleSave}
@@ -370,27 +301,34 @@ const MenuItemFormScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Модальное окно выбора тегов */}
-      <Modal visible={tagSelectionModal} animationType="slide" transparent>
+      <Modal
+        visible={categoryModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setCategoryModalVisible(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Выберите теги</Text>
-            <FlatList
-              data={allTags}
-              keyExtractor={(item) => item.id.toString()}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={styles.modalTagItem} onPress={() => toggleTag(item.id)}>
-                  <Ionicons
-                    name={selectedTagIds.has(item.id) ? 'checkbox' : 'square-outline'}
-                    size={24}
-                    color={selectedTagIds.has(item.id) ? '#007AFF' : '#999'}
-                  />
-                  <Text style={styles.modalTagText}>{item.name}</Text>
+            <Text style={styles.modalTitle}>Выберите категорию</Text>
+            <ScrollView style={styles.modalScroll}>
+              {categories.map(cat => (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={styles.categoryRow}
+                  onPress={() => {
+                    setFormData(prev => ({ ...prev, category: cat.id }));
+                    setCategoryModalVisible(false);
+                  }}
+                >
+                  <View style={[styles.radioOuter, formData.category === cat.id && styles.radioOuterSelected]}>
+                    {formData.category === cat.id && <View style={styles.radioInner} />}
+                  </View>
+                  <Text style={styles.categoryRowText}>{cat.name}</Text>
                 </TouchableOpacity>
-              )}
-            />
-            <TouchableOpacity style={styles.modalCloseButton} onPress={() => setTagSelectionModal(false)}>
-              <Text style={styles.modalCloseButtonText}>Закрыть</Text>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={[styles.modalCloseButton, styles.cancelButton]} onPress={() => setCategoryModalVisible(false)}>
+              <Text style={styles.modalCloseButtonText}>Отмена</Text>
             </TouchableOpacity>
           </View>
         </View>

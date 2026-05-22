@@ -35,8 +35,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   image: {
-    width: '100%',
-    height: 250,
+    width: 200,
+    height: 200,
+    maxWidth: 100,
   },
   noImage: {
     backgroundColor: '#f8f9fa',

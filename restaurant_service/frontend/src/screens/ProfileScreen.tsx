@@ -58,9 +58,6 @@ const ProfileScreen = () => {
                 {user?.name?.charAt(0) || 'П'}
               </Text>
             </View>
-            <TouchableOpacity style={styles.editButton}>
-              <Ionicons name="camera-outline" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
           </View>
 
           <Text style={styles.name}>{user?.name || 'Пользователь'}</Text>
