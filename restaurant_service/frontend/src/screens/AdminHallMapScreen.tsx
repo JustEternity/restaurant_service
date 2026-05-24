@@ -682,7 +682,11 @@ const HallMap = () => {
       <View style={styles.mapWrapper} onLayout={onMapWrapperLayout}>
         <GestureDetector gesture={composedGesture}>
           <Animated.View style={[styles.mapTransformContainer, animatedContainerStyle]}>
-            <View style={{ width: imgSize.width, height: imgSize.height }}>
+            <View
+              style={{ width: imgSize.width, height: imgSize.height }}
+              onStartShouldSetResponder={() => isAddingMode}
+              onResponderRelease={handleMapPress}
+            >
               {backgroundImage && (
                 <Image
                   source={{ uri: getPhotoUrl(backgroundImage) ?? undefined }}
