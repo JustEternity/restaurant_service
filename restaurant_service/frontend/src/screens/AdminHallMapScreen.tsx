@@ -68,6 +68,7 @@ interface Order {
 type RootStackParamList = {
   HallMap: { clearDraft?: boolean };
   WaiterMenu: { selectedTableIds?: number[] };
+  'Меню': { screen: string };
 };
 
 const HallMap = () => {
@@ -127,14 +128,24 @@ const HallMap = () => {
     }, () => console.warn('Не удалось получить размеры изображения'));
   };
 
+  const handleImageLoad = (event: any) => {
+    const { width: w, height: h } = event.nativeEvent.source ?? {};
+    if (w && h) {
+      const size = { width: w, height: h };
+      setImageNaturalSizeState(size);
+      imageNaturalSize.value = size;
+    }
+  };
+
   const recalcFit = useCallback(() => {
     'worklet';
     if (imageNaturalSize.value && mapLayout.value.width > 0 && mapLayout.value.height > 0) {
       const scaleX = mapLayout.value.width / imageNaturalSize.value.width;
       const scaleY = mapLayout.value.height / imageNaturalSize.value.height;
       const fitScale = Math.min(scaleX, scaleY);
+      const minScale = fitScale * 0.96;
       mapScale.value = fitScale;
-      minFitScale.value = fitScale;
+      minFitScale.value = minScale;
       mapTranslateX.value = 0;
       mapTranslateY.value = 0;
     }
@@ -557,7 +568,7 @@ const HallMap = () => {
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => toggleTableSelection(table)}
-            onLongPress={() => draggable && deleteTable(table)}
+            onLongPress={() => draggable && deleteTable(table.id)}
             style={{ flex: 1 }}
           >
             <View
@@ -677,6 +688,7 @@ const HallMap = () => {
                   source={{ uri: getPhotoUrl(backgroundImage) ?? undefined }}
                   style={{ width: imgSize.width, height: imgSize.height }}
                   resizeMode="contain"
+                  onLoad={handleImageLoad}
                 />
               )}
               {isAdmin
