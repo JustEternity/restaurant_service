@@ -417,6 +417,51 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
   },
+  treeModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  treeModalActions: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  treeActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 10,
+    marginVertical: 10,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  treeActionButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  treeItem: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  treeItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingRight: 20,
+  },
+  treeItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
 });
 
 export default styles;

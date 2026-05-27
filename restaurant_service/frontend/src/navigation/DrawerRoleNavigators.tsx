@@ -1,4 +1,5 @@
 import React from 'react';
+import { Text } from 'react-native';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import { createStackNavigator } from '@react-navigation/stack';
 
@@ -32,6 +33,21 @@ const AdminStack = () => (
   </Stack.Navigator>
 );
 
+const HeaderTitle = ({ title, color }: { title: string; color: string }) => (
+  <Text
+    numberOfLines={2}
+    style={{
+      fontSize: 20,
+      fontWeight: '800',
+      color: color,
+      textAlign: 'center',
+      flexShrink: 1,
+    }}
+  >
+    {title}
+  </Text>
+);
+
 // Для повара
 export const ChefDrawer = () => (
   <Drawer.Navigator
@@ -49,7 +65,7 @@ export const ChefDrawer = () => (
       drawerActiveTintColor: '#FF6B6B',
       headerStyle: {
         backgroundColor: '#FF6B6B',
-        height: 120
+        height: 140
       },
       headerTintColor: '#FFFFFF',
       headerTitleStyle: {
@@ -62,7 +78,7 @@ export const ChefDrawer = () => (
       name="Заказы"
       component={ChefOrders}
       options={{
-        headerTitle: 'Заказы на кухню',
+        headerTitle: () => <HeaderTitle title="Заказы на кухню" color="#FFFFFF" />,
         drawerLabel: 'Заказы',
       }}
     />
@@ -70,7 +86,7 @@ export const ChefDrawer = () => (
       name="Профиль"
       component={ProfileScreen}
       options={{
-        headerTitle: 'Профиль повара',
+        headerTitle: () => <HeaderTitle title="Профиль" color="#FFFFFF" />,
         drawerLabel: 'Профиль',
       }}
     />
@@ -94,7 +110,7 @@ export const WaiterDrawer = () => (
       drawerActiveTintColor: '#4ECDC4',
       headerStyle: {
         backgroundColor: '#4ECDC4',
-        height: 120
+        height: 140
       },
       headerTintColor: '#FFFFFF',
       headerTitleStyle: {
@@ -107,7 +123,7 @@ export const WaiterDrawer = () => (
       name="Зал"
       component={AdminHallMap}
       options={{
-        headerTitle: 'Схема зала',
+        headerTitle: () => <HeaderTitle title="Схема зала" color="#FFFFFF" />,
         drawerLabel: 'Зал',
       }}
     />
@@ -115,7 +131,7 @@ export const WaiterDrawer = () => (
       name="Заказы"
       component={WaiterOrders}
       options={{
-        headerTitle: 'Заказы',
+        headerTitle: () => <HeaderTitle title="Заказы" color="#FFFFFF" />,
         drawerLabel: 'Заказы',
       }}
     />
@@ -123,7 +139,7 @@ export const WaiterDrawer = () => (
       name="Меню"
       component={MenuStack}
       options={{
-        headerTitle: 'Меню ресторана',
+        headerTitle: () => <HeaderTitle title="Меню ресторана" color="#FFFFFF" />,
         drawerLabel: 'Меню',
       }}
     />
@@ -131,7 +147,7 @@ export const WaiterDrawer = () => (
       name="Профиль"
       component={ProfileScreen}
       options={{
-        headerTitle: 'Профиль официанта',
+        headerTitle: () => <HeaderTitle title="Профиль" color="#FFFFFF" />,
         drawerLabel: 'Профиль',
       }}
     />
@@ -155,7 +171,7 @@ export const AdminDrawer = () => (
       drawerActiveTintColor: '#45B7D1',
       headerStyle: {
         backgroundColor: '#45B7D1',
-        height: 120
+        height: 140
       },
       headerTintColor: '#FFFFFF',
       headerTitleStyle: {
@@ -168,7 +184,7 @@ export const AdminDrawer = () => (
       name="Персонал"
       component={AdminStack}
       options={{
-        headerTitle: 'Управление персоналом',
+        headerTitle: () => <HeaderTitle title="Управление персоналом" color="#FFFFFF" />,
         drawerLabel: 'Персонал',
       }}
     />
@@ -176,7 +192,7 @@ export const AdminDrawer = () => (
       name="Меню"
       component={MenuStack}
       options={{
-        headerTitle: 'Меню',
+        headerTitle: () => <HeaderTitle title="Меню" color="#FFFFFF" />,
         drawerLabel: 'Меню',
       }}
     />
@@ -184,7 +200,7 @@ export const AdminDrawer = () => (
       name="Зал"
       component={AdminHallMap}
       options={{
-        headerTitle: 'Схема зала',
+        headerTitle: () => <HeaderTitle title="Схема зала" color="#FFFFFF" />,
         drawerLabel: 'Зал',
       }}
     />
@@ -192,7 +208,7 @@ export const AdminDrawer = () => (
       name="Заказы"
       component={AdminOrders}
       options={{
-        headerTitle: 'Заказы',
+        headerTitle: () => <HeaderTitle title="Заказы" color="#FFFFFF" />,
         drawerLabel: 'Заказы',
       }}
     />
@@ -200,7 +216,7 @@ export const AdminDrawer = () => (
       name="Отчеты"
       component={AdminReports}
       options={{
-        headerTitle: 'Отчеты по работе ресторана',
+        headerTitle: () => <HeaderTitle title="Отчеты по работе ресторана" color="#FFFFFF" />,
         drawerLabel: 'Отчеты',
       }}
     />
@@ -208,7 +224,7 @@ export const AdminDrawer = () => (
       name="Профиль"
       component={ProfileScreen}
       options={{
-        headerTitle: 'Профиль администратора',
+        headerTitle: () => <HeaderTitle title="Профиль" color="#FFFFFF" />,
         drawerLabel: 'Профиль',
       }}
     />

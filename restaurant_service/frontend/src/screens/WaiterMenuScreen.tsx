@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,10 @@ import {
   Alert,
   Modal,
   ScrollView,
-  Animated,
   TextInput,
+  Keyboard,
+  Platform,
+  UIManager,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
@@ -91,6 +93,16 @@ const WaiterMenu = () => {
   const [cartModalVisible, setCartModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedImageAspectRatio, setSelectedImageAspectRatio] = useState<number | null>(null);
+
+  const [categoryTreeModalVisible, setCategoryTreeModalVisible] = useState(false);
+  const [categoryEditModalVisible, setCategoryEditModalVisible] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
+  const [availableParentCategories, setAvailableParentCategories] = useState<Category[]>([]);
+  const [selectedParentId, setSelectedParentId] = useState<number | null>(null);
+  const [showParentSelector, setShowParentSelector] = useState(false);
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [flatCategories, setFlatCategories] = useState<Array<Category & { depth: number }>>([]);
 
   const swipeableRefs = new Map();
   const isAdmin = user?.role === 'admin';
@@ -182,8 +194,16 @@ const WaiterMenu = () => {
   }, [selectedItem?.photo]);
 
   useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
     loadData();
   }, []);
+
+  useEffect(() => {
+    const built = buildFlatCategories(categoriesTree);
+    setFlatCategories(built);
+  }, [categoriesTree]);
 
   useEffect(() => {
     if (currentCategory) {
@@ -294,7 +314,187 @@ const WaiterMenu = () => {
       Alert.alert('Доступ запрещен', 'Только администратор может добавлять позиции');
       return;
     }
-    navigation.navigate('MenuItemForm');
+    navigation.navigate('MenuItemForm', { itemId: undefined });
+  };
+
+  const buildFlatCategories = (tree: Category[], depth = 0): Array<Category & { depth: number }> => {
+    return tree.reduce<Array<Category & { depth: number }>>((result, category) => {
+      result.push({ ...category, depth });
+      if (category.children && category.children.length > 0) {
+        result.push(...buildFlatCategories(category.children, depth + 1));
+      }
+      return result;
+    }, []);
+  };
+
+  const getParentIdByDepth = (flat: Array<Category & { depth: number }>, index: number) => {
+    const item = flat[index];
+    if (!item || item.depth === 0) return null;
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (flat[i].depth === item.depth - 1) {
+        return flat[i].id;
+      }
+    }
+    return null;
+  };
+
+  const rebuildTreeFromFlat = (flat: Array<Category & { depth: number }>) => {
+    const nodes = new Map<number, Category>();
+    flat.forEach(item => {
+      nodes.set(item.id, { ...item, children: [] });
+    });
+
+    const roots: Category[] = [];
+    flat.forEach((item, index) => {
+      const node = nodes.get(item.id)!;
+      const parentId = getParentIdByDepth(flat, index);
+      node.parent_category = parentId;
+      if (parentId === null) {
+        roots.push(node);
+      } else {
+        const parent = nodes.get(parentId);
+        if (parent) {
+          parent.children = parent.children || [];
+          parent.children.push(node);
+        } else {
+          roots.push(node);
+        }
+      }
+    });
+    return roots;
+  };
+
+  const getAvailableParents = (excludeId: number | null, tree: Category[]): Category[] => {
+    const result: Category[] = [];
+    const walk = (node: Category) => {
+      if (excludeId !== null && node.id === excludeId) {
+        return;
+      }
+      result.push(node);
+      if (node.children) {
+        node.children.forEach(walk);
+      }
+    };
+    tree.forEach(walk);
+    return result;
+  };
+
+  const handleCategoryLongPress = (category: Category) => {
+    if (!isAdmin) return;
+    setCategoryTreeModalVisible(true);
+  };
+
+  const handleTreeItemPress = (category: Category & { depth: number }) => {
+    if (!isAdmin) return;
+    setSelectedCategory(category);
+    setIsCreatingCategory(false);
+    setEditingCategoryName(category.name);
+    setSelectedParentId(category.parent_category);
+    const parents = getAvailableParents(category.id, categoriesTree);
+    setAvailableParentCategories(parents);
+    setShowParentSelector(false);
+    setCategoryTreeModalVisible(false);
+    setCategoryEditModalVisible(true);
+  };
+
+
+  const handleAddCategoryInTree = () => {
+    if (!isAdmin) return;
+    setSelectedCategory(null);
+    setIsCreatingCategory(true);
+    setEditingCategoryName('');
+    setSelectedParentId(null);
+    setAvailableParentCategories(getAvailableParents(null, categoriesTree));
+    setShowParentSelector(false);
+    setCategoryTreeModalVisible(false);
+    setCategoryEditModalVisible(true);
+  };
+
+  const handleAddSubcategory = () => {
+    if (!isAdmin || !selectedCategory) return;
+    setSelectedCategory(null);
+    setIsCreatingCategory(true);
+    setEditingCategoryName('');
+    setSelectedParentId(selectedCategory.id);
+    setAvailableParentCategories(getAvailableParents(null, categoriesTree));
+    setShowParentSelector(false);
+    setCategoryEditModalVisible(true);
+  };
+
+  const createCategory = async (name: string, parentId?: number) => {
+    try {
+      const payload = {
+        name,
+        parent_category: parentId || null,
+      };
+      await api.post('/menu/categories/', payload);
+      await fetchCategories();
+      setCategoryEditModalVisible(false);
+      setSelectedCategory(null);
+      setIsCreatingCategory(false);
+      setCategoryTreeModalVisible(true);
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось добавить категорию');
+    }
+  };
+
+  const updateCategory = async () => {
+    if (!selectedCategory || !editingCategoryName.trim()) return;
+    if (editingCategoryName === selectedCategory.name && selectedParentId === selectedCategory.parent_category) {
+      setCategoryEditModalVisible(false);
+      setSelectedCategory(null);
+      return;
+    }
+    try {
+      await api.put(`/menu/categories/${selectedCategory.id}`, {
+        name: editingCategoryName.trim(),
+        parent_category: selectedParentId,
+      });
+      await fetchCategories();
+      setCategoryEditModalVisible(false);
+      setSelectedCategory(null);
+      setIsCreatingCategory(false);
+      setCategoryTreeModalVisible(true);
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось обновить категорию');
+    }
+  };
+
+  const deleteCategory = async () => {
+    if (!selectedCategory) return;
+    Alert.alert(
+      'Удалить категорию',
+      `Вы уверены, что хотите удалить категорию "${selectedCategory.name}"?`,
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Удалить',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.delete(`/menu/categories/${selectedCategory.id}`);
+              await fetchCategories();
+              setCategoryEditModalVisible(false);
+              setSelectedCategory(null);
+              setCategoryTreeModalVisible(true);
+            } catch (error: any) {
+              Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось удалить категорию');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+
+  const closeCategoryEditModal = () => {
+    Keyboard.dismiss();
+    setCategoryEditModalVisible(false);
+    setSelectedCategory(null);
+    setEditingCategoryName('');
+    setShowParentSelector(false);
+    setIsCreatingCategory(false);
+    setCategoryTreeModalVisible(true);
   };
 
   const addToCart = (item: MenuItem) => {
@@ -384,7 +584,7 @@ const WaiterMenu = () => {
     clearDraft();
     setCart([]);
     setCartModalVisible(false);
-    navigation.navigate('Зал', { clearDraft: true });
+    navigation.navigate('HallMap', { clearDraft: true });
   };
 
   const submitOrder = async () => {
@@ -418,11 +618,11 @@ const WaiterMenu = () => {
       clearDraft();
       setCart([]);
       setCartModalVisible(false);
-      navigation.navigate('Зал', { clearDraft: true });
+      navigation.navigate('HallMap', { clearDraft: true });
     } catch (error: any) {
       if (error.response?.status === 409) {
         Alert.alert('Стол занят', 'Кто-то уже создал заказ для этого стола. Обновите список заказов.');
-        navigation.navigate('Зал', { clearDraft: true });
+        navigation.navigate('HallMap', { clearDraft: true });
       } else {
         Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось создать заказ');
       }
@@ -452,7 +652,7 @@ const WaiterMenu = () => {
       Alert.alert('Заказ обновлён', 'Изменения сохранены');
       setCart([]);
       setCartModalVisible(false);
-      navigation.replace('MenuList');
+      navigation.goBack();
     } catch (error: any) {
       Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось обновить заказ');
     } finally {
@@ -464,12 +664,31 @@ const WaiterMenu = () => {
     <TouchableOpacity
       style={[styles.categoryItem, currentCategory?.id === item.id && styles.categoryItemSelected]}
       onPress={() => handleSelectCategory(item)}
+      onLongPress={() => isAdmin && handleCategoryLongPress(item)}
+      delayLongPress={400}
     >
       <Text style={[styles.categoryText, currentCategory?.id === item.id && styles.categoryTextSelected]}>
         {item.name}
       </Text>
     </TouchableOpacity>
   );
+
+  const renderTreeItem = ({ item }: { item: Category & { depth: number }; index: number }) => {
+    return (
+      <View style={[styles.treeItem, { paddingLeft: 16 + item.depth * 16 }]}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          style={styles.treeItemRow}
+          onPress={() => handleTreeItemPress(item)}
+        >
+          <View style={{ marginRight: 10, padding: 8 }}>
+            <Ionicons name="create-outline" size={20} color="#999" />
+          </View>
+          <Text style={styles.treeItemText}>{item.name}</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   const renderMenuItem = ({ item }: { item: MenuItem }) => {
     const content = (
@@ -576,9 +795,12 @@ const WaiterMenu = () => {
 
       <View style={styles.categoriesContainer}>
         {categoryPath.length > 0 && (
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+          <TouchableOpacity
+            style={{ paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center' }}
+            onPress={handleBack}
+          >
             <Ionicons name="arrow-back" size={20} color="#007AFF" />
-            <Text style={styles.backButtonText}>Назад</Text>
+            <Text style={{ color: '#007AFF', fontSize: 14, fontWeight: '500', marginLeft: 4 }}>Назад</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity
@@ -779,6 +1001,188 @@ const WaiterMenu = () => {
                 )}
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Модальное окно управления категориями */}
+      <Modal animationType="fade" transparent visible={categoryTreeModalVisible} onRequestClose={() => setCategoryTreeModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '85%' }]}>
+            <View style={styles.treeModalHeader}>
+              <Text style={styles.modalTitle}>Дерево категорий</Text>
+              <TouchableOpacity onPress={() => setCategoryTreeModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.treeModalActions}>
+              <TouchableOpacity style={styles.treeActionButton} onPress={handleAddCategoryInTree}>
+                <Ionicons name="add-circle-outline" size={20} color="#fff" />
+                <Text style={styles.treeActionButtonText}>Добавить категорию</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={flatCategories}
+              renderItem={renderTreeItem}
+              keyExtractor={(item) => item.id.toString()}
+              style={{ maxHeight: '80%' }}
+              contentContainerStyle={{ paddingBottom: 20 }}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal animationType="fade" transparent visible={categoryEditModalVisible} onRequestClose={closeCategoryEditModal}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity style={styles.closeButton} onPress={closeCategoryEditModal}>
+              <Ionicons name="close" size={24} color="#666" />
+            </TouchableOpacity>
+            {(isCreatingCategory || selectedCategory) && (
+              <ScrollView style={{ paddingTop: 40 }}>
+                <View style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
+                  <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 20 }}>
+                    {isCreatingCategory ? 'Добавить категорию' : 'Управление категорией'}
+                  </Text>
+
+                  {/* Имя категории */}
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 }}>
+                      Название категории
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.commentInput,
+                        { borderWidth: 1, borderColor: '#ddd', paddingHorizontal: 12, paddingVertical: 10 }
+                      ]}
+                      placeholder="Введите название"
+                      value={editingCategoryName}
+                      onChangeText={setEditingCategoryName}
+                      placeholderTextColor="#999"
+                    />
+                  </View>
+
+                  {/* Выбор родительской категории */}
+                  <View style={{ marginBottom: 20 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 }}>
+                      Родительская категория
+                    </Text>
+                    <TouchableOpacity
+                      style={{
+                        borderWidth: 1,
+                        borderColor: '#ddd',
+                        borderRadius: 8,
+                        paddingHorizontal: 12,
+                        paddingVertical: 12,
+                        backgroundColor: '#f9f9f9'
+                      }}
+                      onPress={() => setShowParentSelector(!showParentSelector)}
+                    >
+                      <Text style={{ color: selectedParentId ? '#333' : '#999' }}>
+                        {selectedParentId
+                          ? availableParentCategories.find(c => c.id === selectedParentId)?.name || 'Не найдена'
+                          : 'Выберите категорию'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {showParentSelector && (
+                      <ScrollView
+                        style={{
+                          marginTop: 8,
+                          borderWidth: 1,
+                          borderColor: '#ddd',
+                          borderRadius: 8,
+                          maxHeight: 180,
+                        }}
+                        nestedScrollEnabled={true}
+                        keyboardShouldPersistTaps="handled"
+                      >
+                        <TouchableOpacity
+                          style={{ paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                          onPress={() => {
+                            setSelectedParentId(null);
+                            setShowParentSelector(false);
+                          }}
+                        >
+                          <Text style={{ color: selectedParentId === null ? '#007AFF' : '#333' }}>
+                            Главная категория
+                          </Text>
+                        </TouchableOpacity>
+                        {availableParentCategories.map(cat => (
+                          <TouchableOpacity
+                            key={cat.id}
+                            style={{ paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                            onPress={() => {
+                              setSelectedParentId(cat.id);
+                              setShowParentSelector(false);
+                            }}
+                          >
+                            <Text style={{ color: selectedParentId === cat.id ? '#007AFF' : '#333' }}>
+                              {cat.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
+
+                  {/* Кнопки действия */}
+                  <View style={{ marginTop: 24, gap: 10 }}>
+                    <TouchableOpacity
+                      style={{
+                        backgroundColor: '#007AFF',
+                        paddingVertical: 12,
+                        borderRadius: 8,
+                        alignItems: 'center'
+                      }}
+                      onPress={() => {
+                        if (isCreatingCategory) {
+                          createCategory(editingCategoryName.trim(), selectedParentId ?? undefined);
+                        } else {
+                          updateCategory();
+                        }
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>
+                        {isCreatingCategory ? 'Создать категорию' : 'Сохранить изменения'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {!isCreatingCategory && (
+                      <TouchableOpacity
+                        style={{
+                          backgroundColor: '#f9991c',
+                          paddingVertical: 12,
+                          borderRadius: 8,
+                          alignItems: 'center'
+                        }}
+                        onPress={handleAddSubcategory}
+                      >
+                        <Text style={{ color: '#ffffff', fontWeight: '600', fontSize: 16 }}>
+                          Добавить подкатегорию
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {!isCreatingCategory && (
+                      <TouchableOpacity
+                        style={{
+                          backgroundColor: '#e74c3c',
+                          paddingVertical: 12,
+                          borderRadius: 8,
+                          alignItems: 'center'
+                        }}
+                        onPress={deleteCategory}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>
+                          Удалить категорию
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              </ScrollView>
+            )}
           </View>
         </View>
       </Modal>
