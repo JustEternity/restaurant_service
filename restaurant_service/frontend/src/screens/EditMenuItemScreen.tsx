@@ -103,7 +103,7 @@ const MenuItemFormScreen = () => {
   const pickImage = async () => {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-          Alert.alert('Нужен доступ к фото');
+          Alert.alert('Ошибка доступа к галерее', 'Пожалуйста, предоставьте доступ к галерее, чтобы выбрать фото');
           return;
       }
 
@@ -145,7 +145,6 @@ const MenuItemFormScreen = () => {
 
           setFormData(prev => ({ ...prev, photo: resp.data.photo_url }));
           setSelectedImageUri(null);
-          Alert.alert('Готово', 'Фото загружено');
       } catch (error: any) {
           Alert.alert('Ошибка', error.message);
       } finally {
@@ -188,7 +187,6 @@ const MenuItemFormScreen = () => {
             await uploadPhotoToServer(newItemId, selectedImageUri);
         }
     }
-    Alert.alert('Успешно', isEditMode ? 'Блюдо обновлено' : 'Блюдо создано');
     navigation.goBack();
     } catch (error: any) {
       const errMsg = error.response?.data?.detail || error.message || 'Ошибка сохранения';

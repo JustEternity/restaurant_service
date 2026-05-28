@@ -21,8 +21,8 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eee',
   },
   filterGroup: { marginRight: 20 },
-  filterLabel: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 },
-  filterButtons: { flexDirection: 'row' },
+  filterLabel: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8, paddingLeft: 10 },
+  filterButtons: { flexDirection: 'row', paddingLeft: 10 },
   filterButton: {
     paddingHorizontal: 15,
     paddingVertical: 8,

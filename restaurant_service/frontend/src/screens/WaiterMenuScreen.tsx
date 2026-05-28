@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import styles from '../design/WaiterMenuStyles';
 import api from '../services/api';
@@ -83,7 +83,6 @@ const WaiterMenu = () => {
 
   const [categoriesTree, setCategoriesTree] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [filteredItems, setFilteredItems] = useState<MenuItem[]>([]);
   const [categoryPath, setCategoryPath] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -96,8 +95,9 @@ const WaiterMenu = () => {
 
   const [categoryTreeModalVisible, setCategoryTreeModalVisible] = useState(false);
   const [categoryEditModalVisible, setCategoryEditModalVisible] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [editingCategoryName, setEditingCategoryName] = useState('');
+  const [editingCategoryName, setEditingCategoryName] = useState<string | undefined>(undefined);
   const [availableParentCategories, setAvailableParentCategories] = useState<Category[]>([]);
   const [selectedParentId, setSelectedParentId] = useState<number | null>(null);
   const [showParentSelector, setShowParentSelector] = useState(false);
@@ -107,10 +107,14 @@ const WaiterMenu = () => {
   const swipeableRefs = new Map();
   const isAdmin = user?.role === 'admin';
 
+  const isFirstLoad = useRef(true);
+
   const currentCategory = categoryPath.length > 0 ? categoryPath[categoryPath.length - 1] : null;
   const currentLevelCategories = categoryPath.length === 0
     ? categoriesTree
     : currentCategory?.children || [];
+
+  const isFirstFocus = useRef(true);
 
   useEffect(() => {
     if (isNewOrderMode) {
@@ -200,26 +204,39 @@ const WaiterMenu = () => {
     loadData();
   }, []);
 
+
+
   useEffect(() => {
     const built = buildFlatCategories(categoriesTree);
     setFlatCategories(built);
   }, [categoriesTree]);
 
-  useEffect(() => {
-    if (currentCategory) {
-      setFilteredItems(menuItems.filter(item => item.category === currentCategory.id));
-    } else {
-      setFilteredItems(menuItems);
-    }
-  }, [categoryPath, menuItems]);
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocus.current) {
+        isFirstFocus.current = false;
+        loadData(false);
+      } else {
+        loadData(true);
+      }
+    }, [])
+  );
 
-  const loadData = async () => {
+  const filteredItems = useMemo(() => {
+    if (currentCategory) {
+      return menuItems.filter(item => item.category === currentCategory.id);
+    }
+    return menuItems;
+  }, [currentCategory, menuItems]);
+
+  const loadData = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       await Promise.all([fetchCategories(), fetchMenuItems()]);
     } catch (error) {
-      console.error('Ошибка загрузки данных:', error);
+      console.error(error);
     } finally {
+      setIsInitialLoad(false);
       setLoading(false);
       setRefreshing(false);
     }
@@ -249,8 +266,12 @@ const WaiterMenu = () => {
     try {
       const response = await api.get('/menu/');
       const data: MenuItem[] = response.data;
-      const available = data.filter(item => item.is_available);
-      setMenuItems(available);
+      if (isAdmin) {
+        setMenuItems(data);
+      } else {
+        const available = data.filter(item => item.is_available);
+        setMenuItems(available);
+      }
     } catch (error) {
       console.error('Ошибка загрузки меню:', error);
     }
@@ -258,7 +279,7 @@ const WaiterMenu = () => {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadData();
+    loadData(true);
   };
 
   const handleSelectCategory = (category: Category) => {
@@ -302,7 +323,6 @@ const WaiterMenu = () => {
     try {
       await api.delete(`/menu/${id}`);
       setMenuItems(prev => prev.filter(item => item.id !== id));
-      Alert.alert('Успешно', 'Позиция удалена');
     } catch (error) {
       console.error('Ошибка удаления:', error);
       Alert.alert('Ошибка', 'Не удалось удалить позицию');
@@ -422,6 +442,10 @@ const WaiterMenu = () => {
   };
 
   const createCategory = async (name: string, parentId?: number) => {
+    if (!name) {
+      Alert.alert('Ошибка', 'Название категории не может быть пустым');
+      return;
+    }
     try {
       const payload = {
         name,
@@ -439,7 +463,12 @@ const WaiterMenu = () => {
   };
 
   const updateCategory = async () => {
-    if (!selectedCategory || !editingCategoryName.trim()) return;
+    if (!selectedCategory || !(editingCategoryName ?? '').trim()) {
+      if (!(editingCategoryName ?? '').trim()) {
+        Alert.alert('Ошибка', 'Название категории не может быть пустым');
+      }
+      return;
+    }
     if (editingCategoryName === selectedCategory.name && selectedParentId === selectedCategory.parent_category) {
       setCategoryEditModalVisible(false);
       setSelectedCategory(null);
@@ -447,7 +476,7 @@ const WaiterMenu = () => {
     }
     try {
       await api.put(`/menu/categories/${selectedCategory.id}`, {
-        name: editingCategoryName.trim(),
+        name: (editingCategoryName ?? '').trim(),
         parent_category: selectedParentId,
       });
       await fetchCategories();
@@ -614,7 +643,6 @@ const WaiterMenu = () => {
         })),
       };
       await api.post('/orders/', payload);
-      Alert.alert('Успех', 'Заказ создан');
       clearDraft();
       setCart([]);
       setCartModalVisible(false);
@@ -649,7 +677,6 @@ const WaiterMenu = () => {
         course_number: i.course_number,
       }));
       await api.put(`/orders/${orderId}/plates`, platesToSend);
-      Alert.alert('Заказ обновлён', 'Изменения сохранены');
       setCart([]);
       setCartModalVisible(false);
       navigation.goBack();
@@ -692,7 +719,7 @@ const WaiterMenu = () => {
 
   const renderMenuItem = ({ item }: { item: MenuItem }) => {
     const content = (
-      <View style={styles.menuItemContent}>
+      <View style={[styles.menuItemContent, !item.is_available && { opacity: 0.3 }]}>
         <TouchableOpacity style={{ flex: 1, flexDirection: 'row' }} onPress={() => handleItemPress(item)} activeOpacity={0.7}>
           <View style={styles.menuItemInfo}>
             <Text style={styles.menuItemName}>
@@ -747,7 +774,7 @@ const WaiterMenu = () => {
     return <View style={styles.menuItem}>{content}</View>;
   };
 
-  if (loading && !refreshing) {
+  if (isInitialLoad) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#007AFF" />
@@ -1010,22 +1037,23 @@ const WaiterMenu = () => {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { maxHeight: '85%' }]}>
             <View style={styles.treeModalHeader}>
+              <View style={{ width: 34 }} />
               <Text style={styles.modalTitle}>Дерево категорий</Text>
               <TouchableOpacity onPress={() => setCategoryTreeModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
             <View style={styles.treeModalActions}>
-              <TouchableOpacity style={styles.treeActionButton} onPress={handleAddCategoryInTree}>
+
+            <TouchableOpacity style={styles.treeActionButton} onPress={handleAddCategoryInTree}>
                 <Ionicons name="add-circle-outline" size={20} color="#fff" />
-                <Text style={styles.treeActionButtonText}>Добавить категорию</Text>
-              </TouchableOpacity>
-            </View>
+                <Text style={styles.treeActionButtonText}>Добавить</Text>
+              </TouchableOpacity></View>
             <FlatList
               data={flatCategories}
               renderItem={renderTreeItem}
               keyExtractor={(item) => item.id.toString()}
-              style={{ maxHeight: '80%' }}
+              style={{ maxHeight: '100%' }}
               contentContainerStyle={{ paddingBottom: 20 }}
             />
           </View>
@@ -1039,10 +1067,10 @@ const WaiterMenu = () => {
               <Ionicons name="close" size={24} color="#666" />
             </TouchableOpacity>
             {(isCreatingCategory || selectedCategory) && (
-              <ScrollView style={{ paddingTop: 40 }}>
+              <ScrollView style={{ paddingTop: 15 }}>
                 <View style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
                   <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 20 }}>
-                    {isCreatingCategory ? 'Добавить категорию' : 'Управление категорией'}
+                    {isCreatingCategory ? 'Добавить категорию' : 'Редактирование категории'}
                   </Text>
 
                   {/* Имя категории */}
@@ -1105,7 +1133,7 @@ const WaiterMenu = () => {
                           }}
                         >
                           <Text style={{ color: selectedParentId === null ? '#007AFF' : '#333' }}>
-                            Главная категория
+                            Основная категория
                           </Text>
                         </TouchableOpacity>
                         {availableParentCategories.map(cat => (
@@ -1137,7 +1165,7 @@ const WaiterMenu = () => {
                       }}
                       onPress={() => {
                         if (isCreatingCategory) {
-                          createCategory(editingCategoryName.trim(), selectedParentId ?? undefined);
+                          createCategory((editingCategoryName ?? '').trim(), selectedParentId ?? undefined);
                         } else {
                           updateCategory();
                         }
