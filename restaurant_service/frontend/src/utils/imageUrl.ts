@@ -1,6 +1,6 @@
 import { API_CONFIG } from '../config';
 
-const SERVER_URL =  API_CONFIG.BASE_URL;
+const SERVER_URL =  API_CONFIG.PHOTO_URL;
 
 export const getPhotoUrl = (photo: string | null | undefined) => {
   if (!photo) return null;
