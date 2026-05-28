@@ -441,7 +441,16 @@ const ChefOrders = () => {
 
   const openChangeStatus = (nextStatus: string) => {
     setTargetStatus(nextStatus);
-    setSelectedCookId(user?.id ?? null);
+
+    const allowedSpecs = selectedItem
+      ? plateToSpecializations.current.get(selectedItem.plate_id)
+      : null;
+    const currentUserAllowed =
+      allowedSpecs && user?.id
+        ? groupCooks.find(c => c.id === user.id && c.specialization && allowedSpecs.has(c.specialization.id))
+        : null;
+
+    setSelectedCookId(currentUserAllowed ? user?.id ?? null : null);
     setChangeStatusModalVisible(true);
   };
 
@@ -515,7 +524,7 @@ const ChefOrders = () => {
     const otherMap = new Map<number, { cook: Cook; plates: FlatOrderedPlate[] }>();
     const unassigned: FlatOrderedPlate[] = [];
 
-    if (specializationFilter === 'all') {
+    if (specializationFilter === 'all' || statusFilter !== 'waiting') {
       filteredItems.forEach(item => unassigned.push(item));
       return { personal, otherMap, unassigned };
     }
@@ -651,7 +660,7 @@ const ChefOrders = () => {
         </View>
       )}
 
-      {grouped.personal.length > 0 && (
+      {statusFilter === 'waiting' && grouped.personal.length > 0 && (
         <View style={styles.recommendedSection}>
           <Text style={styles.sectionTitle}> {user?.name}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
@@ -660,7 +669,7 @@ const ChefOrders = () => {
         </View>
       )}
 
-      {Array.from(grouped.otherMap.entries()).map(([cookId, { cook, plates }]) => (
+      {statusFilter === 'waiting' && Array.from(grouped.otherMap.entries()).map(([cookId, { cook, plates }]) => (
         <View key={cookId} style={styles.recommendedSection}>
           <Text style={styles.sectionTitle}> {cook.name} </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
@@ -678,10 +687,12 @@ const ChefOrders = () => {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={['#FF6B6B']} />
         }
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="flame-outline" size={60} color="#ccc" />
-            <Text>Нет заказов</Text>
-          </View>
+          grouped.personal.length === 0 && grouped.otherMap.size === 0 ? (
+            <View style={styles.empty}>
+              <Ionicons name="flame-outline" size={60} color="#ccc" />
+              <Text>Нет заказов</Text>
+            </View>
+          ) : null
         }
       />
 
@@ -762,7 +773,12 @@ const ChefOrders = () => {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Кто выполняет?</Text>
             <FlatList
-              data={groupCooks}
+              data={groupCooks.filter(cook => {
+                if (!selectedItem) return false;
+                const allowedSpecs = plateToSpecializations.current.get(selectedItem.plate_id);
+                if (!allowedSpecs) return false;
+                return cook.specialization ? allowedSpecs.has(cook.specialization.id) : false;
+              })}
               keyExtractor={(item) => item.id.toString()}
               renderItem={({ item }) => (
                 <TouchableOpacity

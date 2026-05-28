@@ -34,6 +34,7 @@ interface EditUserData {
   role: string;
   is_available: boolean;
   specialization_id: number | null;
+  _showSpecSelector?: boolean;
 }
 
 interface Specialization {
@@ -161,6 +162,7 @@ const AdminStaff = () => {
       role: u.role,
       is_available: u.is_available,
       specialization_id: u.specialization?.id ?? null,
+      _showSpecSelector: false,
     });
     setEditModalVisible(true);
   };
@@ -215,6 +217,7 @@ const AdminStaff = () => {
       role: 'waiter',
       is_available: true,
       specialization_id: null,
+      _showSpecSelector: false,
     });
     setEditModalVisible(true);
   };
@@ -719,6 +722,7 @@ const AdminStaff = () => {
                   value={editData.name}
                   onChangeText={(t) => setEditData({ ...editData, name: t })}
                   placeholder="Введите имя"
+                  placeholderTextColor= "#888787"
                 />
               </View>
               <View style={styles.inputGroup}>
@@ -728,6 +732,7 @@ const AdminStaff = () => {
                   value={editData.login}
                   onChangeText={(t) => setEditData({ ...editData, login: t })}
                   placeholder="Введите логин"
+                  placeholderTextColor= "#888787"
                   autoCapitalize="none"
                 />
               </View>
@@ -738,6 +743,7 @@ const AdminStaff = () => {
                   value={editData.password}
                   onChangeText={(t) => setEditData({ ...editData, password: t })}
                   placeholder="Введите пароль"
+                  placeholderTextColor= "#888787"
                   secureTextEntry
                 />
               </View>
@@ -746,7 +752,7 @@ const AdminStaff = () => {
                 <View style={styles.roleButtons}>
                   <TouchableOpacity
                     style={[styles.roleButton, editData.role === 'waiter' && styles.roleButtonActive]}
-                    onPress={() => setEditData({ ...editData, role: 'waiter', specialization_id: null })}
+                    onPress={() => setEditData({ ...editData, role: 'waiter', specialization_id: null, _showSpecSelector: false })}
                   >
                     <Ionicons name="restaurant-outline" size={20} color={editData.role === 'waiter' ? '#fff' : '#666'} />
                     <Text style={[styles.roleButtonText, editData.role === 'waiter' && styles.roleButtonTextActive]}>
@@ -767,29 +773,52 @@ const AdminStaff = () => {
               {editData.role === 'cook' && (
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Специализация</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                      <TouchableOpacity
-                        style={[styles.specChip, !editData.specialization_id && styles.specChipActive]}
-                        onPress={() => setEditData({ ...editData, specialization_id: null })}
+                  <TouchableOpacity
+                    style={{
+                      borderWidth: 1,
+                      borderColor: '#ddd',
+                      borderRadius: 8,
+                      paddingHorizontal: 12,
+                      paddingVertical: 12,
+                      backgroundColor: '#f9f9f9',
+                    }}
+                    onPress={() => setEditData({ ...editData, _showSpecSelector: !editData._showSpecSelector })}
+                  >
+                    <Text style={{ color: editData.specialization_id ? '#333' : '#999' }}>
+                      {editData.specialization_id
+                        ? allSpecializations.find(s => s.id === editData.specialization_id)?.name || 'Не найдена'
+                        : 'Без специализации'}
+                    </Text>
+                  </TouchableOpacity>
+                  {editData._showSpecSelector && (
+                    <View style={{ marginTop: 8, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, overflow: 'hidden' }}>
+                      <ScrollView
+                        style={{ maxHeight: 180 }}
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="handled"
                       >
-                        <Text style={[styles.specChipText, !editData.specialization_id && styles.specChipTextActive]}>
-                          Без специализации
-                        </Text>
-                      </TouchableOpacity>
-                      {allSpecializations.map((spec) => (
                         <TouchableOpacity
-                          key={spec.id}
-                          style={[styles.specChip, editData.specialization_id === spec.id && styles.specChipActive]}
-                          onPress={() => setEditData({ ...editData, specialization_id: spec.id })}
+                          style={{ paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                          onPress={() => setEditData({ ...editData, specialization_id: null, _showSpecSelector: false })}
                         >
-                          <Text style={[styles.specChipText, editData.specialization_id === spec.id && styles.specChipTextActive]}>
-                            {spec.name}
+                          <Text style={{ color: editData.specialization_id === null ? '#007AFF' : '#333' }}>
+                            Без специализации
                           </Text>
                         </TouchableOpacity>
-                      ))}
+                        {allSpecializations.map(spec => (
+                          <TouchableOpacity
+                            key={spec.id}
+                            style={{ paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                            onPress={() => setEditData({ ...editData, specialization_id: spec.id, _showSpecSelector: false })}
+                          >
+                            <Text style={{ color: editData.specialization_id === spec.id ? '#007AFF' : '#333' }}>
+                              {spec.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
                     </View>
-                  </ScrollView>
+                  )}
                 </View>
               )}
               <View style={styles.switchGroup}>
@@ -829,6 +858,7 @@ const AdminStaff = () => {
                   <TextInput
                     style={[styles.input, { flex: 1 }]}
                     placeholder="Название специализации"
+                    placeholderTextColor= "#888787"
                     value={newSpecName}
                     onChangeText={setNewSpecName}
                   />

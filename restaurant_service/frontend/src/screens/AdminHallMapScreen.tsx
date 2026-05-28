@@ -3,7 +3,7 @@ import {
   View,
   Text,
   Image,
-  StyleSheet,
+  RefreshControl,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
@@ -448,8 +448,6 @@ const HallMap = () => {
     }
   };
 
-  const clearSelection = () => { setSelectedTableIds([]); setTableIds([]); };
-
   const handleCreateOrderPress = () => {
     if (selectedTableIds.length === 0) return;
     if (!isAdmin) {
@@ -609,123 +607,130 @@ const HallMap = () => {
 
   return (
     <GestureHandlerRootView style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerButtons}>
-          {selectedTableIds.length > 0 && !isAdmin && (
-            <TouchableOpacity style={styles.clearButton} onPress={clearSelection}>
-              <Ionicons name="close-circle" size={24} color="#ff3b30" />
-            </TouchableOpacity>
-          )}
-          {isAdmin && (
-            <>
-              <TouchableOpacity
-                style={[styles.editButton, isEditMode && styles.editButtonActive]}
-                onPress={() => {
-                  setIsEditMode(!isEditMode);
-                  if (isAddingMode) setIsAddingMode(false);
-                }}
-              >
-                <Ionicons name="move-outline" size={22} color={isEditMode ? '#fff' : '#007AFF'} />
-              </TouchableOpacity>
-              {isEditMode && (
-                <>
-                  <TouchableOpacity
-                    style={[styles.addButton, isAddingMode && styles.addButtonActive]}
-                    onPress={() => setIsAddingMode(!isAddingMode)}
-                  >
-                    <Ionicons name="add" size={24} color="#fff" />
-                  </TouchableOpacity>
-                  <View style={styles.sizeRow}>
-                    <TextInput
-                      style={styles.sizeInput}
-                      value={tempTableSize}
-                      onChangeText={setTempTableSize}
-                      keyboardType="numeric"
-                      placeholder="30"
-                      placeholderTextColor="#999"
-                    />
+      {(isAdmin) && (
+        <View style={styles.header}>
+          <View style={styles.headerButtons}>
+            {isAdmin && (
+              <>
+                <TouchableOpacity
+                  style={[styles.editButton, isEditMode && styles.editButtonActive]}
+                  onPress={() => {
+                    setIsEditMode(!isEditMode);
+                    if (isAddingMode) setIsAddingMode(false);
+                  }}
+                >
+                  <Ionicons name="move-outline" size={22} color={isEditMode ? '#fff' : '#007AFF'} />
+                </TouchableOpacity>
+                {isEditMode && (
+                  <>
                     <TouchableOpacity
-                      style={styles.sizeSaveButton}
-                      onPress={saveTableSize}
-                      disabled={savingSize}
+                      style={[styles.addButton, isAddingMode && styles.addButtonActive]}
+                      onPress={() => setIsAddingMode(!isAddingMode)}
                     >
-                      {savingSize ? (
-                        <ActivityIndicator size="small" color="#fff" />
+                      <Ionicons name="add" size={24} color="#fff" />
+                    </TouchableOpacity>
+                    <View style={styles.sizeRow}>
+                      <TextInput
+                        style={styles.sizeInput}
+                        value={tempTableSize}
+                        onChangeText={setTempTableSize}
+                        keyboardType="numeric"
+                        placeholder="30"
+                        placeholderTextColor="#999"
+                      />
+                      <TouchableOpacity
+                        style={styles.sizeSaveButton}
+                        onPress={saveTableSize}
+                        disabled={savingSize}
+                      >
+                        {savingSize ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={styles.sizeSaveButtonText}>OK</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.bgButton}
+                      onPress={pickBackground}
+                      disabled={uploadingBg}
+                    >
+                      {uploadingBg ? (
+                        <ActivityIndicator size="small" color="#007AFF" />
                       ) : (
-                        <Text style={styles.sizeSaveButtonText}>OK</Text>
+                        <Ionicons name="image-outline" size={22} color="#007AFF" />
                       )}
                     </TouchableOpacity>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.bgButton}
-                    onPress={pickBackground}
-                    disabled={uploadingBg}
-                  >
-                    {uploadingBg ? (
-                      <ActivityIndicator size="small" color="#007AFF" />
-                    ) : (
-                      <Ionicons name="image-outline" size={22} color="#007AFF" />
-                    )}
-                  </TouchableOpacity>
-                </>
-              )}
-            </>
-          )}
-          {!isAdmin && (
-            <TouchableOpacity style={styles.refreshButton} onPress={manualRefresh}>
-              <Ionicons name="refresh" size={24} color="#007AFF" />
-            </TouchableOpacity>
-          )}
+                  </>
+                )}
+              </>
+            )}
+          </View>
         </View>
-      </View>
+      )}
 
-      <View style={styles.mapWrapper} onLayout={onMapWrapperLayout}>
-        <GestureDetector gesture={composedGesture}>
-          <Animated.View style={[styles.mapTransformContainer, animatedContainerStyle]}>
-            <View
-              style={{ width: imgSize.width, height: imgSize.height }}
-              onStartShouldSetResponder={() => isAddingMode}
-              onResponderRelease={handleMapPress}
-            >
-              {backgroundImage && (
-                <Image
-                  source={{ uri: getPhotoUrl(backgroundImage) ?? undefined }}
-                  style={{ width: imgSize.width, height: imgSize.height }}
-                  resizeMode="contain"
-                  onLoad={handleImageLoad}
-                />
-              )}
-              {isAdmin
-                ? safeTables.map(table => <TableItem key={table.id} table={table} draggable />)
-                : safeTables.map(table => <TableItem key={table.id} table={table} />)}
-            </View>
-          </Animated.View>
-        </GestureDetector>
-      </View>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flex: 1 }}
+        scrollEnabled={false}
+        refreshControl={
+          !isAdmin ? (
+            <RefreshControl
+              refreshing={false}
+              onRefresh={manualRefresh}
+              colors={['#007AFF']}
+              tintColor="#007AFF"
+            />
+          ) : undefined
+        }>
+        <View style={styles.mapWrapper} onLayout={onMapWrapperLayout}>
+          <GestureDetector gesture={composedGesture}>
+            <Animated.View style={[styles.mapTransformContainer, animatedContainerStyle]}>
+              <View
+                style={{ width: imgSize.width, height: imgSize.height }}
+                onStartShouldSetResponder={() => isAddingMode}
+                onResponderRelease={handleMapPress}
+              >
+                {backgroundImage && (
+                  <Image
+                    source={{ uri: getPhotoUrl(backgroundImage) ?? undefined }}
+                    style={{ width: imgSize.width, height: imgSize.height }}
+                    resizeMode="contain"
+                    onLoad={handleImageLoad}
+                  />
+                )}
+                {isAdmin
+                  ? safeTables.map(table => <TableItem key={table.id} table={table} draggable />)
+                  : safeTables.map(table => <TableItem key={table.id} table={table} />)}
+              </View>
+            </Animated.View>
+          </GestureDetector>
+        </View>
 
-      {!isAdmin && (
-        <>
-          {draft.isActive ? (
-            <View style={styles.orderButtonContainer}>
-              <TouchableOpacity style={styles.orderButton} onPress={handleContinueOrder}>
-                <Ionicons name="cart-outline" size={24} color="#fff" />
-                <Text style={styles.orderButtonText}>Продолжить заказ</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            selectedTableIds.length > 0 && (
+        {!isAdmin && (
+          <>
+            {draft.isActive ? (
               <View style={styles.orderButtonContainer}>
-                <TouchableOpacity style={styles.orderButton} onPress={handleCreateOrderPress}>
-                  <Ionicons name="receipt-outline" size={24} color="#fff" />
-                  <Text style={styles.orderButtonText}>
-                    Создать заказ ({selectedTableIds.length})
-                  </Text>
+                <TouchableOpacity style={styles.orderButton} onPress={handleContinueOrder}>
+                  <Ionicons name="cart-outline" size={24} color="#fff" />
+                  <Text style={styles.orderButtonText}>Продолжить заказ</Text>
                 </TouchableOpacity>
               </View>
-            )
-          )}
-        </>
-      )}
+            ) : (
+              selectedTableIds.length > 0 && (
+                <View style={styles.orderButtonContainer}>
+                  <TouchableOpacity style={styles.orderButton} onPress={handleCreateOrderPress}>
+                    <Ionicons name="receipt-outline" size={24} color="#fff" />
+                    <Text style={styles.orderButtonText}>
+                      Создать заказ ({selectedTableIds.length})
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )
+            )}
+          </>
+        )}
+      </ScrollView>
 
       {isAddingMode && (
         <View style={styles.helperTextContainer}>

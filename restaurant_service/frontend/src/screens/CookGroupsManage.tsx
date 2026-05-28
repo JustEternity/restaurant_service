@@ -269,6 +269,7 @@ const CookGroupManagement = () => {
             <TextInput
               style={styles.input}
               placeholder="Название группы"
+              placeholderTextColor= "#888787"
               value={groupName}
               onChangeText={setGroupName}
             />

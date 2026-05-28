@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: 'bold', flex: 1 },
   modalBody: {},
   detailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  detailLabel: { width: 80, fontSize: 14, color: '#666' },
+  detailLabel: { width: 100, fontSize: 14, color: '#666' },
   detailValue: { fontSize: 14, color: '#333', fontWeight: '500' },
   commentBox: { marginTop: 12, marginBottom: 12 },
   commentText: { fontSize: 14, color: '#333', fontStyle: 'italic', marginTop: 4 },

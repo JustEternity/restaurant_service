@@ -224,6 +224,7 @@ const MenuItemFormScreen = () => {
           value={formData.name}
           onChangeText={text => setFormData(prev => ({ ...prev, name: text }))}
           placeholder="Введите название"
+          placeholderTextColor= "#888787"
         />
 
         <Text style={styles.label}>Описание</Text>
@@ -232,6 +233,7 @@ const MenuItemFormScreen = () => {
           value={formData.description}
           onChangeText={text => setFormData(prev => ({ ...prev, description: text }))}
           placeholder="Введите описание"
+          placeholderTextColor= "#888787"
           multiline
           numberOfLines={4}
         />
@@ -242,6 +244,7 @@ const MenuItemFormScreen = () => {
           value={formData.price}
           onChangeText={text => setFormData(prev => ({ ...prev, price: text }))}
           placeholder="0.00"
+          placeholderTextColor= "#888787"
           keyboardType="numeric"
         />
 

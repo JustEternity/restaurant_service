@@ -213,11 +213,11 @@ export const AdminDrawer = () => (
       }}
     />
     <Drawer.Screen
-      name="Отчеты"
+      name="Статистика"
       component={AdminReports}
       options={{
-        headerTitle: () => <HeaderTitle title="Отчеты по работе ресторана" color="#FFFFFF" />,
-        drawerLabel: 'Отчеты',
+        headerTitle: () => <HeaderTitle title="Статистика по работе ресторана" color="#FFFFFF" />,
+        drawerLabel: 'Статистика',
       }}
     />
     <Drawer.Screen
