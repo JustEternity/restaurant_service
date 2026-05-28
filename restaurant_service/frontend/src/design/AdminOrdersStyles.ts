@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '90%',
+    maxHeight: '70%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eee',
   },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#333' },
-  modalBody: { padding: 20 },
+  modalBody: { paddingHorizontal: 20, flexShrink: 1 },
   orderDetails: {
     backgroundColor: '#f9f9f9',
     borderRadius: 12,
@@ -103,13 +103,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 20,
+    marginBottom: 20,
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: '#eee',
   },
-  totalText: { fontSize: 18, fontWeight: '600', color: '#333' },
-  totalValue: { fontSize: 20, fontWeight: 'bold', color: '#007AFF' },
+  totalText: { fontSize: 18, fontWeight: '600', color: '#333', marginLeft: 20 },
+  totalValue: { fontSize: 20, fontWeight: 'bold', color: '#007AFF', marginRight: 20 },
 });
 
 export default styles;

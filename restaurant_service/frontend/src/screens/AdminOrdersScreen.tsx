@@ -240,6 +240,7 @@ const renderPlateItem = (plate: PlateInOrder) => {
               </TouchableOpacity>
             </View>
             {selectedOrder && (
+              <>
               <ScrollView style={styles.modalBody}>
                 <View style={styles.orderDetails}>
                   <View style={styles.detailRow}>
@@ -277,13 +278,16 @@ const renderPlateItem = (plate: PlateInOrder) => {
                     {renderPlateItem(plate)}
                   </View>
                 ))}
-                <View style={styles.totalContainer}>
+              </ScrollView>
+               <View style={styles.totalContainer}>
                   <Text style={styles.totalText}>Итого:</Text>
                   <Text style={styles.totalValue}>
-                    {selectedOrder.plates.reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽
+                    {selectedOrder.plates
+                      .reduce((sum, p) => sum + p.price * p.count, 0)
+                      .toFixed(2)}{' '}₽
                   </Text>
                 </View>
-              </ScrollView>
+              </>
             )}
           </View>
         </View>

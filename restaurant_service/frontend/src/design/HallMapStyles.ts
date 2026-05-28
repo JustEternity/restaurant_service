@@ -14,7 +14,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
   },
-  headerButtons: { flexDirection: 'row', alignItems: 'center' },
+  headerButtons: { flexDirection: 'row', alignItems: 'center'},
+  sizeLabel: { marginLeft: 20, fontSize: 14, color: '#333', textAlign: 'right', width: 50},
   clearButton: { marginRight: 12, padding: 4 },
   refreshButton: { marginLeft: 12, padding: 4 },
   editButton: {
@@ -47,15 +48,15 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   sizeInput: {
-    width: 70,
+    width: 50,
     height: 44,
-    paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#d1d5db',
     color: '#111',
     backgroundColor: '#fff',
     marginRight: 8,
+    textAlign: 'center'
   },
   sizeSaveButton: {
     paddingHorizontal: 14,

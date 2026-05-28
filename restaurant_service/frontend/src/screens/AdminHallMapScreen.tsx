@@ -629,6 +629,7 @@ const HallMap = () => {
                     >
                       <Ionicons name="add" size={24} color="#fff" />
                     </TouchableOpacity>
+                    <Text style={styles.sizeLabel} numberOfLines={2}>Размер стола:</Text>
                     <View style={styles.sizeRow}>
                       <TextInput
                         style={styles.sizeInput}
