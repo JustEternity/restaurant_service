@@ -7,7 +7,7 @@ class CooksInGroup(BaseModel):
 
     id = Column(Integer, primary_key=True)
     cook = Column(Integer, ForeignKey("users.id"))
-    group = Column(Integer, ForeignKey("cook_groups.id"))
+    group = Column(Integer, ForeignKey("cook_groups.id", ondelete="CASCADE"))
 
     cooks_in_group = relationship("User", back_populates="user_in_group")
     group_of_cooks = relationship("CookGroup", back_populates="members")

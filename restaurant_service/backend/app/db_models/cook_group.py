@@ -8,4 +8,4 @@ class CookGroup(BaseModel):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False)
 
-    members = relationship("CooksInGroup", back_populates="group_of_cooks")
+    members = relationship("CooksInGroup", back_populates="group_of_cooks", passive_deletes=True)

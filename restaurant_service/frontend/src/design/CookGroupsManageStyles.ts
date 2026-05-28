@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
   addDetailButton: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   addDetailButtonText: { fontSize: 14, color: '#007AFF', marginLeft: 8 },
   selectModalContent: { width: '80%', maxHeight: '70%', backgroundColor: '#fff', borderRadius: 12, padding: 20 },
-  selectItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  selectItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', flexDirection: 'row',  alignItems: 'center' },
   selectItemText: { fontSize: 16, color: '#333' },
   closeSelectButton: { marginTop: 20, paddingVertical: 12, borderRadius: 8, backgroundColor: '#007AFF', alignItems: 'center' },
   closeSelectButtonText: { color: '#fff', fontWeight: '600' },

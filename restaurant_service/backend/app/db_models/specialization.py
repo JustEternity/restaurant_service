@@ -9,4 +9,4 @@ class Specialization(BaseModel):
     name = Column(VARCHAR(100))
 
     users_with_specialization = relationship("User", back_populates="specialization_of_user")
-    plates_for_spec = relationship("PlatesForSpecialization", back_populates="spec_of_plates")
+    plates_for_spec = relationship("PlatesForSpecialization", back_populates="spec_of_plates", passive_deletes=True)

@@ -110,8 +110,6 @@ async def delete_cook_group(
 
     count_stmt = select(func.count()).select_from(CooksInGroup).where(CooksInGroup.group == group_id)
     count_result = await db.execute(count_stmt)
-    if count_result.scalar() > 0:
-        raise HTTPException(status_code=400, detail="Нельзя удалить группу, в которой есть повара")
 
     await db.delete(group)
     await db.commit()

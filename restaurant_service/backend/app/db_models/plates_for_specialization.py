@@ -6,7 +6,7 @@ class PlatesForSpecialization(BaseModel):
     __tablename__ = "plates_for_specialization"
 
     id = Column(Integer, primary_key=True)
-    specialization = Column(Integer, ForeignKey("specialization.id"))
+    specialization = Column(Integer, ForeignKey("specialization.id", ondelete="CASCADE"))
     plate = Column(Integer, ForeignKey("menu.id"))
 
     spec_plates = relationship("Menu", back_populates="plate_for_specialization")

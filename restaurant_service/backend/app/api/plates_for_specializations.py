@@ -8,7 +8,8 @@ from app.database import get_async_db
 from ..db_models import PlatesForSpecialization, Menu, Specialization
 from ..schemas.plates_for_specialization_schemas import (
     PlateSpecializationCreate,
-    PlateSpecializationResponse
+    PlateSpecializationResponse,
+    BatchUpdatePlates
 )
 
 router = APIRouter(prefix="/plates-specializations", tags=["Связи блюд и специализаций"])
@@ -130,3 +131,24 @@ async def get_plates_for_specialization(spec_id: int, db: AsyncSession = Depends
             specialization_name=link.spec_of_plates.name if link.spec_of_plates else None
         ))
     return response
+
+@router.put("/specialization/{spec_id}/plates")
+async def update_plates_for_specialization(
+    spec_id: int,
+    data: BatchUpdatePlates,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Заменить все блюда, привязанные к специализации"""
+    spec = await db.get(Specialization, spec_id)
+    if not spec:
+        raise HTTPException(status_code=404, detail="Специализация не найдена")
+
+    await db.execute(
+        delete(PlatesForSpecialization).where(PlatesForSpecialization.specialization == spec_id)
+    )
+
+    for plate_id in data.plate_ids:
+        db.add(PlatesForSpecialization(plate=plate_id, specialization=spec_id))
+
+    await db.commit()
+    return {"message": "Связи обновлены", "plate_ids": data.plate_ids}

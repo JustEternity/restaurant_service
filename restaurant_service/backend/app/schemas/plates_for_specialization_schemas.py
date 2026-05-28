@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 class PlateSpecializationCreate(BaseModel):
     plate_id: int
@@ -14,3 +14,6 @@ class PlateSpecializationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class BatchUpdatePlates(BaseModel):
+    plate_ids: List[int]
