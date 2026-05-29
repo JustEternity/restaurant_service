@@ -388,8 +388,7 @@ const HallMap = () => {
   const handleMapPress = (event: any) => {
     if (!isAdmin || !isAddingMode) return;
     const { locationX, locationY } = event.nativeEvent;
-    const { x, y } = getOriginalCoords(locationX, locationY);
-    createTableAt(x, y);
+    createTableAt(locationX, locationY);
     setIsAddingMode(false);
   };
 
@@ -519,21 +518,29 @@ const HallMap = () => {
     const translateX = useSharedValue(0);
     const translateY = useSharedValue(0);
     const context = useSharedValue({ x: 0, y: 0 });
+    const isDragging = useSharedValue(false);
 
     const panGesture = Gesture.Pan()
       .enabled(!!draggable && isEditMode)
-      .onStart(() => { context.value = { x: translateX.value, y: translateY.value }; })
+      .onStart(() => {
+        context.value = { x: translateX.value, y: translateY.value };
+        isDragging.value = true;
+      })
       .onUpdate((event) => {
-        translateX.value = context.value.x + event.translationX;
-        translateY.value = context.value.y + event.translationY;
+        translateX.value = context.value.x + event.translationX / mapScale.value;
+        translateY.value = context.value.y + event.translationY / mapScale.value;
       })
       .onEnd(() => {
+        isDragging.value = false;
         const newPosX = table.pos_x + translateX.value;
         const newPosY = table.pos_y + translateY.value;
         runOnJS(handleTableDragEnd)(table.id, newPosX, newPosY);
-        translateX.value = 0;
-        translateY.value = 0;
       });
+
+    useEffect(() => {
+      translateX.value = 0;
+      translateY.value = 0;
+    }, [table.pos_x, table.pos_y]);
 
     const animatedStyle = useAnimatedStyle(() => ({
       transform: [
@@ -541,7 +548,6 @@ const HallMap = () => {
         { translateY: translateY.value },
       ],
     }));
-
     return (
       <GestureDetector gesture={panGesture}>
         <Animated.View
