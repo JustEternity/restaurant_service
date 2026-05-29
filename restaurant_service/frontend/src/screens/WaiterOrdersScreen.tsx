@@ -8,7 +8,7 @@ import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useWebSocket } from '../context/WebSocketContext';
 import api from '../services/api';
 import styles from '../design/WaiterOrdersStyles';
 

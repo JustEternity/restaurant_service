@@ -10,6 +10,7 @@ from app.db_models.user_roles import Role
 from app.schemas.users_schemas import *
 from app.schemas.cook_group_schemas import CookGroupResponse
 from app.core.security import get_password_hash, get_current_user
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/users", tags=["Пользователи"])
 
@@ -229,6 +230,12 @@ async def update_user(
     await db.commit()
     await db.refresh(user, attribute_names=["role_of_user", "specialization_of_user", "user_in_group"])
 
+    if user_data.password is not None:
+        await manager.send_personal_message(
+            {"type": "force_logout", "reason": "password_changed"},
+            user_id
+        )
+
     cook_groups = []
     for link in user.user_in_group:
         if link.group_of_cooks:
@@ -334,6 +341,11 @@ async def delete_user(
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    await manager.send_personal_message(
+        {"type": "force_logout", "reason": "user_deleted"},
+        user_id
+    )
 
     await db.delete(user)
     await db.commit()

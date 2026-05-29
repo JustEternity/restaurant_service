@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useWebSocket } from '../context/WebSocketContext';
 import api from '../services/api';
 import styles from '../design/ChefOrdersStyles';
 

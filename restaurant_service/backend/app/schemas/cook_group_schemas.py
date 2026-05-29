@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 class CookGroupBase(BaseModel):
     name: str
@@ -18,3 +18,6 @@ class CookGroupResponse(CookGroupBase):
 
 class CookToGroup(BaseModel):
     user_id: int
+
+class BatchCookToGroup(BaseModel):
+    user_ids: List[int]

@@ -1,9 +1,38 @@
 import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG } from '../config';
-import api, { setLogoutHandler } from '../services/api';
+import api, { setLogoutHandler, setRefreshAccessTokenHandler } from '../services/api';
+import { WebSocketProvider, useWebSocket } from './WebSocketContext';
+import { Alert, InteractionManager } from 'react-native';
 
 const AuthContext = createContext();
+
+const ForceLogoutSubscriber = ({ onForceLogout }) => {
+  const { addHandler } = useWebSocket();
+
+  useEffect(() => {
+    const unsubscribe = addHandler((data) => {
+      if (data.type === 'force_logout') {
+        let reasonText = 'Сеанс завершён. Войдите заново.';
+        if (data.reason === 'password_changed') {
+          reasonText = 'Ваш пароль был изменён администратором. Войдите с новым паролем.';
+        } else if (data.reason === 'user_deleted') {
+          reasonText = 'Ваша учётная запись была удалена.';
+        }
+
+        onForceLogout();
+
+        InteractionManager.runAfterInteractions(() => {
+          Alert.alert('Уведомление', reasonText, [{ text: 'OK' }]);
+        });
+      }
+    });
+
+    return unsubscribe;
+  }, [addHandler, onForceLogout]);
+
+  return null;
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -16,13 +45,14 @@ export const AuthProvider = ({ children }) => {
     try {
       await AsyncStorage.multiRemove([
         API_CONFIG.STORAGE_KEYS.AUTH_TOKEN,
-        API_CONFIG.STORAGE_KEYS.USER_DATA,
-        API_CONFIG.STORAGE_KEYS.REFRESH_TOKEN,
+        API_CONFIG.STORAGE_KEYS.USER_DATA
       ]);
     } catch (e) {}
+
     setUser(null);
     setAuthToken(null);
     setIsAuthenticated(false);
+
     if (logoutTimerRef.current) {
       clearTimeout(logoutTimerRef.current);
       logoutTimerRef.current = null;
@@ -39,16 +69,17 @@ export const AuthProvider = ({ children }) => {
       const payload = JSON.parse(atob(token.split('.')[1]));
       const expiryTime = payload.exp * 1000;
       const currentTime = Date.now();
-      const delay = expiryTime - currentTime;
+      const delay = expiryTime - currentTime - 5000;
 
       if (delay > 0) {
         if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
-        logoutTimerRef.current = setTimeout(() => {
-          console.log('Токен истёк, автоматический выход');
-          logout();
+
+        logoutTimerRef.current = setTimeout(async () => {
+          console.log("Access token expired → refreshing silently...");
+          await refreshAccessTokenRef.current();
         }, delay);
       } else {
-        logout();
+        await refreshAccessTokenRef.current();
         return;
       }
 
@@ -59,6 +90,30 @@ export const AuthProvider = ({ children }) => {
       logout();
     }
   }, [logout]);
+
+  const refreshAccessTokenRef = useRef(null);
+
+  const refreshAccessToken = useCallback(async () => {
+    try {
+      const response = await api.post('/refresh-token');
+      const { access_token } = response.data;
+
+      await AsyncStorage.setItem(API_CONFIG.STORAGE_KEYS.AUTH_TOKEN, access_token);
+      await setTokenWithExpiry(access_token);
+
+      return access_token;
+    } catch (error) {
+      console.log("Не удалось обновить токен");
+      logout();
+      return null;
+    }
+  }, [logout, setTokenWithExpiry]);
+
+  refreshAccessTokenRef.current = refreshAccessToken;
+
+  useEffect(() => {
+    setRefreshAccessTokenHandler(refreshAccessToken);
+  }, [refreshAccessToken]);
 
   const restoreSession = useCallback(async () => {
     try {
@@ -81,25 +136,13 @@ export const AuthProvider = ({ children }) => {
     restoreSession();
   }, [restoreSession]);
 
-  useEffect(() => {
-    return () => {
-      if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
-    };
-  }, []);
-
   const login = async (login, password) => {
     setIsLoading(true);
     try {
       const response = await api.post('/auth/login-json', { login, password });
       const { access_token, user_id, role, name } = response.data;
 
-      const userData = {
-        id: user_id,
-        login,
-        role,
-        name,
-        is_available: true,
-      };
+      const userData = { id: user_id, login, role, name, is_available: true };
 
       await AsyncStorage.setItem(API_CONFIG.STORAGE_KEYS.AUTH_TOKEN, access_token);
       await AsyncStorage.setItem(API_CONFIG.STORAGE_KEYS.USER_DATA, JSON.stringify(userData));
@@ -122,13 +165,7 @@ export const AuthProvider = ({ children }) => {
       const response = await api.post('/auth/register', { name, login, password, role });
       const { access_token, user_id, role: userRole, name: userName } = response.data;
 
-      const userData = {
-        id: user_id,
-        login,
-        role: userRole,
-        name: userName,
-        is_available: true,
-      };
+      const userData = { id: user_id, login, role: userRole, name: userName, is_available: true };
 
       await AsyncStorage.setItem(API_CONFIG.STORAGE_KEYS.AUTH_TOKEN, access_token);
       await AsyncStorage.setItem(API_CONFIG.STORAGE_KEYS.USER_DATA, JSON.stringify(userData));
@@ -142,61 +179,6 @@ export const AuthProvider = ({ children }) => {
       return { success: false, error: error.message };
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const getAllUsers = async () => {
-    try {
-      const response = await api.get('/users/');
-      return { success: true, users: response.data };
-    } catch (error) {
-      return { success: false, error: error.response?.data?.detail || error.message };
-    }
-  };
-
-  const getUserById = async (userId) => {
-    try {
-      const response = await api.get(`/users/${userId}`);
-      return { success: true, user: response.data };
-    } catch (error) {
-      return { success: false, error: error.response?.data?.detail || error.message };
-    }
-  };
-
-  const createUser = async (userData) => {
-    try {
-      const response = await api.post('/users/', userData);
-      return { success: true, user: response.data };
-    } catch (error) {
-      return { success: false, error: error.response?.data?.detail || error.message };
-    }
-  };
-
-  const updateUser = async (userId, userData) => {
-    try {
-      const response = await api.put(`/users/${userId}`, userData);
-      return { success: true, user: response.data };
-    } catch (error) {
-      return { success: false, error: error.response?.data?.detail || error.message };
-    }
-  };
-
-  const deleteUser = async (userId) => {
-    try {
-      const response = await api.delete(`/users/${userId}`);
-      return { success: true, message: response.data.message };
-    } catch (error) {
-      return { success: false, error: error.response?.data?.detail || error.message };
-    }
-  };
-
-  const updateLocalUser = async (updates) => {
-    try {
-      const updatedUser = { ...user, ...updates };
-      setUser(updatedUser);
-      await AsyncStorage.setItem(API_CONFIG.STORAGE_KEYS.USER_DATA, JSON.stringify(updatedUser));
-    } catch (error) {
-      console.error('Ошибка обновления пользователя:', error);
     }
   };
 
@@ -219,17 +201,18 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     register,
-    updateLocalUser,
-    getAllUsers,
-    getUserById,
-    createUser,
-    updateUser,
-    deleteUser,
     hasRole,
     hasPermission,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      <WebSocketProvider authToken={authToken} user={user} onForceLogout={logout}>
+        <ForceLogoutSubscriber onForceLogout={logout} />
+        {children}
+      </WebSocketProvider>
+    </AuthContext.Provider>
+  );
 };
 
 export const useAuth = () => {

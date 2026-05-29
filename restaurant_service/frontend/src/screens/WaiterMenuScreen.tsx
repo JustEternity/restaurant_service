@@ -105,7 +105,7 @@ const WaiterMenu = () => {
   const [flatCategories, setFlatCategories] = useState<Array<Category & { depth: number }>>([]);
 
   const swipeableRefs = new Map();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
   const isFirstLoad = useRef(true);
 
@@ -613,7 +613,7 @@ const WaiterMenu = () => {
     clearDraft();
     setCart([]);
     setCartModalVisible(false);
-    navigation.navigate('HallMap', { clearDraft: true });
+    navigation.navigate('Зал', { clearDraft: true });
   };
 
   const submitOrder = async () => {
@@ -646,11 +646,11 @@ const WaiterMenu = () => {
       clearDraft();
       setCart([]);
       setCartModalVisible(false);
-      navigation.navigate('HallMap', { clearDraft: true });
+      navigation.navigate('Зал', { clearDraft: true });
     } catch (error: any) {
       if (error.response?.status === 409) {
         Alert.alert('Стол занят', 'Кто-то уже создал заказ для этого стола. Обновите список заказов.');
-        navigation.navigate('HallMap', { clearDraft: true });
+        navigation.navigate('Зал', { clearDraft: true });
       } else {
         Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось создать заказ');
       }

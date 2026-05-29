@@ -3,9 +3,14 @@ import { API_CONFIG } from '../config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 let logoutHandler = null;
+let refreshAccessTokenHandler = null;
 
 export function setLogoutHandler(handler) {
   logoutHandler = handler;
+}
+
+export function setRefreshAccessTokenHandler(handler) {
+  refreshAccessTokenHandler = handler;
 }
 
 const api = axios.create({
@@ -32,24 +37,16 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
-      try {
-        const refreshToken = await AsyncStorage.getItem(API_CONFIG.STORAGE_KEYS.REFRESH_TOKEN);
-        if (refreshToken) {
-          const response = await axios.post(`${API_CONFIG.BASE_URL}/auth/refresh-token`, {
-            refresh_token: refreshToken,
-          });
-          const { access_token } = response.data;
-          await AsyncStorage.setItem(API_CONFIG.STORAGE_KEYS.AUTH_TOKEN, access_token);
-          originalRequest.headers.Authorization = `Bearer ${access_token}`;
+      if (refreshAccessTokenHandler) {
+        const newToken = await refreshAccessTokenHandler();
+
+        if (newToken) {
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
           return api(originalRequest);
         }
-      } catch (refreshError) {
-        console.error('Не удалось обновить токен:', refreshError);
       }
 
-      if (logoutHandler) {
-        logoutHandler();
-      }
+      if (logoutHandler) logoutHandler();
     }
 
     return Promise.reject(error);

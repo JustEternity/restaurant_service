@@ -3,13 +3,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 from typing import List
-from pydantic import BaseModel
 
 from app.database import get_async_db
 from app.db_models import CookGroup, CooksInGroup, User
 from app.schemas.cook_group_schemas import (
     CookGroupCreate, CookGroupUpdate, CookGroupResponse,
-    CookToGroup
+    CookToGroup, BatchCookToGroup
 )
 from app.schemas.users_schemas import UserResponse
 from app.core.security import get_current_user
@@ -205,9 +204,6 @@ async def remove_cook_from_group(
         raise HTTPException(status_code=404, detail="Повар не найден в группе")
     await db.commit()
     return {"message": "Повар удалён из группы"}
-
-class BatchCookToGroup(BaseModel):
-    user_ids: List[int]
 
 @router.post("/{group_id}/cooks/batch")
 async def add_cooks_to_group_batch(

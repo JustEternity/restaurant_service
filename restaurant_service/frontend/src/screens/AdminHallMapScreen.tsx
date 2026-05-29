@@ -31,7 +31,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { useAuth } from '../context/AuthContext';
 import { useOrderDraft } from '../context/OrderDraftContext';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useWebSocket } from '../context/WebSocketContext';
 import api from '../services/api';
 import styles from '../design/HallMapStyles';
 import { getPhotoUrl } from '../utils/imageUrl';
@@ -75,7 +75,7 @@ const HallMap = () => {
   const { user } = useAuth();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const route = useRoute();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
   const { draft, setTableIds, clearDraft, activateDraft } = useOrderDraft();
 
