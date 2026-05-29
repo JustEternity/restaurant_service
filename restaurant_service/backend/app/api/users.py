@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from app.database import get_async_db
 from app.db_models import User, CookGroup, CooksInGroup, Specialization
-from app.db_models.user_roles import Role  # <-- добавлен импорт
+from app.db_models.user_roles import Role
 from app.schemas.users_schemas import *
 from app.schemas.cook_group_schemas import CookGroupResponse
 from app.core.security import get_password_hash, get_current_user
@@ -19,7 +19,7 @@ async def get_all_users(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role_of_user.name != "admin":
+    if current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     stmt = select(User).options(
@@ -98,8 +98,11 @@ async def create_user(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role_of_user.name != "admin":
+    if current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    if user_data.role in ("admin", "superadmin") and current_user.role_of_user.name != "superadmin":
+        raise HTTPException(status_code=403, detail="Только суперадмин может создавать администраторов")
 
     stmt = select(User).where(User.login == user_data.login)
     result = await db.execute(stmt)
@@ -161,7 +164,7 @@ async def update_user(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.id != user_id and current_user.role_of_user.name != "admin":
+    if current_user.id != user_id and current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     stmt = select(User).where(User.id == user_id).options(
@@ -172,6 +175,10 @@ async def update_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    target_role = user.role_of_user.name if user.role_of_user else None
+    if target_role == "superadmin" and current_user.role_of_user.name != "superadmin":
+        raise HTTPException(status_code=403, detail="Нельзя редактировать суперадмина")
 
     if user_data.login and user_data.login != user.login:
         check_stmt = select(User).where(User.login == user_data.login, User.id != user_id)
@@ -186,7 +193,10 @@ async def update_user(
     if user_data.password is not None:
         user.password = get_password_hash(user_data.password)
     if user_data.role is not None:
-        if current_user.role_of_user.name == "admin":
+        if user_data.role in ("admin", "superadmin") and current_user.role_of_user.name != "superadmin":
+            raise HTTPException(status_code=403, detail="Только суперадмин может назначать администраторов")
+
+        if current_user.role_of_user.name in ("admin", "superadmin"):
             role_stmt = select(Role).where(Role.name == user_data.role)
             role_result = await db.execute(role_stmt)
             role_obj = role_result.scalar_one_or_none()
@@ -196,10 +206,10 @@ async def update_user(
         else:
             raise HTTPException(status_code=403, detail="Только администратор может менять роль")
     if user_data.is_available is not None:
-        if current_user.role_of_user.name == "admin":
+        if current_user.role_of_user.name in ("admin", "superadmin"):
             user.is_available = user_data.is_available
         else:
-            raise HTTPException(status_code=403, detail="Только администратор может менять статус доступности")
+            raise HTTPException(status_code=403, detail="Только администратор или суперадмин может менять статус доступности")
     if user_data.specialization_id is not None:
         user.specialization = user_data.specialization_id
 
@@ -309,8 +319,17 @@ async def delete_user(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role_of_user.name != "admin":
+    if current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    target_role_stmt = select(Role).join(User, User.role == Role.id).where(User.id == user_id)
+    target_role_result = await db.execute(target_role_stmt)
+    target_role = target_role_result.scalar_one_or_none()
+
+    if target_role and target_role.name == "superadmin":
+        raise HTTPException(status_code=403, detail="Нельзя удалить суперадмина")
+    if target_role and target_role.name == "admin" and current_user.role_of_user.name != "superadmin":
+        raise HTTPException(status_code=403, detail="Только суперадмин может удалять администраторов")
 
     user = await db.get(User, user_id)
     if not user:

@@ -60,11 +60,12 @@ interface CategoryNode {
 }
 
 type ActiveFilter = 'all' | 'active' | 'inactive';
-type RoleFilter = 'all' | 'cook' | 'waiter';
+type RoleFilter = 'all' | 'cook' | 'waiter' | 'admin';
 
 const AdminStaff = () => {
   const { user } = useAuth();
   const navigation = useNavigation();
+  const isSuperAdmin = user?.role === 'superadmin';
 
   const [staff, setStaff] = useState<User[]>([]);
   const [filteredStaff, setFilteredStaff] = useState<User[]>([]);
@@ -99,6 +100,8 @@ const AdminStaff = () => {
 
   const [selectedPlateIds, setSelectedPlateIds] = useState<Set<number>>(new Set());
 
+  const [blockedPlateIds, setBlockedPlateIds] = useState<Set<number>>(new Set());
+
   const handleManageGroups = () => navigation.navigate('CookGroupManagement');
 
   const loadAllSpecializations = async () => {
@@ -116,7 +119,9 @@ const AdminStaff = () => {
       setLoading(true);
       const response = await api.get('/users/');
       const data: User[] = response.data;
-      const nonAdminUsers = data.filter((u) => u.role !== 'admin');
+      const nonAdminUsers = isSuperAdmin
+        ? data.filter((u) => u.role !== 'superadmin')
+        : data.filter((u) => u.role !== 'admin' && u.role !== 'superadmin');
       setStaff(nonAdminUsers);
       applyFilters(nonAdminUsers);
     } catch (error) {
@@ -304,10 +309,11 @@ const AdminStaff = () => {
     setMode('plates');
     setPlatesLoading(true);
     try {
-      const [menuRes, treeRes, linkedRes] = await Promise.all([
+      const [menuRes, treeRes, linkedRes, blockedRes] = await Promise.all([
         api.get('/menu/'),
         api.get('/menu/categories/tree'),
-        api.get(`/plates-specializations/specialization/${spec.id}`)
+        api.get(`/plates-specializations/specialization/${spec.id}`),
+        api.get('/orders/active-plate-ids'),
       ]);
       setAllMenuItems(menuRes.data);
       setCategoriesTree(Array.isArray(treeRes.data) ? treeRes.data : []);
@@ -320,6 +326,7 @@ const AdminStaff = () => {
       }));
       setLinkedPlates(plates);
       setSelectedPlateIds(new Set(plates.map(p => p.id)));
+      setBlockedPlateIds(new Set<number>(blockedRes.data));
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось загрузить данные');
     } finally {
@@ -364,15 +371,14 @@ const AdminStaff = () => {
   };
 
   const toggleCategorySelection = (plateIds: number[]) => {
-    const allSelected = plateIds.every(id => selectedPlateIds.has(id));
+    const unblockedIds = plateIds.filter(id => !blockedPlateIds.has(id));
+    if (unblockedIds.length === 0) return;
+    const allSelected = unblockedIds.every(id => selectedPlateIds.has(id));
     setSelectedPlateIds(prev => {
       const next = new Set(prev);
-      plateIds.forEach(id => {
-        if (allSelected) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
+      unblockedIds.forEach(id => {
+        if (allSelected) next.delete(id);
+        else next.add(id);
       });
       return next;
     });
@@ -408,9 +414,13 @@ const AdminStaff = () => {
   const renderCategoryNode = (node: CategoryNode, depth: number) => {
     const ownPlates = allMenuItems.filter(item => item.category === node.id);
     const allSubPlates = categoryPlatesMap.get(node.id) || [];
+    const unblockedSubPlates = allSubPlates.filter(p => !blockedPlateIds.has(p.id));
+
     const hasPlates = allSubPlates.length > 0;
-    const allChecked = hasPlates && allSubPlates.every(p => selectedPlateIds.has(p.id));
-    const someChecked = hasPlates && allSubPlates.some(p => selectedPlateIds.has(p.id));
+    const hasUnblocked = unblockedSubPlates.length > 0;
+
+    const allChecked = hasUnblocked && unblockedSubPlates.every(p => selectedPlateIds.has(p.id));
+    const someChecked = hasUnblocked && unblockedSubPlates.some(p => selectedPlateIds.has(p.id));
     const indeterminate = !allChecked && someChecked;
 
     const isExpanded = expandedCategories.has(node.id);
@@ -421,12 +431,12 @@ const AdminStaff = () => {
         <View style={[styles.categoryRow, { paddingLeft: 16 + depth * 20 }]}>
           <TouchableOpacity
             onPress={() => {
-              if (hasPlates) {
+              if (hasUnblocked) {
                 toggleCategorySelection(allSubPlates.map(p => p.id));
               }
             }}
             style={styles.checkbox}
-            disabled={!hasPlates}
+            disabled={!hasUnblocked}
           >
             <Ionicons
               name={
@@ -440,7 +450,7 @@ const AdminStaff = () => {
               }
               size={24}
               color={
-                !hasPlates
+                !hasUnblocked
                   ? '#ddd'
                   : allChecked
                   ? '#2ecc71'
@@ -473,19 +483,26 @@ const AdminStaff = () => {
           <View>
             {ownPlates.map(plate => {
               const isLinked = selectedPlateIds.has(plate.id);
+              const isBlocked = blockedPlateIds.has(plate.id);
               return (
                 <View key={plate.id} style={[styles.plateRow, { paddingLeft: 16 + (depth + 1) * 20 }]}>
                   <TouchableOpacity
                     style={styles.checkbox}
-                    onPress={() => togglePlateSelection(plate.id)}
+                    onPress={() => !isBlocked && togglePlateSelection(plate.id)}
+                    disabled={isBlocked}
                   >
                     <Ionicons
                       name={isLinked ? 'checkbox' : 'square-outline'}
                       size={22}
-                      color={isLinked ? '#2ecc71' : '#aaa'}
+                      color={isBlocked ? '#ccc' : isLinked ? '#2ecc71' : '#aaa'}
                     />
                   </TouchableOpacity>
-                  <Text style={styles.plateName}>{plate.name}</Text>
+                  <Text style={[styles.plateName, isBlocked && { color: '#ccc' }]}>
+                    {plate.name}
+                  </Text>
+                  {isBlocked && (
+                    <Ionicons name="time-outline" size={14} color="#ccc" style={{ marginLeft: 4 }} />
+                  )}
                 </View>
               );
             })}
@@ -508,7 +525,25 @@ const AdminStaff = () => {
     setSelectedPlateIds(new Set());
   };
 
-  const renderUserItem = ({ item }: { item: User }) => (
+  const renderUserItem = ({ item }: { item: User }) => {
+    const isAdmin = item.role === 'admin';
+    const canEdit = !isAdmin || isSuperAdmin;
+    const canDelete = !isAdmin || isSuperAdmin;
+
+    const roleDisplayName =
+      item.role === 'cook' ? 'Повар' :
+      item.role === 'waiter' ? 'Официант' :
+      item.role === 'admin' ? 'Администратор' :
+      item.role;
+
+    const roleBadgeStyle = [
+      styles.roleBadge,
+      item.role === 'cook' ? styles.cookBadge :
+      item.role === 'waiter' ? styles.waiterBadge :
+      styles.adminBadge,
+    ];
+
+    return (
     <TouchableOpacity
       style={[styles.userItem, !item.is_available && styles.userItemInactive]}
       onPress={() => handleUserPress(item)}
@@ -517,8 +552,8 @@ const AdminStaff = () => {
       <View style={styles.userInfo}>
         <View style={styles.userHeader}>
           <Text style={styles.userName}>{item.name}</Text>
-          <View style={[styles.roleBadge, item.role === 'cook' ? styles.cookBadge : styles.waiterBadge]}>
-            <Text style={styles.roleText}>{item.role === 'cook' ? 'Повар' : 'Официант'}</Text>
+          <View style={roleBadgeStyle}>
+            <Text style={styles.roleText}>{roleDisplayName}</Text>
           </View>
         </View>
         <View style={styles.userDetails}>
@@ -545,15 +580,20 @@ const AdminStaff = () => {
         </View>
       </View>
       <View style={styles.userActions}>
-        <TouchableOpacity style={styles.actionButton} onPress={() => handleEditUser(item)}>
-          <Ionicons name="create-outline" size={22} color="#3498db" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={() => handleDeleteUser(item)}>
-          <Ionicons name="trash-outline" size={22} color="#e74c3c" />
-        </TouchableOpacity>
+        {canEdit && (
+          <TouchableOpacity style={styles.actionButton} onPress={() => handleEditUser(item)}>
+            <Ionicons name="create-outline" size={22} color="#3498db" />
+          </TouchableOpacity>
+        )}
+        {canDelete && (
+          <TouchableOpacity style={styles.actionButton} onPress={() => handleDeleteUser(item)}>
+            <Ionicons name="trash-outline" size={22} color="#e74c3c" />
+          </TouchableOpacity>
+        )}
       </View>
     </TouchableOpacity>
   );
+  };
 
   if (loading && !refreshing) {
     return (
@@ -593,6 +633,16 @@ const AdminStaff = () => {
                   Все
                 </Text>
               </TouchableOpacity>
+              {isSuperAdmin && (
+                <TouchableOpacity
+                  style={[styles.filterButton, roleFilter === 'admin' && styles.filterButtonActive]}
+                  onPress={() => setRoleFilter('admin')}
+                >
+                  <Text style={[styles.filterButtonText, roleFilter === 'admin' && styles.filterButtonTextActive]}>
+                    Администраторы
+                  </Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={[styles.filterButton, roleFilter === 'cook' && styles.filterButtonActive]}
                 onPress={() => setRoleFilter('cook')}
@@ -789,6 +839,17 @@ const AdminStaff = () => {
                       Повар
                     </Text>
                   </TouchableOpacity>
+                  {isSuperAdmin && (
+                    <TouchableOpacity
+                      style={[styles.roleButton, editData.role === 'admin' && styles.roleButtonActive]}
+                      onPress={() => setEditData({ ...editData, role: 'admin', specialization_id: null })}
+                    >
+                      <Ionicons name="shield-outline" size={20} color={editData.role === 'admin' ? '#fff' : '#666'} />
+                      <Text style={[styles.roleButtonText, editData.role === 'admin' && styles.roleButtonTextActive]}>
+                        Админ
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
               {editData.role === 'cook' && (

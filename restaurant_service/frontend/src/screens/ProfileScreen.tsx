@@ -16,6 +16,7 @@ const ROLE_COLORS = {
   chef: '#FF6B6B',
   waiter: '#4ECDC4',
   admin: '#45B7D1',
+  superadmin: '#6C5CE7',
 };
 
 const ProfileScreen = () => {
@@ -45,6 +46,8 @@ const ProfileScreen = () => {
         return '👨‍💼 Официант';
       case 'admin':
         return '👨‍💻 Администратор';
+      case 'superadmin':
+        return '👑 Суперадмин';
       default:
         return role;
     }

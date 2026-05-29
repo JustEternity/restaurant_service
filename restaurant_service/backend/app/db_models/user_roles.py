@@ -5,6 +5,7 @@ import enum
 
 # Перечисление для ролей
 class UserRole(enum.Enum):
+    SUPERADMIN = "superadmin"
     ADMIN = "admin"
     WAITER = "waiter"
     COOK = "cook"

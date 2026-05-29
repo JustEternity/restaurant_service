@@ -141,6 +141,33 @@ async def get_all_orders(
         ))
     return response
 
+@router.get("/active-plate-ids", response_model=List[int])
+async def get_active_plate_ids(db: AsyncSession = Depends(get_async_db)):
+    """Возвращает plate_id блюд, у которых последний статус 'готовится' или 'готово'"""
+    subq = (
+        select(
+            CookingStatusHistory.ordered_plate,
+            CookingStatusHistory.new_status,
+        )
+        .distinct(CookingStatusHistory.ordered_plate)
+        .order_by(
+            CookingStatusHistory.ordered_plate,
+            desc(CookingStatusHistory.change_time)
+        )
+        .subquery()
+    )
+
+    stmt = (
+        select(PlateForOrder.plate_id)
+        .join(subq, PlateForOrder.id == subq.c.ordered_plate)
+        .where(subq.c.new_status.in_(["preparing", "ready"]))
+        .distinct()
+    )
+
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
 @router.get("/active", response_model=List[OrderResponse])
 async def get_active_orders(db: AsyncSession = Depends(get_async_db)):
     return await get_all_orders(status="active", db=db)

@@ -48,6 +48,87 @@ const HeaderTitle = ({ title, color }: { title: string; color: string }) => (
   </Text>
 );
 
+const AdminDrawerBase = ({ color }: { color: string }) => (
+  <Drawer.Navigator
+    screenOptions={{
+      drawerStyle: {
+        width: 250,
+        backgroundColor: color,
+      },
+      drawerItemStyle: {
+        height: 80,
+        justifyContent: 'center',
+      },
+      drawerLabelStyle: {
+        fontSize: 18,
+      },
+      drawerActiveTintColor: '#FFFFFF',
+      drawerInactiveTintColor: '#E8F1F9',
+      headerStyle: {
+        backgroundColor: color,
+        height: 140,
+      },
+      headerTintColor: '#FFFFFF',
+      headerTitleStyle: {
+        fontWeight: '800',
+        fontSize: 20,
+      },
+    }}
+  >
+    <Drawer.Screen
+      name="Персонал"
+      component={AdminStack}
+      options={{
+        headerTitle: () => <HeaderTitle title="Управление персоналом" color="#FFFFFF" />,
+        drawerLabel: 'Персонал',
+      }}
+    />
+    <Drawer.Screen
+      name="Меню"
+      component={MenuStack}
+      options={{
+        headerTitle: () => <HeaderTitle title="Меню" color="#FFFFFF" />,
+        drawerLabel: 'Меню',
+      }}
+    />
+    <Drawer.Screen
+      name="Зал"
+      component={AdminHallMap}
+      options={{
+        headerTitle: () => <HeaderTitle title="Схема зала" color="#FFFFFF" />,
+        drawerLabel: 'Зал',
+      }}
+    />
+    <Drawer.Screen
+      name="Заказы"
+      component={AdminOrders}
+      options={{
+        headerTitle: () => <HeaderTitle title="Заказы" color="#FFFFFF" />,
+        drawerLabel: 'Заказы',
+      }}
+    />
+    <Drawer.Screen
+      name="Статистика"
+      component={AdminReports}
+      options={{
+        headerTitle: () => <HeaderTitle title="Статистика по работе ресторана" color="#FFFFFF" />,
+        drawerLabel: 'Статистика',
+      }}
+    />
+    <Drawer.Screen
+      name="Профиль"
+      component={ProfileScreen}
+      options={{
+        headerTitle: () => <HeaderTitle title="Профиль" color="#FFFFFF" />,
+        drawerLabel: 'Профиль',
+      }}
+    />
+  </Drawer.Navigator>
+);
+
+export const AdminDrawer = () => <AdminDrawerBase color="#45B7D1" />;
+export const SuperAdminDrawer = () => <AdminDrawerBase color="#6C5CE7" />;
+
 // Для повара
 export const ChefDrawer = () => (
   <Drawer.Navigator
@@ -154,79 +235,3 @@ export const WaiterDrawer = () => (
   </Drawer.Navigator>
 );
 
-// Для администратора
-export const AdminDrawer = () => (
-  <Drawer.Navigator
-    screenOptions={{
-      drawerStyle: {
-        width: 250
-      },
-      drawerItemStyle: {
-        height: 80,
-        justifyContent: 'center'
-      },
-      drawerLabelStyle: {
-        fontSize: 18
-      },
-      drawerActiveTintColor: '#45B7D1',
-      headerStyle: {
-        backgroundColor: '#45B7D1',
-        height: 140
-      },
-      headerTintColor: '#FFFFFF',
-      headerTitleStyle: {
-        fontWeight: '800',
-        fontSize: 20
-      },
-    }}
-  >
-    <Drawer.Screen
-      name="Персонал"
-      component={AdminStack}
-      options={{
-        headerTitle: () => <HeaderTitle title="Управление персоналом" color="#FFFFFF" />,
-        drawerLabel: 'Персонал',
-      }}
-    />
-    <Drawer.Screen
-      name="Меню"
-      component={MenuStack}
-      options={{
-        headerTitle: () => <HeaderTitle title="Меню" color="#FFFFFF" />,
-        drawerLabel: 'Меню',
-      }}
-    />
-    <Drawer.Screen
-      name="Зал"
-      component={AdminHallMap}
-      options={{
-        headerTitle: () => <HeaderTitle title="Схема зала" color="#FFFFFF" />,
-        drawerLabel: 'Зал',
-      }}
-    />
-    <Drawer.Screen
-      name="Заказы"
-      component={AdminOrders}
-      options={{
-        headerTitle: () => <HeaderTitle title="Заказы" color="#FFFFFF" />,
-        drawerLabel: 'Заказы',
-      }}
-    />
-    <Drawer.Screen
-      name="Статистика"
-      component={AdminReports}
-      options={{
-        headerTitle: () => <HeaderTitle title="Статистика по работе ресторана" color="#FFFFFF" />,
-        drawerLabel: 'Статистика',
-      }}
-    />
-    <Drawer.Screen
-      name="Профиль"
-      component={ProfileScreen}
-      options={{
-        headerTitle: () => <HeaderTitle title="Профиль" color="#FFFFFF" />,
-        drawerLabel: 'Профиль',
-      }}
-    />
-  </Drawer.Navigator>
-);

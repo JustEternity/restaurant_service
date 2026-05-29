@@ -4,7 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { OrderDraftProvider } from './src/context/OrderDraftContext';
-import { ChefDrawer, WaiterDrawer, AdminDrawer } from './src/navigation/DrawerRoleNavigators';
+import { ChefDrawer, WaiterDrawer, AdminDrawer, SuperAdminDrawer } from './src/navigation/DrawerRoleNavigators';
 import AuthScreen from './src/screens/AuthScreen';
 import LoadingScreen from './src/components/LoadingScreen';
 
@@ -32,6 +32,9 @@ function AppNavigator() {
             )}
             {user?.role === 'admin' && (
               <Stack.Screen name="Main" component={AdminDrawer} />
+            )}
+            {user?.role === 'superadmin' && (
+              <Stack.Screen name="Main" component={SuperAdminDrawer} />
             )}
           </>
         )}

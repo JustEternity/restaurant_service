@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   userName: { fontSize: 16, fontWeight: '600', color: '#333', flex: 1, marginRight: 10 },
   roleBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   cookBadge: { backgroundColor: '#ff6b6b' },
-  waiterBadge: { backgroundColor: '#3498db' },
+  waiterBadge: { backgroundColor: '#4ECDC4' },
   roleText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   userDetails: { gap: 6 },
   detailRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -284,6 +284,9 @@ const styles = StyleSheet.create({
     width: '90%',
     height: '80%',
     overflow: 'hidden',
+  },
+  adminBadge: {
+    backgroundColor: '#45B7D1',
   },
 });
 
