@@ -184,26 +184,18 @@ const HallMap = () => {
     'worklet';
     if (!imageNaturalSize.value || mapLayout.value.width === 0 || mapLayout.value.height === 0)
       return { tx, ty };
+
     const imgW = imageNaturalSize.value.width * scale;
     const imgH = imageNaturalSize.value.height * scale;
+    const mapW = mapLayout.value.width;
+    const mapH = mapLayout.value.height;
 
-    const centeredTx = (mapLayout.value.width - imgW) / 2;
-    const centeredTy = (mapLayout.value.height - imgH) / 2;
-
-    if (scale <= minFitScale.value + 0.001) {
-      return { tx: 0, ty: 0 };
-    }
-
-    const clampedX = imgW <= mapLayout.value.width
-      ? 0
-      : Math.min(Math.max(tx, centeredTx), -centeredTx);
-    const clampedY = imgH <= mapLayout.value.height
-      ? 0
-      : Math.min(Math.max(ty, centeredTy), -centeredTy);
+    const maxTx = Math.max(0, (imgW - mapW) / 2) / scale;
+    const maxTy = Math.max(0, (imgH - mapH) / 2) / scale;
 
     return {
-      tx: clampedX,
-      ty: clampedY,
+      tx: Math.min(Math.max(tx, -maxTx), maxTx),
+      ty: Math.min(Math.max(ty, -maxTy), maxTy),
     };
   };
 
@@ -220,20 +212,21 @@ const HallMap = () => {
       const newScale = Math.max(minFitScale.value, savedScale.value * event.scale);
       const scaleRatio = newScale / savedScale.value;
       mapScale.value = newScale;
-      const imgW = imageNaturalSize.value ? imageNaturalSize.value.width * newScale : 0;
-      const imgH = imageNaturalSize.value ? imageNaturalSize.value.height * newScale : 0;
-      const centerOffsetX = (mapLayout.value.width - imgW) / 2;
-      const centerOffsetY = (mapLayout.value.height - imgH) / 2;
-      const focalAdjustedX = focalX.value - centerOffsetX;
-      const focalAdjustedY = focalY.value - centerOffsetY;
-      mapTranslateX.value = focalAdjustedX - (focalAdjustedX - savedTranslateX.value) * scaleRatio;
-      mapTranslateY.value = focalAdjustedY - (focalAdjustedY - savedTranslateY.value) * scaleRatio;
-      const clamped = getClampedTranslation(mapTranslateX.value, mapTranslateY.value, mapScale.value);
+
+      const focalFromCenterX = (focalX.value - mapLayout.value.width / 2) / newScale;
+      const focalFromCenterY = (focalY.value - mapLayout.value.height / 2) / newScale;
+
+      const newTx = focalFromCenterX - (focalFromCenterX - savedTranslateX.value) * scaleRatio;
+      const newTy = focalFromCenterY - (focalFromCenterY - savedTranslateY.value) * scaleRatio;
+
+      const clamped = getClampedTranslation(newTx, newTy, newScale);
       mapTranslateX.value = clamped.tx;
       mapTranslateY.value = clamped.ty;
     })
     .onEnd(() => {
-      const { tx, ty } = getClampedTranslation(mapTranslateX.value, mapTranslateY.value, mapScale.value);
+      const { tx, ty } = getClampedTranslation(
+        mapTranslateX.value, mapTranslateY.value, mapScale.value
+      );
       mapTranslateX.value = withTiming(tx, { duration: 300 });
       mapTranslateY.value = withTiming(ty, { duration: 300 });
     });
@@ -245,14 +238,16 @@ const HallMap = () => {
       savedTranslateY.value = mapTranslateY.value;
     })
     .onUpdate((event) => {
-      mapTranslateX.value = savedTranslateX.value + event.translationX;
-      mapTranslateY.value = savedTranslateY.value + event.translationY;
-      const clamped = getClampedTranslation(mapTranslateX.value, mapTranslateY.value, mapScale.value);
+      const rawTx = savedTranslateX.value + event.translationX / mapScale.value;
+      const rawTy = savedTranslateY.value + event.translationY / mapScale.value;
+      const clamped = getClampedTranslation(rawTx, rawTy, mapScale.value);
       mapTranslateX.value = clamped.tx;
       mapTranslateY.value = clamped.ty;
     })
     .onEnd(() => {
-      const { tx, ty } = getClampedTranslation(mapTranslateX.value, mapTranslateY.value, mapScale.value);
+      const { tx, ty } = getClampedTranslation(
+        mapTranslateX.value, mapTranslateY.value, mapScale.value
+      );
       mapTranslateX.value = withTiming(tx, { duration: 300 });
       mapTranslateY.value = withTiming(ty, { duration: 300 });
     });
