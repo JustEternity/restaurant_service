@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cookItemSelected: { backgroundColor: '#f0f9ff' },
-  cookName: { fontSize: 16, fontWeight: '500' },
+  cookName: { fontSize: 14, fontWeight: '500', marginTop: 8 },
   cookSpec: { fontSize: 14, color: '#666', marginLeft: 8 },
   modalButtons: {
     flexDirection: 'row',

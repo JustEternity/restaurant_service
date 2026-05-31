@@ -20,6 +20,18 @@ def get_current_status(plate: PlateForOrder):
         return sorted_statuses[-1].new_status
     return None
 
+def get_preparing_cook(plate: PlateForOrder):
+    if not plate.statuses_of_plate:
+        return None
+    preparing = [
+        h for h in plate.statuses_of_plate
+        if h.new_status == "preparing"
+    ]
+    if not preparing:
+        return None
+    preparing.sort(key=lambda x: x.change_time)
+    return preparing[-1].change_by
+
 async def get_cooks_to_notify(order_id: int, db: AsyncSession, plates_for_first_course: Optional[List[int]] = None):
     """
     Возвращает список id поваров, у которых в специализациях есть блюда из заказа (order_id).
@@ -127,7 +139,8 @@ async def get_all_orders(
                 plate_name=plate.menu_item.name if plate.menu_item else None,
                 course_number=plate.course_number,
                 is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False,
-                is_considered=plate.is_considered if plate.is_considered is not None else True
+                is_considered=plate.is_considered if plate.is_considered is not None else True,
+                cook_id_preparing=get_preparing_cook(plate),
             ))
         response.append(OrderResponse(
             id=order.id,
@@ -343,7 +356,8 @@ async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
             plate_name=plate.menu_item.name if plate.menu_item else None,
             course_number=plate.course_number,
             is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False,
-            is_considered=plate.is_considered if plate.is_considered is not None else True
+            is_considered=plate.is_considered if plate.is_considered is not None else True,
+            cook_id_preparing=get_preparing_cook(plate),
         ))
     return OrderResponse(
         id=order.id,

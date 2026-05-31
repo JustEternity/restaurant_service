@@ -197,10 +197,10 @@ async def update_user(
 
         active_stmt = (
             select(func.count())
-            .select_from(PlateForOrder)
-            .join(last_status_subq, last_status_subq.c.ordered_plate == PlateForOrder.id)
+            .select_from(CSH)
+            .join(last_status_subq, last_status_subq.c.ordered_plate == CSH.ordered_plate)
             .where(
-                PlateForOrder.cook == user_id,
+                CSH.change_by == user_id,
                 last_status_subq.c.new_status.in_(["preparing", "ready"])
             )
         )

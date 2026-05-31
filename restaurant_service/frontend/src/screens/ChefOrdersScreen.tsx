@@ -39,6 +39,7 @@ interface OrderPlate {
   plate_name: string;
   course_number: number;
   is_considered: boolean;
+  cook_id_preparing?: number | null;
 }
 
 interface Order {
@@ -76,6 +77,7 @@ interface FlatOrderedPlate {
   recommendedCookName?: string;
   priorityScore?: number;
   waitingMinutes?: number;
+  cook_id_preparing?: number | null;
 }
 
 interface Cook {
@@ -103,6 +105,7 @@ const ChefOrders = () => {
   const [selectedItem, setSelectedItem] = useState<FlatOrderedPlate | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('waiting');
+  const [cookFilter, setCookFilter] = useState<number | "all">("all");
   const [specializationFilter, setSpecializationFilter] = useState<SpecializationFilter>('all');
   const [availableSpecializations, setAvailableSpecializations] = useState<Specialization[]>([]);
 
@@ -356,15 +359,22 @@ const ChefOrders = () => {
     async (
       source: FlatOrderedPlate[],
       statusF: StatusFilter,
-      specF: SpecializationFilter
+      specF: SpecializationFilter,
+      cookF: number | "all" = "all"
     ) => {
       let filtered = source.filter(item => item.current_status === statusF);
 
-      if (specF !== 'all') {
-        filtered = filtered.filter(item => {
-          const specs = plateToSpecializations.current.get(item.plate_id);
-          return specs && specs.has(specF as number);
-        });
+      if (statusF === 'waiting') {
+        if (specF !== 'all') {
+          filtered = filtered.filter(item => {
+            const specs = plateToSpecializations.current.get(item.plate_id);
+            return specs && specs.has(specF as number);
+          });
+        }
+      } else {
+        if (cookF !== "all") {
+          filtered = filtered.filter(item => item.cook_id_preparing === cookF);
+        }
       }
 
       const withHighlight = computeEarlyCourseHighlight(filtered);
@@ -456,6 +466,7 @@ const ChefOrders = () => {
               timestart: order.timestart,
               plate_id: plate.plate_id,
               course_number: plate.course_number,
+              cook_id_preparing: plate.cook_id_preparing ?? null,
             });
           }
         }
@@ -466,14 +477,14 @@ const ChefOrders = () => {
         (a, b) => new Date(a.timestart).getTime() - new Date(b.timestart).getTime()
       );
       setItems(flatList);
-      await applyFilter(flatList, statusFilter, specializationFilter);
+      await applyFilter(flatList, statusFilter, specializationFilter, cookFilter);
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось загрузить заказы');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [loadAllowedPlateIds, statusFilter, specializationFilter, applyFilter]);
+  }, [loadAllowedPlateIds, statusFilter, specializationFilter, cookFilter, applyFilter]);
 
   useEffect(() => {
     loadData();
@@ -481,8 +492,17 @@ const ChefOrders = () => {
   }, []);
 
   useEffect(() => {
-    applyFilter(items, statusFilter, specializationFilter);
+    if (statusFilter === 'waiting') {
+      setCookFilter("all");
+      applyFilter(items, statusFilter, specializationFilter, "all");
+    } else {
+      applyFilter(items, statusFilter, specializationFilter, cookFilter);
+    }
   }, [statusFilter, specializationFilter, items, applyFilter]);
+
+  useEffect(() => {
+    applyFilter(items, statusFilter, specializationFilter, cookFilter);
+  }, [cookFilter]);
 
   useEffect(() => {
     const interval = setInterval(() => { statsCacheRef.current.ts = 0; }, 5 * 60_000);
@@ -582,8 +602,34 @@ const ChefOrders = () => {
     }
   };
 
+  const changePlateStatusAuto = async (nextStatus: string, cookId: number) => {
+    try {
+      await api.put(
+        `/orders/plate/${selectedItem?.plate_order_id}/status/${nextStatus}?change_by=${cookId}`
+      );
+
+      setDetailModalVisible(false);
+      loadData();
+    } catch (error: any) {
+      const msg =
+        error.response?.status === 409
+          ? "Этот статус уже установлен другим поваром"
+          : error.response?.data?.detail || error.message || "Не удалось изменить статус";
+
+      Alert.alert("Ошибка", msg);
+      loadData();
+    }
+  };
+
   const openChangeStatus = (nextStatus: string) => {
     setTargetStatus(nextStatus);
+    if (nextStatus === "ready") {
+      const cookId = selectedItem?.cook_id_preparing;
+      if (!cookId) return;
+      changePlateStatusAuto(nextStatus, cookId);
+      return;
+    }
+
     const allowedSpecs = selectedItem
       ? plateToSpecializations.current.get(selectedItem.plate_id)
       : null;
@@ -674,6 +720,9 @@ const ChefOrders = () => {
       specializationFilter !== 'all' &&
       item.recommendedCookId &&
       item.recommendedCookId !== user?.id;
+    const cookName = item.cook_id_preparing
+      ? groupCooks.find(c => c.id === item.cook_id_preparing)?.name
+      : null;
 
     return (
       <TouchableOpacity
@@ -695,8 +744,13 @@ const ChefOrders = () => {
           <Text style={styles.orderInfo}>
             Заказ #{item.order_id} • Столы {item.table_numbers.join(', ')}
           </Text>
-          <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
-            <Text style={styles.statusText}>{statusInfo.label}</Text>
+          <View style={{ alignItems: 'flex-end' }}>
+            <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
+              <Text style={styles.statusText}>{statusInfo.label}</Text>
+            </View>
+            {cookName && (
+              <Text style={styles.cookName}>{cookName}</Text>
+            )}
           </View>
         </View>
         <Text style={styles.time}>
@@ -754,6 +808,10 @@ const ChefOrders = () => {
 
   const nextStatus = selectedItem ? getNextStatus(selectedItem.current_status) : null;
 
+  const showCookFilterBar =
+    (statusFilter === 'preparing' || statusFilter === 'ready') &&
+    groupCooks.length > 1;
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -768,13 +826,32 @@ const ChefOrders = () => {
         </ScrollView>
       </View>
 
-      {availableSpecializations.length > 1 && (
+      {statusFilter === 'waiting' && availableSpecializations.length > 1 && (
         <View style={styles.filterContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {renderFilterChip('all', 'Все', specializationFilter, setSpecializationFilter, '#2ecc71')}
             {availableSpecializations.map(spec => (
               <React.Fragment key={spec.id}>
                 {renderFilterChip(spec.id, spec.name, specializationFilter, setSpecializationFilter, '#2ecc71')}
+              </React.Fragment>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {showCookFilterBar && (
+        <View style={styles.filterContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {renderFilterChip('all', 'Все повара', cookFilter, setCookFilter, '#9b59b6')}
+            {groupCooks.map(cook => (
+              <React.Fragment key={cook.id}>
+                {renderFilterChip(
+                  cook.id,
+                  cook.id === user?.id ? `${cook.name}` : cook.name,
+                  cookFilter,
+                  setCookFilter,
+                  '#9b59b6'
+                )}
               </React.Fragment>
             ))}
           </ScrollView>
@@ -788,7 +865,7 @@ const ChefOrders = () => {
           return (
             <View key={cookId} style={styles.recommendedSection}>
               <Text style={[styles.sectionTitle, isCurrentCook && styles.sectionTitleHighlight]}>
-                {isCurrentCook ? `${cook.name} (вы)` : cook.name}
+                {isCurrentCook ? `${cook.name}` : cook.name}
               </Text>
               <ScrollView
                 horizontal
@@ -904,29 +981,45 @@ const ChefOrders = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Кто выполняет?</Text>
-            <FlatList
-              data={groupCooks.filter(cook => {
-                if (!selectedItem) return false;
-                const allowedSpecs = plateToSpecializations.current.get(selectedItem.plate_id);
-                if (!allowedSpecs) return false;
-                return cook.specialization ? allowedSpecs.has(cook.specialization.id) : false;
-              })}
-              keyExtractor={item => item.id.toString()}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.cookItem, selectedCookId === item.id && styles.cookItemSelected]}
-                  onPress={() => setSelectedCookId(item.id)}
-                >
-                  <Text style={styles.cookName}>{item.name}</Text>
-                  {item.specialization && (
-                    <Text style={styles.cookSpec}>{item.specialization.name}</Text>
-                  )}
-                  {selectedCookId === item.id && (
-                    <Ionicons name="checkmark-circle" size={20} color="#2ecc71" />
-                  )}
-                </TouchableOpacity>
-              )}
-            />
+
+            {targetStatus === "ready" ? (
+              <View style={{ paddingVertical: 10 }}>
+                <Text style={{ fontSize: 16, marginBottom: 6 }}>
+                  Повар:
+                </Text>
+                <Text style={{ fontSize: 18, fontWeight: "600" }}>
+                  {groupCooks.find(c => c.id === selectedCookId)?.name ?? "Не найден"}
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={groupCooks.filter(cook => {
+                  if (!selectedItem) return false;
+                  const allowedSpecs = plateToSpecializations.current.get(selectedItem.plate_id);
+                  if (!allowedSpecs) return false;
+                  return cook.specialization ? allowedSpecs.has(cook.specialization.id) : false;
+                })}
+                keyExtractor={item => item.id.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.cookItem,
+                      selectedCookId === item.id && styles.cookItemSelected
+                    ]}
+                    onPress={() => setSelectedCookId(item.id)}
+                  >
+                    <Text style={styles.cookName}>{item.name}</Text>
+                    {item.specialization && (
+                      <Text style={styles.cookSpec}>{item.specialization.name}</Text>
+                    )}
+                    {selectedCookId === item.id && (
+                      <Ionicons name="checkmark-circle" size={20} color="#2ecc71" />
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={styles.cancelButton}
@@ -934,6 +1027,7 @@ const ChefOrders = () => {
               >
                 <Text style={styles.cancelButtonText}>Отмена</Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.confirmButton}
                 onPress={changePlateStatus}

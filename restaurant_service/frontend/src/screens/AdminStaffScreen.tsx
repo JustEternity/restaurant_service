@@ -50,6 +50,7 @@ interface MenuItem {
   price: number;
   category?: number | null;
   category_name?: string;
+  is_selfserve?: boolean | null;
 }
 
 interface CategoryNode {
@@ -106,6 +107,7 @@ const AdminStaff = () => {
   const [activeWaiterOrders, setActiveWaiterOrders] = useState<Record<number, boolean>>({});
   const [lockedSpecIds, setLockedSpecIds] = useState<Set<number>>(new Set());
 
+  const [orphanPlatesLoading, setOrphanPlatesLoading] = useState(false);
 
   const handleManageGroups = () => navigation.navigate('CookGroupManagement');
 
@@ -362,6 +364,36 @@ const AdminStaff = () => {
     ]);
   };
 
+  const handleFindOrphanPlates = async () => {
+    setOrphanPlatesLoading(true);
+    try {
+      const [menuRes, linkedRes] = await Promise.all([
+        api.get('/menu/'),
+        api.get('/plates-specializations/'),
+      ]);
+
+      const allPlates: MenuItem[] = menuRes.data;
+      const linkedPlateIds = new Set<number>(
+        linkedRes.data.map((link: { plate_id: number }) => link.plate_id)
+      );
+
+      const orphans = allPlates.filter(
+        (plate) => !plate.is_selfserve && !linkedPlateIds.has(plate.id)
+      );
+
+      if (orphans.length === 0) {
+        Alert.alert('Всё в порядке', 'Все блюда привязаны к специализациям');
+      } else {
+        const names = orphans.map((p) => `• ${p.name}`).join('\n');
+        Alert.alert(`Блюда без специализации (${orphans.length})`, names, [{ text: 'OK' }]);
+      }
+    } catch (error) {
+      Alert.alert('Ошибка', 'Не удалось загрузить данные');
+    } finally {
+      setOrphanPlatesLoading(false);
+    }
+  };
+
   const openPlatesForSpec = async (spec: Specialization) => {
     setSelectedSpec(spec);
     setMode('plates');
@@ -396,7 +428,7 @@ const AdminStaff = () => {
     const map = new Map<number, MenuItem[]>();
     const byCategory = new Map<number, MenuItem[]>();
     allMenuItems.forEach(item => {
-      if (item.category != null) {
+      if (item.category != null && !item.is_selfserve) {
         if (!byCategory.has(item.category)) byCategory.set(item.category, []);
         byCategory.get(item.category)!.push(item);
       }
@@ -470,7 +502,7 @@ const AdminStaff = () => {
   };
 
   const renderCategoryNode = (node: CategoryNode, depth: number) => {
-    const ownPlates = allMenuItems.filter(item => item.category === node.id);
+    const ownPlates = allMenuItems.filter(item => item.category === node.id && !item.is_selfserve);
     const allSubPlates = categoryPlatesMap.get(node.id) || [];
     const unblockedSubPlates = allSubPlates.filter(p => !blockedPlateIds.has(p.id));
 
@@ -1110,9 +1142,21 @@ const AdminStaff = () => {
               <>
                 <View style={styles.modalHeaderSpecs}>
                   <Text style={styles.modalTitle}>Специализации</Text>
-                  <TouchableOpacity onPress={closeSpecModal}>
-                    <Ionicons name="close" size={24} color="#666" />
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <TouchableOpacity
+                      onPress={handleFindOrphanPlates}
+                      disabled={orphanPlatesLoading}
+                      style={{ opacity: orphanPlatesLoading ? 0.4 : 1 }}
+                    >
+                      {orphanPlatesLoading
+                        ? <ActivityIndicator size="small" color="#f39c12" />
+                        : <Ionicons name="warning-outline" size={24} color="#f39c12" />
+                      }
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={closeSpecModal}>
+                      <Ionicons name="close" size={24} color="#666" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
                 <View style={styles.specInputRow}>
                   <TextInput

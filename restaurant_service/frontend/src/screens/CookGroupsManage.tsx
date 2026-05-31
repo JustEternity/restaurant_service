@@ -50,6 +50,7 @@ const CookGroupManagement = () => {
   const [selectedCookIds, setSelectedCookIds] = useState<Set<number>>(new Set());
 
   const [activeCookTasks, setActiveCookTasks] = useState<Record<number, boolean>>({});
+  const [groupHasActiveTasks, setGroupHasActiveTasks] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     loadGroups();
@@ -61,6 +62,33 @@ const CookGroupManagement = () => {
       setLoading(true);
       const response = await api.get('/cook-groups/');
       setGroups(response.data);
+      const groupsData = response.data;
+
+      const activityMap: Record<number, boolean> = {};
+
+      for (const group of groupsData) {
+        try {
+          const cooksRes = await api.get(`/cook-groups/${group.id}/cooks/`);
+          const cooks = cooksRes.data;
+
+          let hasActive = false;
+
+          for (const cook of cooks) {
+            const tasksRes = await api.get(`/orders/${cook.id}/active-tasks`);
+            if (tasksRes.data.length > 0) {
+              hasActive = true;
+              break;
+            }
+          }
+
+          activityMap[group.id] = hasActive;
+        } catch {
+          activityMap[group.id] = false;
+        }
+      }
+
+      setGroupHasActiveTasks(activityMap);
+
     } catch (error) {
       console.error(error);
       Alert.alert('Ошибка', 'Не удалось загрузить группы поваров');
@@ -231,8 +259,25 @@ const CookGroupManagement = () => {
         <TouchableOpacity onPress={() => openEditModal(item)} style={styles.actionButton}>
           <Ionicons name="create-outline" size={20} color="#3498db" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => handleDeleteGroup(item)} style={styles.actionButton}>
-          <Ionicons name="trash-outline" size={20} color="#e74c3c" />
+        <TouchableOpacity
+          style={styles.actionButton}
+          disabled={groupHasActiveTasks[item.id]}
+          onPress={() => {
+            if (groupHasActiveTasks[item.id]) {
+              Alert.alert(
+                "Нельзя удалить группу",
+                "В группе есть повара с активными блюдами"
+              );
+              return;
+            }
+            handleDeleteGroup(item);
+          }}
+        >
+          <Ionicons
+            name={groupHasActiveTasks[item.id] ? "lock-closed" : "trash-outline"}
+            size={20}
+            color={groupHasActiveTasks[item.id] ? "#aaa" : "#e74c3c"}
+          />
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
@@ -307,7 +352,12 @@ const CookGroupManagement = () => {
           <View style={styles.detailModalContent}>
             <View style={styles.detailHeader}>
               <Text style={styles.detailTitle}>{selectedGroup?.name}</Text>
-              <TouchableOpacity onPress={() => setDetailModalVisible(false)}>
+              <TouchableOpacity
+                onPress={() => {
+                  setDetailModalVisible(false);
+                  loadGroups();
+                }}
+              >
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>

@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from typing import List
 
 from app.database import get_async_db
-from app.db_models import CookGroup, CooksInGroup, User
+from app.db_models import CookGroup, CooksInGroup, User, CookingStatusHistory
 from app.schemas.cook_group_schemas import (
     CookGroupCreate, CookGroupUpdate, CookGroupResponse,
     CookToGroup, BatchCookToGroup
@@ -110,6 +110,29 @@ async def delete_cook_group(
 
     count_stmt = select(func.count()).select_from(CooksInGroup).where(CooksInGroup.group == group_id)
     count_result = await db.execute(count_stmt)
+
+    stmt_cooks = select(User.id).join(CooksInGroup).where(CooksInGroup.group == group_id)
+    result_cooks = await db.execute(stmt_cooks)
+    cook_ids = [row[0] for row in result_cooks]
+
+    if cook_ids:
+        stmt_active = (
+            select(CookingStatusHistory.cook_id)
+            .where(
+                CookingStatusHistory.cook_id.in_(cook_ids),
+                CookingStatusHistory.status.in_(["preparing", "ready"])
+            )
+            .group_by(CookingStatusHistory.cook_id)
+        )
+        result_active = await db.execute(stmt_active)
+        active_cooks = [row[0] for row in result_active]
+
+        if active_cooks:
+            raise HTTPException(
+                status_code=400,
+                detail="Нельзя удалить группу: у некоторых поваров есть активные блюда"
+            )
+
 
     await db.delete(group)
     await db.commit()
