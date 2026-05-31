@@ -3,10 +3,11 @@ import {
   View, Text, FlatList, TouchableOpacity, ActivityIndicator,
   RefreshControl, Alert, Modal, ScrollView,
 } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import api from '../services/api';
@@ -49,6 +50,8 @@ const WaiterOrders = () => {
 
   const swipeableRefs = useRef<Map<number, Swipeable>>(new Map());
 
+  const [footerHeight, setFooterHeight] = useState(0);
+
   const loadOrders = useCallback(async () => {
     try {
       setLoading(true);
@@ -65,7 +68,11 @@ const WaiterOrders = () => {
     }
   }, [user?.id]);
 
-  useEffect(() => { loadOrders(); }, [loadOrders]);
+  useFocusEffect(
+    useCallback(() => {
+      loadOrders();
+    }, [loadOrders])
+  );
 
   const handleRefresh = () => { setRefreshing(true); loadOrders(); };
 
@@ -287,9 +294,6 @@ const WaiterOrders = () => {
             size={24}
             color="#fff"
           />
-          <Text style={styles.swipeButtonText}>
-            {plate.is_considered ? 'Исключить' : 'Вернуть'}
-          </Text>
         </RectButton>
       );
     };
@@ -307,18 +311,20 @@ const WaiterOrders = () => {
           <View style={styles.plateInfo}>
             <Text style={styles.plateName}>
               {plate.plate_name}
-              {plate.is_selfserve ? ' (официант)' : ''}
-              {!plate.is_considered && ' (исключено)'}
+              {plate.is_selfserve ? ' ✋🏻' : ''}
+              {!plate.is_considered && ''}
             </Text>
             {plate.comment && <Text style={styles.plateComment}>Комментарий: {plate.comment}</Text>}
             <Text style={styles.platePrice}>{plate.count} x {plate.price} ₽ = {(plate.count * plate.price).toFixed(2)} ₽</Text>
           </View>
           <View style={styles.plateStatusContainer}>
-            <View style={[styles.cookingStatusBadge, { backgroundColor: getCookingStatusColor(plate.current_status || 'waiting') }]}>
-              <Text style={styles.cookingStatusText}>
-                {plate.current_status ? getCookingStatusText(plate.current_status) : 'Не отправлено'}
-              </Text>
-            </View>
+            {(!plate.is_selfserve || plate.current_status) && (
+              <View style={[styles.cookingStatusBadge, { backgroundColor: getCookingStatusColor(plate.current_status || 'waiting') }]}>
+                <Text style={styles.cookingStatusText}>
+                  {plate.current_status ? getCookingStatusText(plate.current_status) : 'Не отправлено'}
+                </Text>
+              </View>
+            )}
             {(plate.current_status === 'ready' || (plate.is_selfserve && plate.current_status !== 'served')) && plate.is_considered && (
               <TouchableOpacity style={styles.servedButton} onPress={() => markAsServed(plate.id)}>
                 <Text style={styles.servedButtonText}>Подано</Text>
@@ -373,81 +379,104 @@ const WaiterOrders = () => {
           </View>
         }
       />
-      <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={() => setModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Заказ #{selectedOrder?.id}</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-            {selectedOrder && (
-              <ScrollView style={styles.modalBody}>
-                <View style={styles.orderDetails}>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Столы:</Text>
-                    <Text style={styles.detailValue}>{selectedOrder.table_numbers.join(', ')}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Время создания:</Text>
-                    <Text style={styles.detailValue}>{new Date(selectedOrder.timestart).toLocaleString('ru-RU')}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Статус:</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedOrder.status) }]}>
-                      <Text style={styles.statusText}>{getStatusText(selectedOrder.status)}</Text>
-                    </View>
-                  </View>
-                  {selectedOrder.endtime && (
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Время завершения:</Text>
-                      <Text style={styles.detailValue}>{new Date(selectedOrder.endtime).toLocaleString('ru-RU')}</Text>
-                    </View>
-                  )}
-                </View>
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
 
-                <Text style={styles.platesTitle}>Блюда в заказе:</Text>
-                {groupPlatesByCourse(selectedOrder.plates).map(([courseNumber, plates]) => (
-                  <View key={courseNumber} style={{ marginBottom: 10 }}>
-                    <Text style={styles.courseTitle}>Курс {courseNumber}</Text>
-                    {plates.map(plate => (
-                      <View key={plate.id}>{renderPlateItem(plate)}</View>
-                    ))}
-                  </View>
-                ))}
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Заказ #{selectedOrder?.id}</Text>
+                <TouchableOpacity onPress={() => setModalVisible(false)}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
 
+              <ScrollView
+                style={styles.modalBody}
+                contentContainerStyle={{
+                  paddingBottom: footerHeight,
+                }}
+              >
+                {selectedOrder && (
+                  <>
+                    <View style={styles.orderDetails}>
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Столы:</Text>
+                        <Text style={styles.detailValue}>
+                          {selectedOrder.table_numbers.join(', ')}
+                        </Text>
+                      </View>
+
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Время создания:</Text>
+                        <Text style={styles.detailValue}>
+                          {new Date(selectedOrder.timestart).toLocaleString('ru-RU')}
+                        </Text>
+                      </View>
+
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Статус:</Text>
+                        <View
+                          style={[
+                            styles.statusBadge,
+                            { backgroundColor: getStatusColor(selectedOrder.status) }
+                          ]}
+                        >
+                          <Text style={styles.statusText}>
+                            {getStatusText(selectedOrder.status)}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {selectedOrder.endtime && (
+                        <View style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>Время завершения:</Text>
+                          <Text style={styles.detailValue}>
+                            {new Date(selectedOrder.endtime).toLocaleString('ru-RU')}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <Text style={styles.platesTitle}>Блюда в заказе:</Text>
+
+                    {groupPlatesByCourse(selectedOrder.plates).map(
+                      ([courseNumber, plates]) => (
+                        <View key={courseNumber} style={{ marginBottom: 10 }}>
+                          <Text style={styles.courseTitle}>Курс {courseNumber}</Text>
+                          {plates.map((plate) => (
+                            <View key={plate.id}>{renderPlateItem(plate)}</View>
+                          ))}
+                        </View>
+                      )
+                    )}
+                  </>
+                )}
+              </ScrollView>
+
+              <View
+                style={styles.fixedFooter}
+                onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
+              >
                 <View style={styles.totalContainer}>
-                  <Text style={styles.totalText}>Итого (учтённые):</Text>
+                  <Text style={styles.totalText}>Итого:</Text>
                   <Text style={styles.totalValue}>
-                    {selectedOrder.plates
-                      .filter(p => p.is_considered)
-                      .reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽
+                    {selectedOrder?.plates
+                      .filter((p) => p.is_considered)
+                      .reduce((sum, p) => sum + p.price * p.count, 0)
+                      .toFixed(2)} ₽
                   </Text>
                 </View>
 
                 <View style={styles.actionsRow}>
-                  {selectedOrder.status === 'active' && (
-                    <TouchableOpacity style={[styles.editOrderButton, { flex: 1, marginRight: 8 }]} onPress={handleEditOrder}>
-                      <Text style={styles.editOrderButtonText}>Редактировать</Text>
-                    </TouchableOpacity>
-                  )}
-                  {selectedOrder.status === 'active' && hasInactiveCourses(selectedOrder) && (
+                  {selectedOrder?.status === 'active' && (
                     <TouchableOpacity
-                      style={[styles.activateCourseButton, { flex: 1, marginRight: 8 }]}
-                      onPress={handleActivateNextCourse}
-                      disabled={activatingCourse}
-                    >
-                      {activatingCourse ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Text style={styles.editOrderButtonText}>Следующий курс</Text>
-                      )}
-                    </TouchableOpacity>
-                  )}
-                  {selectedOrder.status === 'active' && (
-                    <TouchableOpacity
-                      style={[styles.cancelOrderButton, { flex: 1, marginRight: 8 }]}
+                      style={[styles.cancelOrderButton, { flex: 1 }]}
                       onPress={cancelOrder}
                       disabled={cancelling}
                     >
@@ -458,17 +487,47 @@ const WaiterOrders = () => {
                       )}
                     </TouchableOpacity>
                   )}
-                  {allServed && selectedOrder.status === 'active' && (
-                    <TouchableOpacity style={[styles.completeOrderButton, { flex: 1, marginLeft: 8 }]} onPress={completeOrder}>
+
+                  {selectedOrder?.status === 'active' && (
+                    <TouchableOpacity
+                      style={[styles.editOrderButton, { flex: 1 }]}
+                      onPress={handleEditOrder}
+                    >
+                      <Text style={styles.editOrderButtonText}>Редактировать</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {selectedOrder?.status === 'active' &&
+                    hasInactiveCourses(selectedOrder) && (
+                      <TouchableOpacity
+                        style={[styles.activateCourseButton, { flex: 1 }]}
+                        onPress={handleActivateNextCourse}
+                        disabled={activatingCourse}
+                      >
+                        {activatingCourse ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={styles.editOrderButtonText}>Следующий курс</Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
+
+                  {allServed && selectedOrder?.status === 'active' && (
+                    <TouchableOpacity
+                      style={[styles.completeOrderButton, { flex: 1 }]}
+                      onPress={completeOrder}
+                    >
                       <Text style={styles.editOrderButtonText}>Завершить заказ</Text>
                     </TouchableOpacity>
                   )}
                 </View>
-              </ScrollView>
-            )}
+              </View>
+
+            </View>
           </View>
-        </View>
+        </GestureHandlerRootView>
       </Modal>
+
     </View>
   );
 };

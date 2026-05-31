@@ -1,19 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  View,
-  Text,
-  FlatList,
-  Image,
-  TouchableOpacity,
-  ActivityIndicator,
-  RefreshControl,
-  Alert,
-  Modal,
-  ScrollView,
-  TextInput,
-  Keyboard,
-  Platform,
-  UIManager,
+  View, Text, FlatList, Image, TouchableOpacity, ActivityIndicator,
+  RefreshControl, Alert, Modal, ScrollView, TextInput, Keyboard,
+  Platform, UIManager,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
@@ -25,6 +14,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useOrderDraft } from '../context/OrderDraftContext';
 import { getPhotoUrl } from '../utils/imageUrl';
+import { useWebSocket } from '../context/WebSocketContext';
 
 interface Category {
   id: number;
@@ -53,6 +43,7 @@ interface ExistingPlate {
   price: number;
   current_status: string;
   course_number?: number;
+  is_considered?: boolean;
 }
 
 interface CartItem {
@@ -69,6 +60,11 @@ type RootStackParamList = {
   WaiterMenu: { selectedTableIds?: number[]; orderId?: number; existingPlates?: ExistingPlate[] };
 };
 
+const isPlateLockedByStatus = (status: string | null | undefined): boolean => {
+  if (!status) return false;
+  return status !== 'waiting';
+};
+
 const WaiterMenu = () => {
   const { user } = useAuth();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
@@ -78,7 +74,9 @@ const WaiterMenu = () => {
   const orderId = (route.params as any)?.orderId;
   const existingPlates: ExistingPlate[] = (route.params as any)?.existingPlates || [];
 
-  const isEditMode = !!orderId;
+  const [orderSaved, setOrderSaved] = useState(false);
+
+  const isEditMode = !!orderId && !orderSaved;
   const isNewOrderMode = !isEditMode && draft.isActive;
 
   const [categoriesTree, setCategoriesTree] = useState<Category[]>([]);
@@ -92,6 +90,7 @@ const WaiterMenu = () => {
   const [cartModalVisible, setCartModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedImageAspectRatio, setSelectedImageAspectRatio] = useState<number | null>(null);
+  const [cartInitialized, setCartInitialized] = useState(false);
 
   const [categoryTreeModalVisible, setCategoryTreeModalVisible] = useState(false);
   const [categoryEditModalVisible, setCategoryEditModalVisible] = useState(false);
@@ -106,38 +105,38 @@ const WaiterMenu = () => {
 
   const swipeableRefs = new Map();
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
-
-  const isFirstLoad = useRef(true);
+  const isFirstFocus = useRef(true);
 
   const currentCategory = categoryPath.length > 0 ? categoryPath[categoryPath.length - 1] : null;
   const currentLevelCategories = categoryPath.length === 0
     ? categoriesTree
     : currentCategory?.children || [];
 
-  const isFirstFocus = useRef(true);
+  const prevOrderIdRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (isNewOrderMode) {
-      if (draft.cart.length > 0) {
-        setCart(draft.cart);
-      } else {
-        setCart([]);
-      }
+      if (draft.cart.length > 0) setCart(draft.cart);
+      else setCart([]);
     }
   }, [isNewOrderMode]);
 
   useEffect(() => {
-    if (isNewOrderMode) {
-      updateCart(cart);
-    }
+    if (isNewOrderMode) updateCart(cart);
   }, [cart, isNewOrderMode]);
 
   useEffect(() => {
-    if (isEditMode && existingPlates.length > 0) {
-      const initialCart: CartItem[] = existingPlates.map(ep => ({
-        item: {
+    if (!isEditMode || cartInitialized) return;
+    if (existingPlates.length === 0) {
+      setCartInitialized(true);
+      return;
+    }
+    const initialCart: CartItem[] = existingPlates.map(ep => {
+      const menuItem = menuItems.find(m => m.id === ep.plate_id);
+      return {
+        item: menuItem ?? {
           id: ep.plate_id,
-          name: '',
+          name: menuItems.length > 0 ? `Блюдо #${ep.plate_id}` : '',
           description: '',
           photo: null,
           price: ep.price,
@@ -150,51 +149,16 @@ const WaiterMenu = () => {
         comment: ep.comment || '',
         id: ep.id,
         course_number: ep.course_number || 1,
-      }));
-      setCart(initialCart);
-    }
-  }, [isEditMode]);
-
-  useEffect(() => {
-    if (isEditMode && cart.length > 0 && menuItems.length > 0) {
-      setCart(prev => prev.map(ci => {
-        const menuItem = menuItems.find(m => m.id === ci.item.id);
-        if (menuItem) {
-          return {
-            ...ci,
-            item: {
-              ...ci.item,
-              name: menuItem.name,
-              description: menuItem.description,
-              photo: menuItem.photo,
-              category_name: menuItem.category_name,
-              is_selfserve: menuItem.is_selfserve,
-            },
-          };
-        }
-        return ci;
-      }));
-    }
-  }, [menuItems]);
+      };
+    });
+    setCart(initialCart);
+    if (menuItems.length > 0) setCartInitialized(true);
+  }, [isEditMode, menuItems, cartInitialized]);
 
   useEffect(() => {
     const uri = selectedItem?.photo ? getPhotoUrl(selectedItem.photo) : null;
-    if (!uri) {
-      setSelectedImageAspectRatio(null);
-      return;
-    }
-
-    Image.getSize(
-      uri,
-      (width, height) => {
-        if (width && height) {
-          setSelectedImageAspectRatio(width / height);
-        }
-      },
-      () => {
-        setSelectedImageAspectRatio(null);
-      }
-    );
+    if (!uri) { setSelectedImageAspectRatio(null); return; }
+    Image.getSize(uri, (w, h) => { if (w && h) setSelectedImageAspectRatio(w / h); }, () => setSelectedImageAspectRatio(null));
   }, [selectedItem?.photo]);
 
   useEffect(() => {
@@ -204,8 +168,6 @@ const WaiterMenu = () => {
     loadData();
   }, []);
 
-
-
   useEffect(() => {
     const built = buildFlatCategories(categoriesTree);
     setFlatCategories(built);
@@ -213,19 +175,28 @@ const WaiterMenu = () => {
 
   useFocusEffect(
     useCallback(() => {
+      const isRepeatVisit = !isFirstFocus.current;
+      const orderChanged = prevOrderIdRef.current !== orderId;
+
+      if (orderId && (isRepeatVisit || orderChanged)) {
+        setOrderSaved(false);
+        setCartInitialized(false);
+        setCart([]);
+      }
+
+      prevOrderIdRef.current = orderId;
+
       if (isFirstFocus.current) {
         isFirstFocus.current = false;
         loadData(false);
       } else {
         loadData(true);
       }
-    }, [])
+    }, [orderId])
   );
 
   const filteredItems = useMemo(() => {
-    if (currentCategory) {
-      return menuItems.filter(item => item.category === currentCategory.id);
-    }
+    if (currentCategory) return menuItems.filter(item => item.category === currentCategory.id);
     return menuItems;
   }, [currentCategory, menuItems]);
 
@@ -247,11 +218,8 @@ const WaiterMenu = () => {
       const response = await api.get('/menu/categories/tree');
       const data: Category[] = response.data;
       const deduplicateChildren = (cat: Category) => {
-        if (cat.children && cat.children.length > 0) {
-          const unique = cat.children.filter(
-            (child, index, self) => self.findIndex(c => c.id === child.id) === index
-          );
-          cat.children = unique;
+        if (cat.children?.length > 0) {
+          cat.children = cat.children.filter((c, i, arr) => arr.findIndex(x => x.id === c.id) === i);
           cat.children.forEach(deduplicateChildren);
         }
       };
@@ -266,43 +234,28 @@ const WaiterMenu = () => {
     try {
       const response = await api.get('/menu/');
       const data: MenuItem[] = response.data;
-      if (isAdmin) {
-        setMenuItems(data);
-      } else {
-        const available = data.filter(item => item.is_available);
-        setMenuItems(available);
-      }
+      setMenuItems(isAdmin ? data : data.filter(item => item.is_available));
     } catch (error) {
       console.error('Ошибка загрузки меню:', error);
     }
   };
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    loadData(true);
-  };
+  const handleRefresh = () => { setRefreshing(true); loadData(true); };
 
-  const handleSelectCategory = (category: Category) => {
-    setCategoryPath([...categoryPath, category]);
-  };
+  const { addHandler } = useWebSocket();
+  useEffect(() => {
+    const unsubscribe = addHandler((data: any) => {
+      if (data.type === 'categories_update' || data.type === 'plates_update') loadData();
+    });
+    return unsubscribe;
+  }, [addHandler, loadData]);
 
-  const handleBack = () => {
-    setCategoryPath(categoryPath.slice(0, -1));
-  };
+  const handleSelectCategory = (category: Category) => setCategoryPath([...categoryPath, category]);
+  const handleBack = () => setCategoryPath(categoryPath.slice(0, -1));
+  const handleResetCategories = () => setCategoryPath([]);
 
-  const handleResetCategories = () => {
-    setCategoryPath([]);
-  };
-
-  const handleItemPress = (item: MenuItem) => {
-    setSelectedItem(item);
-    setModalVisible(true);
-  };
-
-  const handleCloseModal = () => {
-    setModalVisible(false);
-    setTimeout(() => setSelectedItem(null), 300);
-  };
+  const handleItemPress = (item: MenuItem) => { setSelectedItem(item); setModalVisible(true); };
+  const handleCloseModal = () => { setModalVisible(false); setTimeout(() => setSelectedItem(null), 300); };
 
   const handleEditItem = (item: MenuItem) => {
     if (!isAdmin) return;
@@ -324,76 +277,28 @@ const WaiterMenu = () => {
       await api.delete(`/menu/${id}`);
       setMenuItems(prev => prev.filter(item => item.id !== id));
     } catch (error) {
-      console.error('Ошибка удаления:', error);
       Alert.alert('Ошибка', 'Не удалось удалить позицию');
     }
   };
 
   const handleAddItem = () => {
-    if (!isAdmin) {
-      Alert.alert('Доступ запрещен', 'Только администратор может добавлять позиции');
-      return;
-    }
+    if (!isAdmin) { Alert.alert('Доступ запрещен', 'Только администратор может добавлять позиции'); return; }
     navigation.navigate('MenuItemForm', { itemId: undefined });
   };
 
-  const buildFlatCategories = (tree: Category[], depth = 0): Array<Category & { depth: number }> => {
-    return tree.reduce<Array<Category & { depth: number }>>((result, category) => {
+  const buildFlatCategories = (tree: Category[], depth = 0): Array<Category & { depth: number }> =>
+    tree.reduce<Array<Category & { depth: number }>>((result, category) => {
       result.push({ ...category, depth });
-      if (category.children && category.children.length > 0) {
-        result.push(...buildFlatCategories(category.children, depth + 1));
-      }
+      if (category.children?.length > 0) result.push(...buildFlatCategories(category.children, depth + 1));
       return result;
     }, []);
-  };
-
-  const getParentIdByDepth = (flat: Array<Category & { depth: number }>, index: number) => {
-    const item = flat[index];
-    if (!item || item.depth === 0) return null;
-    for (let i = index - 1; i >= 0; i -= 1) {
-      if (flat[i].depth === item.depth - 1) {
-        return flat[i].id;
-      }
-    }
-    return null;
-  };
-
-  const rebuildTreeFromFlat = (flat: Array<Category & { depth: number }>) => {
-    const nodes = new Map<number, Category>();
-    flat.forEach(item => {
-      nodes.set(item.id, { ...item, children: [] });
-    });
-
-    const roots: Category[] = [];
-    flat.forEach((item, index) => {
-      const node = nodes.get(item.id)!;
-      const parentId = getParentIdByDepth(flat, index);
-      node.parent_category = parentId;
-      if (parentId === null) {
-        roots.push(node);
-      } else {
-        const parent = nodes.get(parentId);
-        if (parent) {
-          parent.children = parent.children || [];
-          parent.children.push(node);
-        } else {
-          roots.push(node);
-        }
-      }
-    });
-    return roots;
-  };
 
   const getAvailableParents = (excludeId: number | null, tree: Category[]): Category[] => {
     const result: Category[] = [];
     const walk = (node: Category) => {
-      if (excludeId !== null && node.id === excludeId) {
-        return;
-      }
+      if (excludeId !== null && node.id === excludeId) return;
       result.push(node);
-      if (node.children) {
-        node.children.forEach(walk);
-      }
+      node.children?.forEach(walk);
     };
     tree.forEach(walk);
     return result;
@@ -410,13 +315,11 @@ const WaiterMenu = () => {
     setIsCreatingCategory(false);
     setEditingCategoryName(category.name);
     setSelectedParentId(category.parent_category);
-    const parents = getAvailableParents(category.id, categoriesTree);
-    setAvailableParentCategories(parents);
+    setAvailableParentCategories(getAvailableParents(category.id, categoriesTree));
     setShowParentSelector(false);
     setCategoryTreeModalVisible(false);
     setCategoryEditModalVisible(true);
   };
-
 
   const handleAddCategoryInTree = () => {
     if (!isAdmin) return;
@@ -442,16 +345,9 @@ const WaiterMenu = () => {
   };
 
   const createCategory = async (name: string, parentId?: number) => {
-    if (!name) {
-      Alert.alert('Ошибка', 'Название категории не может быть пустым');
-      return;
-    }
+    if (!name) { Alert.alert('Ошибка', 'Название категории не может быть пустым'); return; }
     try {
-      const payload = {
-        name,
-        parent_category: parentId || null,
-      };
-      await api.post('/menu/categories/', payload);
+      await api.post('/menu/categories/', { name, parent_category: parentId || null });
       await fetchCategories();
       setCategoryEditModalVisible(false);
       setSelectedCategory(null);
@@ -464,15 +360,11 @@ const WaiterMenu = () => {
 
   const updateCategory = async () => {
     if (!selectedCategory || !(editingCategoryName ?? '').trim()) {
-      if (!(editingCategoryName ?? '').trim()) {
-        Alert.alert('Ошибка', 'Название категории не может быть пустым');
-      }
+      if (!(editingCategoryName ?? '').trim()) Alert.alert('Ошибка', 'Название категории не может быть пустым');
       return;
     }
     if (editingCategoryName === selectedCategory.name && selectedParentId === selectedCategory.parent_category) {
-      setCategoryEditModalVisible(false);
-      setSelectedCategory(null);
-      return;
+      setCategoryEditModalVisible(false); setSelectedCategory(null); return;
     }
     try {
       await api.put(`/menu/categories/${selectedCategory.id}`, {
@@ -491,30 +383,23 @@ const WaiterMenu = () => {
 
   const deleteCategory = async () => {
     if (!selectedCategory) return;
-    Alert.alert(
-      'Удалить категорию',
-      `Вы уверены, что хотите удалить категорию "${selectedCategory.name}"?`,
-      [
-        { text: 'Отмена', style: 'cancel' },
-        {
-          text: 'Удалить',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await api.delete(`/menu/categories/${selectedCategory.id}`);
-              await fetchCategories();
-              setCategoryEditModalVisible(false);
-              setSelectedCategory(null);
-              setCategoryTreeModalVisible(true);
-            } catch (error: any) {
-              Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось удалить категорию');
-            }
-          },
-        },
-      ]
-    );
+    Alert.alert('Удалить категорию', `Вы уверены, что хотите удалить категорию "${selectedCategory.name}"?`, [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить', style: 'destructive', onPress: async () => {
+          try {
+            await api.delete(`/menu/categories/${selectedCategory.id}`);
+            await fetchCategories();
+            setCategoryEditModalVisible(false);
+            setSelectedCategory(null);
+            setCategoryTreeModalVisible(true);
+          } catch (error: any) {
+            Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось удалить категорию');
+          }
+        }
+      }
+    ]);
   };
-
 
   const closeCategoryEditModal = () => {
     Keyboard.dismiss();
@@ -529,34 +414,31 @@ const WaiterMenu = () => {
   const addToCart = (item: MenuItem) => {
     setCart(prev => {
       if (isEditMode) {
-        const existingWaitingIndex = prev.findIndex(cartItem => {
-          if (cartItem.id !== undefined) {
-            const ep = existingPlates.find(p => p.id === cartItem.id);
-            return ep && ep.current_status === 'waiting' && cartItem.item.id === item.id;
-          }
-          return false;
+        const editableIndex = prev.findIndex(ci => {
+          if (ci.item.id !== item.id) return false;
+          if (ci.id === undefined) return true;
+          const ep = existingPlates.find(p => p.id === ci.id);
+          return ep ? !isPlateLockedByStatus(ep.current_status) : true;
         });
-        if (existingWaitingIndex !== -1) {
+
+        if (editableIndex !== -1) {
           return prev.map((ci, idx) =>
-            idx === existingWaitingIndex ? { ...ci, quantity: ci.quantity + 1 } : ci
+            idx === editableIndex ? { ...ci, quantity: ci.quantity + 1 } : ci
           );
         }
         return [...prev, { item, quantity: 1, comment: '', id: undefined, course_number: 1 }];
-      } else {
-        const existing = prev.find(i => i.item.id === item.id);
-        if (existing) {
-          return prev.map(i =>
-            i.item.id === item.id ? { ...i, quantity: i.quantity + 1 } : i
-          );
-        }
-        return [...prev, { item, quantity: 1, comment: '', course_number: 1 }];
       }
+      const existing = prev.find(i => i.item.id === item.id);
+      if (existing) {
+        return prev.map(i => i.item.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+      }
+      return [...prev, { item, quantity: 1, comment: '', course_number: 1 }];
     });
   };
 
   const updateCartItem = (idOrPlateId: number, quantity: number, comment?: string) => {
     setCart(prev => prev.map(i => {
-      const compareId = i.id || i.item.id;
+      const compareId = i.id ?? i.item.id;
       if (compareId === idOrPlateId) {
         return { ...i, quantity: Math.max(1, quantity), comment: comment ?? i.comment };
       }
@@ -567,26 +449,23 @@ const WaiterMenu = () => {
   const updateCourseNumber = (idOrPlateId: number, newCourse: number) => {
     const clamped = Math.min(10, Math.max(1, newCourse));
     setCart(prev => prev.map(i => {
-      const compareId = i.id || i.item.id;
-      if (compareId === idOrPlateId) {
-        return { ...i, course_number: clamped };
-      }
-      return i;
+      const compareId = i.id ?? i.item.id;
+      return compareId === idOrPlateId ? { ...i, course_number: clamped } : i;
     }));
   };
 
   const removeCartItem = (idOrPlateId: number) => {
     if (isEditMode) {
-      const existing = existingPlates.find(ep => (ep.id === idOrPlateId || ep.plate_id === idOrPlateId));
-      if (existing && existing.current_status !== 'waiting') {
-        Alert.alert('Нельзя удалить', 'Это блюдо уже готовится или готово');
-        return;
+      const cartItem = cart.find(i => (i.id ?? i.item.id) === idOrPlateId);
+      if (cartItem?.id !== undefined) {
+        const ep = existingPlates.find(p => p.id === cartItem.id);
+        if (ep && isPlateLockedByStatus(ep.current_status)) {
+          Alert.alert('Нельзя удалить', 'Это блюдо уже готовится или готово');
+          return;
+        }
       }
     }
-    setCart(prev => prev.filter(i => {
-      const compareId = i.id || i.item.id;
-      return compareId !== idOrPlateId;
-    }));
+    setCart(prev => prev.filter(i => (i.id ?? i.item.id) !== idOrPlateId));
   };
 
   const getTotalPrice = () => cart.reduce((sum, i) => sum + i.item.price * i.quantity, 0);
@@ -595,15 +474,11 @@ const WaiterMenu = () => {
     const filtered = items.filter(i => !i.item.is_selfserve);
     if (filtered.length === 0) return null;
     const courseNumbers = Array.from(new Set(filtered.map(i => i.course_number))).sort((a, b) => a - b);
-    if (courseNumbers[0] !== 1) {
-      return 'Курсы должны начинаться с 1';
-    }
+    if (courseNumbers[0] !== 1) return 'Курсы должны начинаться с 1';
     const maxCourse = courseNumbers[courseNumbers.length - 1];
     if (courseNumbers.length !== maxCourse) {
       const missing: number[] = [];
-      for (let c = 1; c <= maxCourse; c++) {
-        if (!courseNumbers.includes(c)) missing.push(c);
-      }
+      for (let c = 1; c <= maxCourse; c++) if (!courseNumbers.includes(c)) missing.push(c);
       return `Пропущены курсы: ${missing.join(', ')}`;
     }
     return null;
@@ -617,19 +492,10 @@ const WaiterMenu = () => {
   };
 
   const submitOrder = async () => {
-    if (cart.length === 0) {
-      Alert.alert('Корзина пуста', 'Добавьте хотя бы одно блюдо');
-      return;
-    }
-    if (draft.tableIds.length === 0) {
-      Alert.alert('Нет столов', 'Вернитесь к схеме зала и выберите столы');
-      return;
-    }
+    if (cart.length === 0) { Alert.alert('Корзина пуста', 'Добавьте хотя бы одно блюдо'); return; }
+    if (draft.tableIds.length === 0) { Alert.alert('Нет столов', 'Вернитесь к схеме зала и выберите столы'); return; }
     const validationError = validateCourses(cart);
-    if (validationError) {
-      Alert.alert('Ошибка курсов', validationError);
-      return;
-    }
+    if (validationError) { Alert.alert('Ошибка курсов', validationError); return; }
     setSubmitting(true);
     try {
       const payload = {
@@ -649,7 +515,7 @@ const WaiterMenu = () => {
       navigation.navigate('Зал', { clearDraft: true });
     } catch (error: any) {
       if (error.response?.status === 409) {
-        Alert.alert('Стол занят', 'Кто-то уже создал заказ для этого стола. Обновите список заказов.');
+        Alert.alert('Стол занят', 'Кто-то уже создал заказ для этого стола.');
         navigation.navigate('Зал', { clearDraft: true });
       } else {
         Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось создать заказ');
@@ -662,23 +528,46 @@ const WaiterMenu = () => {
   const saveEditedOrder = async () => {
     if (!orderId) return;
     const validationError = validateCourses(cart);
-    if (validationError) {
-      Alert.alert('Ошибка курсов', validationError);
-      return;
-    }
+    if (validationError) { Alert.alert('Ошибка курсов', validationError); return; }
     setSubmitting(true);
     try {
-      const platesToSend = cart.map(i => ({
-        id: i.id,
-        plate_id: i.item.id,
-        count: i.quantity,
-        comment: i.comment,
-        initial_status: 'waiting',
-        course_number: i.course_number,
-      }));
-      await api.put(`/orders/${orderId}/plates`, platesToSend);
-      setCart([]);
+      const existingIds = existingPlates.map(ep => ep.id);
+      const currentIds = cart.filter(ci => ci.id !== undefined).map(ci => ci.id!);
+
+      const toDelete = existingIds.filter(id => !currentIds.includes(id));
+      const toUpdate = cart.filter(ci => ci.id !== undefined);
+      const toCreate = cart.filter(ci => ci.id === undefined);
+
+      for (const id of toDelete) {
+        const ep = existingPlates.find(p => p.id === id);
+        if (ep && !isPlateLockedByStatus(ep.current_status)) {
+          await api.delete(`/orders/plates/${id}`);
+        }
+      }
+
+      for (const ci of toUpdate) {
+        const ep = existingPlates.find(p => p.id === ci.id);
+        if (!ep || isPlateLockedByStatus(ep.current_status)) continue;
+        await api.put(`/orders/plates/${ci.id}`, {
+          count: ci.quantity,
+          comment: ci.comment,
+          course_number: ci.course_number,
+        });
+      }
+
+      for (const ci of toCreate) {
+        await api.post(`/orders/${orderId}/plates`, {
+          plate_id: ci.item.id,
+          count: ci.quantity,
+          comment: ci.comment,
+          course_number: ci.course_number,
+          initial_status: 'waiting',
+        });
+      }
+
       setCartModalVisible(false);
+      setCart([]);
+      setOrderSaved(true);
       navigation.goBack();
     } catch (error: any) {
       Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось обновить заказ');
@@ -700,32 +589,23 @@ const WaiterMenu = () => {
     </TouchableOpacity>
   );
 
-  const renderTreeItem = ({ item }: { item: Category & { depth: number }; index: number }) => {
-    return (
-      <View style={[styles.treeItem, { paddingLeft: 16 + item.depth * 16 }]}>
-        <TouchableOpacity
-          activeOpacity={0.7}
-          style={styles.treeItemRow}
-          onPress={() => handleTreeItemPress(item)}
-        >
-          <View style={{ marginRight: 10, padding: 8 }}>
-            <Ionicons name="create-outline" size={20} color="#999" />
-          </View>
-          <Text style={styles.treeItemText}>{item.name}</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
+  const renderTreeItem = ({ item }: { item: Category & { depth: number } }) => (
+    <View style={[styles.treeItem, { paddingLeft: 16 + item.depth * 16 }]}>
+      <TouchableOpacity activeOpacity={0.7} style={styles.treeItemRow} onPress={() => handleTreeItemPress(item)}>
+        <View style={{ marginRight: 10, padding: 8 }}>
+          <Ionicons name="create-outline" size={20} color="#999" />
+        </View>
+        <Text style={styles.treeItemText}>{item.name}</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   const renderMenuItem = ({ item }: { item: MenuItem }) => {
     const content = (
       <View style={[styles.menuItemContent, !item.is_available && { opacity: 0.3 }]}>
         <TouchableOpacity style={{ flex: 1, flexDirection: 'row' }} onPress={() => handleItemPress(item)} activeOpacity={0.7}>
           <View style={styles.menuItemInfo}>
-            <Text style={styles.menuItemName}>
-              {item.name}
-              {item.is_selfserve ? ' 🧑‍🍳' : ''}
-            </Text>
+            <Text style={styles.menuItemName}>{item.name}{item.is_selfserve ? ' 🧑‍🍳' : ''}</Text>
             <Text style={styles.menuItemDescription} numberOfLines={2}>{item.description}</Text>
             <Text style={styles.menuItemPrice}>{item.price} ₽</Text>
           </View>
@@ -749,22 +629,16 @@ const WaiterMenu = () => {
       return (
         <Swipeable
           ref={(ref) => { if (ref) swipeableRefs.set(item.id, ref); }}
-          renderRightActions={() => {
-            return (
-              <View style={styles.swipeActions}>
-                <RectButton style={[styles.swipeCircleButton, styles.editButton]} onPress={() => handleEditItem(item)}>
-                  <View style={styles.swipeButtonContent}>
-                    <Ionicons name="create-outline" size={22} color="#fff" />
-                  </View>
-                </RectButton>
-                <RectButton style={[styles.swipeCircleButton, styles.deleteButton]} onPress={() => handleDeleteItem(item)}>
-                  <View style={styles.swipeButtonContent}>
-                    <Ionicons name="trash-outline" size={22} color="#fff" />
-                  </View>
-                </RectButton>
-              </View>
-            );
-          }}
+          renderRightActions={() => (
+            <View style={styles.swipeActions}>
+              <RectButton style={[styles.swipeCircleButton, styles.editButton]} onPress={() => handleEditItem(item)}>
+                <View style={styles.swipeButtonContent}><Ionicons name="create-outline" size={22} color="#fff" /></View>
+              </RectButton>
+              <RectButton style={[styles.swipeCircleButton, styles.deleteButton]} onPress={() => handleDeleteItem(item)}>
+                <View style={styles.swipeButtonContent}><Ionicons name="trash-outline" size={22} color="#fff" /></View>
+              </RectButton>
+            </View>
+          )}
           overshootRight={false}
         >
           <View style={styles.menuItem}>{content}</View>
@@ -802,21 +676,12 @@ const WaiterMenu = () => {
           {isNewOrderMode && (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 'auto' }}>
               <Ionicons name="grid-outline" size={20} color="#007AFF" style={{ marginRight: 4 }} />
-              <Text style={{ color: '#007AFF', fontWeight: '500' }}>
-                Столов: {draft.tableIds.length}
-              </Text>
+              <Text style={{ color: '#007AFF', fontWeight: '500' }}>Столов: {draft.tableIds.length}</Text>
             </View>
-          )}
-          {isEditMode && (
-            <TouchableOpacity onPress={saveEditedOrder} style={styles.saveButton}>
-              <Text style={{ color: '#fff', fontWeight: '600' }}>Сохранить</Text>
-            </TouchableOpacity>
           )}
         </View>
         <Text style={styles.headerSubtitle}>
-          {categoryPath.length > 0
-            ? categoryPath.map(c => c.name).join(' / ')
-            : 'Все блюда'} • {filteredItems.length} позиций
+          {categoryPath.length > 0 ? categoryPath.map(c => c.name).join(' / ') : 'Все блюда'} • {filteredItems.length} позиций
         </Text>
       </View>
 
@@ -852,14 +717,12 @@ const WaiterMenu = () => {
         renderItem={renderMenuItem}
         keyExtractor={(item) => item.id.toString()}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={['#007AFF']} />}
-        contentContainerStyle={[styles.menuList, { paddingBottom: isAdmin && !isNewOrderMode && !isEditMode ? 100 : 20 }]}
+        contentContainerStyle={styles.menuList}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="restaurant-outline" size={60} color="#ccc" />
             <Text style={styles.emptyText}>
-              {categoryPath.length > 0
-                ? `В категории "${categoryPath[categoryPath.length - 1].name}" нет блюд`
-                : 'Меню пусто'}
+              {categoryPath.length > 0 ? `В категории "${categoryPath[categoryPath.length - 1].name}" нет блюд` : 'Меню пусто'}
             </Text>
           </View>
         }
@@ -867,9 +730,7 @@ const WaiterMenu = () => {
 
       {isAdmin && !isNewOrderMode && !isEditMode && (
         <TouchableOpacity style={styles.addButton} onPress={handleAddItem}>
-          <View style={styles.addButtonInner}>
-            <Ionicons name="add" size={28} color="#fff" />
-          </View>
+          <View style={styles.addButtonInner}><Ionicons name="add" size={28} color="#fff" /></View>
         </TouchableOpacity>
       )}
 
@@ -884,10 +745,7 @@ const WaiterMenu = () => {
                 {selectedItem.photo ? (
                   <Image
                     source={{ uri: getPhotoUrl(selectedItem.photo) ?? undefined }}
-                    style={[
-                      styles.modalImage,
-                      selectedImageAspectRatio ? { aspectRatio: selectedImageAspectRatio } : styles.modalImageFallback,
-                    ]}
+                    style={[styles.modalImage, selectedImageAspectRatio ? { aspectRatio: selectedImageAspectRatio } : styles.modalImageFallback]}
                     resizeMode="contain"
                   />
                 ) : (
@@ -900,9 +758,7 @@ const WaiterMenu = () => {
                   <Text style={styles.modalPrice}>{selectedItem.price} ₽</Text>
                   <Text style={styles.modalCategory}>{selectedItem.category_name}</Text>
                   <Text>{selectedItem.description || 'Описание отсутствует'}</Text>
-                  {selectedItem.is_selfserve && (
-                    <Text style={{ color: '#007AFF', marginTop: 5 }}>Подаётся официантом</Text>
-                  )}
+                  {selectedItem.is_selfserve && <Text style={{ color: '#007AFF', marginTop: 5 }}>Подаётся официантом</Text>}
                 </View>
                 {isAdmin && !isNewOrderMode && !isEditMode && (
                   <View style={styles.modalActions}>
@@ -934,35 +790,49 @@ const WaiterMenu = () => {
                 <Ionicons name="close" size={28} color="#333" />
               </TouchableOpacity>
             </View>
-            <ScrollView style={{ maxHeight: '70%' }}>
-              {cart.map(cartItem => {
-                const existing = (isEditMode && cartItem.id !== undefined)
-                  ? existingPlates.find(ep => ep.id === cartItem.id)
+
+            <FlatList
+              data={cart}
+              keyExtractor={(item) => (item.id !== undefined ? `existing-${item.id}` : `new-${item.item.id}`)}
+              style={{ flexShrink: 1 }}
+              renderItem={({ item: cartItem }) => {
+                const ep = cartItem.id !== undefined
+                  ? existingPlates.find(p => p.id === cartItem.id)
                   : null;
-                const isLocked = existing && existing.current_status !== 'waiting';
+                const isLocked = ep ? isPlateLockedByStatus(ep.current_status) : false;
+
                 return (
-                  <View key={cartItem.id || cartItem.item.id} style={[styles.cartItem, isLocked && { opacity: 0.6 }]}>
+                  <View style={[styles.cartItem, isLocked && { opacity: 0.6 }]}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontWeight: '600' }}>{cartItem.item.name}</Text>
+                      <Text style={{ fontWeight: '600' }}>{cartItem.item.name || `Блюдо #${cartItem.item.id}`}</Text>
                       <Text style={{ color: '#666' }}>{cartItem.item.price} ₽</Text>
+
+                      {isLocked && ep && (
+                        <Text style={{ fontSize: 12, color: '#e67e22', marginTop: 4 }}>
+                          Статус: {ep.current_status}
+                        </Text>
+                      )}
+
                       {!isLocked && (
                         <TextInput
                           style={styles.commentInput}
                           placeholder="Комментарий"
+                          placeholderTextColor="#999"
                           value={cartItem.comment}
-                          onChangeText={(text) => updateCartItem(cartItem.id || cartItem.item.id, cartItem.quantity, text)}
+                          onChangeText={(text) => updateCartItem(cartItem.id ?? cartItem.item.id, cartItem.quantity, text)}
                         />
                       )}
+
                       {!cartItem.item.is_selfserve ? (
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
                           <Text style={{ fontSize: 14, color: '#333' }}>Курс: </Text>
                           {!isLocked ? (
                             <>
-                              <TouchableOpacity onPress={() => updateCourseNumber(cartItem.id || cartItem.item.id, cartItem.course_number - 1)}>
+                              <TouchableOpacity onPress={() => updateCourseNumber(cartItem.id ?? cartItem.item.id, cartItem.course_number - 1)}>
                                 <Ionicons name="chevron-down" size={20} color="#007AFF" />
                               </TouchableOpacity>
                               <Text style={{ marginHorizontal: 6, fontSize: 16, fontWeight: '500' }}>{cartItem.course_number}</Text>
-                              <TouchableOpacity onPress={() => updateCourseNumber(cartItem.id || cartItem.item.id, cartItem.course_number + 1)}>
+                              <TouchableOpacity onPress={() => updateCourseNumber(cartItem.id ?? cartItem.item.id, cartItem.course_number + 1)}>
                                 <Ionicons name="chevron-up" size={20} color="#007AFF" />
                               </TouchableOpacity>
                             </>
@@ -977,62 +847,70 @@ const WaiterMenu = () => {
                         </View>
                       )}
                     </View>
+
                     <View style={styles.quantityControl}>
                       {!isLocked ? (
                         <>
-                          <TouchableOpacity onPress={() => updateCartItem(cartItem.id || cartItem.item.id, cartItem.quantity - 1)}>
+                          <TouchableOpacity onPress={() => updateCartItem(cartItem.id ?? cartItem.item.id, cartItem.quantity - 1)}>
                             <Ionicons name="remove-circle-outline" size={28} color="#007AFF" />
                           </TouchableOpacity>
                           <Text style={{ marginHorizontal: 8, fontSize: 16 }}>{cartItem.quantity}</Text>
-                          <TouchableOpacity onPress={() => updateCartItem(cartItem.id || cartItem.item.id, cartItem.quantity + 1)}>
+                          <TouchableOpacity onPress={() => updateCartItem(cartItem.id ?? cartItem.item.id, cartItem.quantity + 1)}>
                             <Ionicons name="add-circle-outline" size={28} color="#007AFF" />
                           </TouchableOpacity>
-                          <TouchableOpacity onPress={() => removeCartItem(cartItem.id || cartItem.item.id)} style={{ marginLeft: 12 }}>
+                          <TouchableOpacity onPress={() => removeCartItem(cartItem.id ?? cartItem.item.id)} style={{ marginLeft: 12 }}>
                             <Ionicons name="trash-outline" size={22} color="#e74c3c" />
                           </TouchableOpacity>
                         </>
                       ) : (
-                        <Text style={{ color: '#999' }}>Нельзя изменить</Text>
+                        <Text style={{ color: '#999', fontSize: 12 }}>Нельзя изменить</Text>
                       )}
                     </View>
                   </View>
                 );
-              })}
-            </ScrollView>
+              }}
+            />
+
             <View style={styles.cartFooter}>
-              <Text style={styles.totalText}>Итого: {getTotalPrice()} ₽</Text>
-
-              {isNewOrderMode && (
-                <TouchableOpacity
-                  style={[styles.submitOrderButton, { backgroundColor: '#e74c3c', marginBottom: 8 }]}
-                  onPress={handleCancelOrder}
-                >
-                  <Text style={{ color: '#fff', fontWeight: '600' }}>Отменить</Text>
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity
-                style={[
-                  styles.submitOrderButton,
-                  (draft.tableIds.length === 0 || cart.length === 0) && { opacity: 0.5 },
-                ]}
-                onPress={isNewOrderMode ? submitOrder : saveEditedOrder}
-                disabled={draft.tableIds.length === 0 || cart.length === 0 || submitting}
-              >
-                {submitting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={{ color: '#fff', fontWeight: '600' }}>
-                    {isNewOrderMode ? 'Оформить заказ' : 'Сохранить'}
-                  </Text>
+              <View style={styles.footerLeft}>
+                <Text style={styles.totalText}>Итого: {getTotalPrice()} ₽</Text>
+              </View>
+              <View style={styles.footerRight}>
+                {isNewOrderMode && (
+                  <TouchableOpacity
+                    style={[styles.footerButton, { backgroundColor: '#e74c3c' }]}
+                    onPress={handleCancelOrder}
+                  >
+                    <Text style={styles.footerButtonText}>Отменить</Text>
+                  </TouchableOpacity>
                 )}
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.footerButton,
+                    ((isNewOrderMode && (draft.tableIds.length === 0 || cart.length === 0))
+                      || (isEditMode && cart.length === 0)
+                      || submitting) && { opacity: 0.5 },
+                  ]}
+                  onPress={isNewOrderMode ? submitOrder : saveEditedOrder}
+                  disabled={
+                    (isNewOrderMode && (draft.tableIds.length === 0 || cart.length === 0))
+                    || (isEditMode && cart.length === 0)
+                    || submitting
+                  }
+                >
+                  {submitting
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={styles.footerButtonText}>
+                        {isNewOrderMode ? 'Оформить' : 'Сохранить'}
+                      </Text>
+                  }
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Модальное окно управления категориями */}
       <Modal animationType="fade" transparent visible={categoryTreeModalVisible} onRequestClose={() => setCategoryTreeModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { maxHeight: '85%' }]}>
@@ -1044,18 +922,12 @@ const WaiterMenu = () => {
               </TouchableOpacity>
             </View>
             <View style={styles.treeModalActions}>
-
-            <TouchableOpacity style={styles.treeActionButton} onPress={handleAddCategoryInTree}>
+              <TouchableOpacity style={styles.treeActionButton} onPress={handleAddCategoryInTree}>
                 <Ionicons name="add-circle-outline" size={20} color="#fff" />
                 <Text style={styles.treeActionButtonText}>Добавить</Text>
-              </TouchableOpacity></View>
-            <FlatList
-              data={flatCategories}
-              renderItem={renderTreeItem}
-              keyExtractor={(item) => item.id.toString()}
-              style={{ maxHeight: '100%' }}
-              contentContainerStyle={{ paddingBottom: 20 }}
-            />
+              </TouchableOpacity>
+            </View>
+            <FlatList data={flatCategories} renderItem={renderTreeItem} keyExtractor={(item) => item.id.toString()} style={{ maxHeight: '100%' }} />
           </View>
         </View>
       </Modal>
@@ -1072,139 +944,63 @@ const WaiterMenu = () => {
                   <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 20 }}>
                     {isCreatingCategory ? 'Добавить категорию' : 'Редактирование категории'}
                   </Text>
-
-                  {/* Имя категории */}
                   <View style={{ marginBottom: 16 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 }}>
-                      Название категории
-                    </Text>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 }}>Название категории</Text>
                     <TextInput
-                      style={[
-                        styles.commentInput,
-                        { borderWidth: 1, borderColor: '#ddd', paddingHorizontal: 12, paddingVertical: 10 }
-                      ]}
+                      style={[styles.commentInput, { borderWidth: 1, borderColor: '#ddd', paddingHorizontal: 12, paddingVertical: 10 }]}
                       placeholder="Введите название"
                       value={editingCategoryName}
                       onChangeText={setEditingCategoryName}
                       placeholderTextColor="#999"
                     />
                   </View>
-
-                  {/* Выбор родительской категории */}
                   <View style={{ marginBottom: 20 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 }}>
-                      Родительская категория
-                    </Text>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 }}>Родительская категория</Text>
                     <TouchableOpacity
-                      style={{
-                        borderWidth: 1,
-                        borderColor: '#ddd',
-                        borderRadius: 8,
-                        paddingHorizontal: 12,
-                        paddingVertical: 12,
-                        backgroundColor: '#f9f9f9'
-                      }}
+                      style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#f9f9f9' }}
                       onPress={() => setShowParentSelector(!showParentSelector)}
                     >
                       <Text style={{ color: selectedParentId ? '#333' : '#999' }}>
-                        {selectedParentId
-                          ? availableParentCategories.find(c => c.id === selectedParentId)?.name || 'Не найдена'
-                          : 'Выберите категорию'}
+                        {selectedParentId ? availableParentCategories.find(c => c.id === selectedParentId)?.name || 'Не найдена' : 'Выберите категорию'}
                       </Text>
                     </TouchableOpacity>
-
                     {showParentSelector && (
-                      <ScrollView
-                        style={{
-                          marginTop: 8,
-                          borderWidth: 1,
-                          borderColor: '#ddd',
-                          borderRadius: 8,
-                          maxHeight: 180,
-                        }}
-                        nestedScrollEnabled={true}
-                        keyboardShouldPersistTaps="handled"
-                      >
+                      <ScrollView style={{ marginTop: 8, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, maxHeight: 180 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                         <TouchableOpacity
                           style={{ paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' }}
-                          onPress={() => {
-                            setSelectedParentId(null);
-                            setShowParentSelector(false);
-                          }}
+                          onPress={() => { setSelectedParentId(null); setShowParentSelector(false); }}
                         >
-                          <Text style={{ color: selectedParentId === null ? '#007AFF' : '#333' }}>
-                            Основная категория
-                          </Text>
+                          <Text style={{ color: selectedParentId === null ? '#007AFF' : '#333' }}>Основная категория</Text>
                         </TouchableOpacity>
                         {availableParentCategories.map(cat => (
                           <TouchableOpacity
                             key={cat.id}
                             style={{ paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' }}
-                            onPress={() => {
-                              setSelectedParentId(cat.id);
-                              setShowParentSelector(false);
-                            }}
+                            onPress={() => { setSelectedParentId(cat.id); setShowParentSelector(false); }}
                           >
-                            <Text style={{ color: selectedParentId === cat.id ? '#007AFF' : '#333' }}>
-                              {cat.name}
-                            </Text>
+                            <Text style={{ color: selectedParentId === cat.id ? '#007AFF' : '#333' }}>{cat.name}</Text>
                           </TouchableOpacity>
                         ))}
                       </ScrollView>
                     )}
                   </View>
-
-                  {/* Кнопки действия */}
                   <View style={{ marginTop: 24, gap: 10 }}>
                     <TouchableOpacity
-                      style={{
-                        backgroundColor: '#007AFF',
-                        paddingVertical: 12,
-                        borderRadius: 8,
-                        alignItems: 'center'
-                      }}
-                      onPress={() => {
-                        if (isCreatingCategory) {
-                          createCategory((editingCategoryName ?? '').trim(), selectedParentId ?? undefined);
-                        } else {
-                          updateCategory();
-                        }
-                      }}
+                      style={{ backgroundColor: '#007AFF', paddingVertical: 12, borderRadius: 8, alignItems: 'center' }}
+                      onPress={() => isCreatingCategory ? createCategory((editingCategoryName ?? '').trim(), selectedParentId ?? undefined) : updateCategory()}
                     >
                       <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>
                         {isCreatingCategory ? 'Создать категорию' : 'Сохранить изменения'}
                       </Text>
                     </TouchableOpacity>
-
                     {!isCreatingCategory && (
-                      <TouchableOpacity
-                        style={{
-                          backgroundColor: '#f9991c',
-                          paddingVertical: 12,
-                          borderRadius: 8,
-                          alignItems: 'center'
-                        }}
-                        onPress={handleAddSubcategory}
-                      >
-                        <Text style={{ color: '#ffffff', fontWeight: '600', fontSize: 16 }}>
-                          Добавить подкатегорию
-                        </Text>
+                      <TouchableOpacity style={{ backgroundColor: '#f9991c', paddingVertical: 12, borderRadius: 8, alignItems: 'center' }} onPress={handleAddSubcategory}>
+                        <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Добавить подкатегорию</Text>
                       </TouchableOpacity>
                     )}
-
                     {!isCreatingCategory && (
-                      <TouchableOpacity
-                        style={{
-                          backgroundColor: '#e74c3c',
-                          paddingVertical: 12,
-                          borderRadius: 8,
-                          alignItems: 'center'
-                        }}
-                        onPress={deleteCategory}
-                      >
-                        <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>
-                          Удалить категорию
-                        </Text>
+                      <TouchableOpacity style={{ backgroundColor: '#e74c3c', paddingVertical: 12, borderRadius: 8, alignItems: 'center' }} onPress={deleteCategory}>
+                        <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Удалить категорию</Text>
                       </TouchableOpacity>
                     )}
                   </View>

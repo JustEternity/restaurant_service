@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
   modalName: { fontSize: 20, fontWeight: 'bold', color: '#333', flex: 1, marginRight: 10 },
   modalDetails: { gap: 15, marginBottom: 25 },
   detailItem: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  detailLabel: { fontSize: 14, color: '#666', width: 60 },
+  detailLabel: { fontSize: 14, color: '#666', width: 120 },
   detailValue: { fontSize: 14, color: '#333', flex: 1 },
   modalActions: { gap: 10 },
   modalActionButton: {

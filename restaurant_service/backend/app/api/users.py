@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
-from sqlalchemy.orm import selectinload
+from sqlalchemy import func, select, delete
+from sqlalchemy.orm import selectinload, aliased
 from typing import List, Optional
 
 from app.database import get_async_db
-from app.db_models import User, CookGroup, CooksInGroup, Specialization
+from app.db_models import User, CookGroup, CooksInGroup, CookingStatusHistory, Order, PlateForOrder
 from app.db_models.user_roles import Role
 from app.schemas.users_schemas import *
 from app.schemas.cook_group_schemas import CookGroupResponse
@@ -177,6 +177,68 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
+    if user.role_of_user and user.role_of_user.name == "cook":
+        CSH = CookingStatusHistory
+        CSH2 = aliased(CookingStatusHistory)
+
+        last_status_subq = (
+            select(
+                CSH.ordered_plate,
+                CSH.new_status
+            )
+            .where(
+                CSH.change_time == select(func.max(CSH2.change_time))
+                .where(CSH2.ordered_plate == CSH.ordered_plate)
+                .correlate(CSH)
+                .scalar_subquery()
+            )
+            .subquery()
+        )
+
+        active_stmt = (
+            select(func.count())
+            .select_from(PlateForOrder)
+            .join(last_status_subq, last_status_subq.c.ordered_plate == PlateForOrder.id)
+            .where(
+                PlateForOrder.cook == user_id,
+                last_status_subq.c.new_status.in_(["preparing", "ready"])
+            )
+        )
+
+        has_active = (await db.execute(active_stmt)).scalar_one() > 0
+
+        if has_active:
+            if user_data.role and user_data.role != "cook":
+                raise HTTPException(400, "Нельзя сменить роль: у повара есть блюда в работе")
+
+            if user_data.is_available is False:
+                raise HTTPException(400, "Нельзя деактивировать повара: у него есть блюда в работе")
+
+            if (
+                user_data.specialization_id is not None
+                and user_data.specialization_id != user.specialization_id
+            ):
+                raise HTTPException(400, "Нельзя сменить специализацию: у повара есть блюда в работе")
+
+    if user.role_of_user and user.role_of_user.name == "waiter":
+        stmt = (
+            select(func.count())
+            .select_from(Order)
+            .where(
+                Order.waiter == user_id,
+                Order.status == "active"
+            )
+        )
+
+        has_active_orders = (await db.execute(stmt)).scalar_one() > 0
+
+        if has_active_orders:
+            if user_data.role and user_data.role != "waiter":
+                raise HTTPException(400, "Нельзя сменить роль: у официанта есть активные заказы")
+
+            if user_data.is_available is False:
+                raise HTTPException(400, "Нельзя деактивировать официанта: у него есть активные заказы")
+
     target_role = user.role_of_user.name if user.role_of_user else None
     if target_role == "superadmin" and current_user.role_of_user.name != "superadmin":
         raise HTTPException(status_code=403, detail="Нельзя редактировать суперадмина")
@@ -230,9 +292,17 @@ async def update_user(
     await db.commit()
     await db.refresh(user, attribute_names=["role_of_user", "specialization_of_user", "user_in_group"])
 
+    logout_reason = None
+
     if user_data.password is not None:
+        logout_reason = "password_changed"
+
+    if user_data.role is not None or user_data.is_available is not None:
+        logout_reason = logout_reason or "role_or_status_changed"
+
+    if logout_reason:
         await manager.send_personal_message(
-            {"type": "force_logout", "reason": "password_changed"},
+            {"type": "force_logout", "reason": logout_reason},
             user_id
         )
 
@@ -341,6 +411,56 @@ async def delete_user(
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    if user.role_of_user and user.role_of_user.name == "cook":
+        CSH = CookingStatusHistory
+        CSH2 = aliased(CookingStatusHistory)
+
+        last_status_subq = (
+            select(
+                CSH.ordered_plate,
+                CSH.new_status
+            )
+            .where(
+                CSH.change_time == select(func.max(CSH2.change_time))
+                .where(CSH2.ordered_plate == CSH.ordered_plate)
+                .correlate(CSH)
+                .scalar_subquery()
+            )
+            .subquery()
+        )
+
+        stmt = (
+            select(func.count())
+            .select_from(PlateForOrder)
+            .join(last_status_subq, last_status_subq.c.ordered_plate == PlateForOrder.id)
+            .where(
+                PlateForOrder.cook == user_id,
+                last_status_subq.c.new_status.in_(["preparing", "ready"])
+            )
+        )
+
+        if (await db.execute(stmt)).scalar_one() > 0:
+            raise HTTPException(
+                400,
+                "Нельзя удалить повара: у него есть блюда в работе"
+            )
+
+    if user.role_of_user and user.role_of_user.name == "waiter":
+        stmt = (
+            select(func.count())
+            .select_from(Order)
+            .where(
+                Order.waiter == user_id,
+                Order.status == "active"
+            )
+        )
+
+        if (await db.execute(stmt)).scalar_one() > 0:
+            raise HTTPException(
+                400,
+                "Нельзя удалить официанта: у него есть активные заказы"
+            )
 
     await manager.send_personal_message(
         {"type": "force_logout", "reason": "user_deleted"},

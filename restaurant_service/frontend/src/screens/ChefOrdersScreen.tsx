@@ -75,6 +75,7 @@ interface FlatOrderedPlate {
   recommendedCookId?: number;
   recommendedCookName?: string;
   priorityScore?: number;
+  waitingMinutes?: number;
 }
 
 interface Cook {
@@ -86,9 +87,16 @@ interface Cook {
 type StatusFilter = 'waiting' | 'preparing' | 'ready';
 type SpecializationFilter = 'all' | number;
 
+const isCourseDone = (status: string) =>
+  status === 'ready' || status === 'served';
+
+
 const ChefOrders = () => {
   const { user } = useAuth();
+
   const [items, setItems] = useState<FlatOrderedPlate[]>([]);
+  const [allOrderPlates, setAllOrderPlates] = useState<Map<number, OrderPlate[]>>(new Map());
+
   const [filteredItems, setFilteredItems] = useState<FlatOrderedPlate[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -108,6 +116,22 @@ const ChefOrders = () => {
 
   const plateToSpecializations = useRef<Map<number, Set<number>>>(new Map());
 
+  const statsCacheRef = useRef<{ ts: number; data: Map<string, number> }>({
+    ts: 0,
+    data: new Map(),
+  });
+
+  const activeTasksCacheRef = useRef<{ ts: number; data: Map<number, ActiveTask[]> }>({
+    ts: 0,
+    data: new Map(),
+  });
+
+  const recommendationsCache = useRef<{
+    key: string;
+    data: FlatOrderedPlate[];
+    ts: number;
+  } | null>(null);
+
   const loadAllowedPlateIds = useCallback(async (): Promise<Set<number>> => {
     const specializationIds = new Set<number>();
     const specializationsMap = new Map<number, Specialization>();
@@ -120,11 +144,10 @@ const ChefOrders = () => {
         specializationsMap.set(currentUser.specialization.id, currentUser.specialization);
       }
 
-      if (currentUser.cook_groups && currentUser.cook_groups.length > 0) {
+      if (currentUser.cook_groups?.length > 0) {
         for (const group of currentUser.cook_groups) {
           const cooksRes = await api.get(`/cook-groups/${group.id}/cooks/`);
-          const cooks = cooksRes.data;
-          cooks.forEach((cook: any) => {
+          cooksRes.data.forEach((cook: any) => {
             if (cook.specialization?.id) {
               specializationIds.add(cook.specialization.id);
               specializationsMap.set(cook.specialization.id, cook.specialization);
@@ -138,19 +161,15 @@ const ChefOrders = () => {
 
       for (const specId of specializationIds) {
         const platesRes = await api.get(`/plates-specializations/specialization/${specId}`);
-        const plates: PlatesForSpecializationLink[] = platesRes.data;
-        plates.forEach(link => {
+        (platesRes.data as PlatesForSpecializationLink[]).forEach(link => {
           allowedPlateIds.add(link.plate_id);
-          if (!newPlateToSpec.has(link.plate_id)) {
-            newPlateToSpec.set(link.plate_id, new Set());
-          }
+          if (!newPlateToSpec.has(link.plate_id)) newPlateToSpec.set(link.plate_id, new Set());
           newPlateToSpec.get(link.plate_id)!.add(specId);
         });
       }
 
       plateToSpecializations.current = newPlateToSpec;
       setAvailableSpecializations(Array.from(specializationsMap.values()));
-
       return allowedPlateIds;
     } catch (error) {
       console.error('Ошибка получения разрешённых блюд', error);
@@ -164,17 +183,12 @@ const ChefOrders = () => {
       const currentUser = userRes.data;
       const cooksMap = new Map<number, Cook>();
 
-      if (currentUser.cook_groups && currentUser.cook_groups.length > 0) {
+      if (currentUser.cook_groups?.length > 0) {
         for (const group of currentUser.cook_groups) {
           const cooksRes = await api.get(`/cook-groups/${group.id}/cooks/`);
-          const cooks = cooksRes.data;
-          cooks.forEach((c: any) => {
+          cooksRes.data.forEach((c: any) => {
             if (!cooksMap.has(c.id)) {
-              cooksMap.set(c.id, {
-                id: c.id,
-                name: c.name,
-                specialization: c.specialization,
-              });
+              cooksMap.set(c.id, { id: c.id, name: c.name, specialization: c.specialization });
             }
           });
         }
@@ -185,176 +199,219 @@ const ChefOrders = () => {
     }
   }, [user?.id]);
 
-  useEffect(() => {
-    loadData();
-    loadGroupCooks();
-  }, []);
+  const computeEarlyCourseHighlight = useCallback(
+    (plates: FlatOrderedPlate[]): FlatOrderedPlate[] => {
+      const earliestPendingCourse = new Map<number, number>();
 
-  const fetchActiveTasks = useCallback(async (cookId: number): Promise<ActiveTask[]> => {
-    try {
-      const res = await api.get(`/orders/${cookId}/active-tasks`);
-      return res.data;
-    } catch {
-      return [];
-    }
-  }, []);
-
-  const computeEarlyCourseHighlight = useCallback((plates: FlatOrderedPlate[]): FlatOrderedPlate[] => {
-    const orderMap = new Map<number, FlatOrderedPlate[]>();
-    plates.forEach(p => {
-      const arr = orderMap.get(p.order_id) || [];
-      arr.push(p);
-      orderMap.set(p.order_id, arr);
-    });
-
-    return plates.map(p => {
-      const siblings = orderMap.get(p.order_id) || [];
-      const minCourse = Math.min(...siblings.map(s => s.course_number));
-      const maxCourse = Math.max(...siblings.map(s => s.course_number));
-      const highlight = (minCourse !== maxCourse) && (p.course_number === minCourse);
-      return { ...p, highlightedAsEarlyCourse: highlight };
-    });
-  }, []);
-
-  const computeRecommendations = useCallback(async (
-    plates: FlatOrderedPlate[],
-    currentCookId: number,
-    groupCooks: Cook[]
-  ): Promise<FlatOrderedPlate[]> => {
-    if (plates.length === 0) return plates;
-
-    const tasksPromises = groupCooks.map(cook => fetchActiveTasks(cook.id));
-    const allTasks = await Promise.all(tasksPromises);
-    const tasksMap = new Map<number, ActiveTask[]>();
-    groupCooks.forEach((cook, idx) => tasksMap.set(cook.id, allTasks[idx]));
-
-    const uniquePlateIds = [...new Set(plates.map(p => p.plate_id))];
-
-    const avgCache = new Map<string, number>();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const dateStr = (d: Date) => d.toISOString().split('T')[0];
-
-    await Promise.all(groupCooks.map(async (cook) => {
-      await Promise.all(uniquePlateIds.map(async (plateId) => {
-        const key = `${cook.id}_${plateId}`;
-        if (avgCache.has(key)) return;
-        try {
-          const res = await api.get('/statistics/kitchen/details', {
-            params: {
-              start_date: dateStr(thirtyDaysAgo),
-              end_date: dateStr(new Date()),
-              cook_id: cook.id,
-              plate_id: plateId
-            }
-          });
-          const avgItem = res.data.avg_preparation_time?.find((item: any) => item.plate_id === plateId);
-          if (avgItem && typeof avgItem.avg_minutes === 'number') {
-            avgCache.set(key, avgItem.avg_minutes);
-          }
-        } catch {}
-      }));
-    }));
-
-    const getAvg = (cookId: number, plateId: number): number => {
-      return avgCache.get(`${cookId}_${plateId}`) ?? 20;
-    };
-
-    const now = Date.now();
-    const busyUntilMap = new Map<number, number>();
-    for (const cook of groupCooks) {
-      const tasks = tasksMap.get(cook.id) || [];
-      let maxRemaining = 0;
-      for (const task of tasks) {
-        const avgTime = getAvg(cook.id, task.plate_id);
-        const elapsed = (now - new Date(task.started_at).getTime()) / 60000;
-        const remaining = Math.max(0, avgTime - elapsed);
-        if (remaining > maxRemaining) {
-          maxRemaining = remaining;
-        }
-      }
-      busyUntilMap.set(cook.id, maxRemaining);
-    }
-
-    const enrichedPlates = plates.map(plate => {
-      let bestCookId: number | null = null;
-      let bestCookName = '';
-      let bestTime = Infinity;
-
-      for (const cook of groupCooks) {
-        const specsOfPlate = plateToSpecializations.current.get(plate.plate_id);
-        if (!specsOfPlate || !cook.specialization || !specsOfPlate.has(cook.specialization.id)) {
-          continue;
-        }
-
-        const avgTime = getAvg(cook.id, plate.plate_id);
-        const completionTime = (busyUntilMap.get(cook.id) || 0) + avgTime;
-        if (completionTime < bestTime) {
-          bestTime = completionTime;
-          bestCookId = cook.id;
-          bestCookName = cook.name;
-        }
+      for (const [orderId, allPlates] of allOrderPlates.entries()) {
+        const pendingCourses = allPlates
+          .filter(p => !isCourseDone(p.current_status))
+          .map(p => p.course_number);
+        if (pendingCourses.length === 0) continue;
+        earliestPendingCourse.set(orderId, Math.min(...pendingCourses));
       }
 
-      return {
-        ...plate,
-        recommendedCookId: bestCookId ?? undefined,
-        recommendedCookName: bestCookName || undefined,
-        recommended: bestCookId === currentCookId,
-        priorityScore: bestTime !== Infinity ? bestTime : undefined,
-      };
-    });
+      return plates.map(p => {
+        const earliest = earliestPendingCourse.get(p.order_id);
+        const orderPlates = allOrderPlates.get(p.order_id) ?? [];
+        const courseNumbers = new Set(orderPlates.map(op => op.course_number));
+        const hasMultipleCourses = courseNumbers.size > 1;
 
-    enrichedPlates.sort((a, b) => {
-      if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
-      if (a.highlightedAsEarlyCourse !== b.highlightedAsEarlyCourse) return a.highlightedAsEarlyCourse ? -1 : 1;
-      if (a.course_number !== b.course_number) return a.course_number - b.course_number;
-      return (a.priorityScore ?? Infinity) - (b.priorityScore ?? Infinity);
-    });
-
-    return enrichedPlates;
-  }, [fetchActiveTasks]);
-
-  const applyFilter = useCallback(async (
-    source: FlatOrderedPlate[],
-    statusF: StatusFilter,
-    specF: SpecializationFilter
-  ) => {
-    let filtered = source.filter(item => item.current_status === statusF);
-    if (specF !== 'all') {
-      filtered = filtered.filter(item => {
-        const specs = plateToSpecializations.current.get(item.plate_id);
-        return specs && specs.has(specF);
+        return {
+          ...p,
+          highlightedAsEarlyCourse:
+            hasMultipleCourses && earliest !== undefined && p.course_number === earliest,
+        };
       });
-    }
+    },
+    [allOrderPlates]
+  );
 
-    const withHighlight = computeEarlyCourseHighlight(filtered);
+  const computeRecommendations = useCallback(
+    async (
+      plates: FlatOrderedPlate[],
+      currentCookId: number,
+      cooks: Cook[]
+    ): Promise<FlatOrderedPlate[]> => {
+      if (plates.length === 0) return plates;
 
-    let withRecs: FlatOrderedPlate[];
-    if (specF !== 'all') {
-      try {
-        withRecs = await computeRecommendations(withHighlight, user?.id ?? 0, groupCooks);
-      } catch (error) {
-        console.error('Ошибка расчёта рекомендаций:', error);
-        withRecs = withHighlight.map(p => ({ ...p, recommended: false }));
+      const cacheKey = JSON.stringify({
+        plates: plates.map(p => `${p.uid}:${p.current_status}`),
+        cooks: cooks.map(c => c.id),
+        currentCookId,
+      });
+
+      if (
+        recommendationsCache.current?.key === cacheKey &&
+        Date.now() - recommendationsCache.current.ts < 10_000
+      ) {
+        return recommendationsCache.current.data;
       }
-    } else {
-      withRecs = withHighlight.map(p => ({ ...p, recommended: false }));
-    }
 
-    const sortedItems = withRecs.sort((a, b) => {
-      if (a.highlightedAsEarlyCourse !== b.highlightedAsEarlyCourse) return a.highlightedAsEarlyCourse ? -1 : 1;
-      if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
-      if (a.course_number !== b.course_number) return a.course_number - b.course_number;
+      const now = Date.now();
+
+      if (now - activeTasksCacheRef.current.ts > 30_000) {
+        activeTasksCacheRef.current = { ts: now, data: new Map() };
+      }
+
+      const fetchActiveTasksCached = async (cookId: number): Promise<ActiveTask[]> => {
+        if (activeTasksCacheRef.current.data.has(cookId)) {
+          return activeTasksCacheRef.current.data.get(cookId)!;
+        }
+        try {
+          const res = await api.get(`/orders/${cookId}/active-tasks`);
+          activeTasksCacheRef.current.data.set(cookId, res.data);
+          return res.data;
+        } catch {
+          return [];
+        }
+      };
+
+      const statsExpired = now - statsCacheRef.current.ts > 5 * 60_000;
+      let avgCache = statsCacheRef.current.data;
+
+      if (statsExpired) {
+        avgCache = new Map();
+        const uniquePlateIds = [...new Set(plates.map(p => p.plate_id))];
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const dateStr = (d: Date) => d.toISOString().split('T')[0];
+
+        for (const cook of cooks) {
+          for (const plateId of uniquePlateIds) {
+            try {
+              const res = await api.get('/statistics/kitchen/details', {
+                params: {
+                  start_date: dateStr(thirtyDaysAgo),
+                  end_date: dateStr(new Date()),
+                  cook_id: cook.id,
+                  plate_id: plateId,
+                },
+              });
+              const avgItem = res.data.avg_preparation_time?.find(
+                (item: any) => item.plate_id === plateId
+              );
+              if (avgItem && typeof avgItem.avg_minutes === 'number') {
+                avgCache.set(`${cook.id}_${plateId}`, avgItem.avg_minutes);
+              }
+            } catch {}
+          }
+        }
+        statsCacheRef.current = { ts: now, data: avgCache };
+      }
+
+      const getAvgTime = (cookId: number, plateId: number): number =>
+        avgCache.get(`${cookId}_${plateId}`) ?? 20;
+
+      const busyUntilMap = new Map<number, number>();
+      for (const cook of cooks) {
+        const tasks = await fetchActiveTasksCached(cook.id);
+        let totalLoad = 0;
+        for (const task of tasks) {
+          const avgTime = getAvgTime(cook.id, task.plate_id);
+          const elapsedMin = (now - new Date(task.started_at).getTime()) / 60_000;
+          const remaining = Math.max(0, avgTime - elapsedMin);
+          totalLoad += remaining * 0.6;
+        }
+        busyUntilMap.set(cook.id, totalLoad);
+      }
+
+      const enriched = plates.map(plate => {
+        const portionFactor = 1 + (plate.count - 1) * 0.7;
+
+        let bestCookId: number | null = null;
+        let bestCookName = '';
+        let bestEta = Infinity;
+
+        for (const cook of cooks) {
+          const specs = plateToSpecializations.current.get(plate.plate_id);
+          if (!specs || !cook.specialization || !specs.has(cook.specialization.id)) continue;
+
+          const avgTime = getAvgTime(cook.id, plate.plate_id);
+          const eta = (busyUntilMap.get(cook.id) ?? 0) + avgTime * portionFactor;
+
+          if (eta < bestEta) {
+            bestEta = eta;
+            bestCookId = cook.id;
+            bestCookName = cook.name;
+          }
+        }
+
+        return {
+          ...plate,
+          recommendedCookId: bestCookId ?? undefined,
+          recommendedCookName: bestCookName || undefined,
+          recommended: bestCookId === currentCookId,
+          priorityScore: bestEta !== Infinity ? bestEta : undefined,
+        };
+      });
+
+      recommendationsCache.current = { key: cacheKey, data: enriched, ts: now };
+      return enriched;
+    },
+    []
+  );
+
+  const applyFilter = useCallback(
+    async (
+      source: FlatOrderedPlate[],
+      statusF: StatusFilter,
+      specF: SpecializationFilter
+    ) => {
+      let filtered = source.filter(item => item.current_status === statusF);
+
       if (specF !== 'all') {
-        return (a.priorityScore ?? Infinity) - (b.priorityScore ?? Infinity);
-      } else {
-        return new Date(a.timestart).getTime() - new Date(b.timestart).getTime();
+        filtered = filtered.filter(item => {
+          const specs = plateToSpecializations.current.get(item.plate_id);
+          return specs && specs.has(specF as number);
+        });
       }
-    });
 
-    setFilteredItems(sortedItems);
-  }, [user?.id, groupCooks, computeEarlyCourseHighlight, computeRecommendations]);
+      const withHighlight = computeEarlyCourseHighlight(filtered);
+
+      const now = Date.now();
+      const withWaiting = withHighlight.map(p => ({
+        ...p,
+        waitingMinutes: (now - new Date(p.timestart).getTime()) / 60_000,
+      }));
+
+      let withRecs: FlatOrderedPlate[];
+      if (statusF === 'waiting') {
+        try {
+          withRecs = await computeRecommendations(withWaiting, user?.id ?? 0, groupCooks);
+        } catch (error) {
+          console.error('Ошибка расчёта рекомендаций:', error);
+          withRecs = withWaiting.map(p => ({ ...p, recommended: false }));
+        }
+      } else {
+        withRecs = withWaiting.map(p => ({
+          ...p,
+          recommended: false,
+          recommendedCookId: undefined,
+          recommendedCookName: undefined,
+          priorityScore: undefined,
+        }));
+      }
+
+      const sorted = [...withRecs].sort((a, b) => {
+        if (a.highlightedAsEarlyCourse !== b.highlightedAsEarlyCourse)
+          return a.highlightedAsEarlyCourse ? -1 : 1;
+
+        if (specF === 'all' || statusF !== 'waiting') {
+          const waitDiff = (b.waitingMinutes ?? 0) - (a.waitingMinutes ?? 0);
+          if (Math.abs(waitDiff) > 0.5) return waitDiff;
+          return a.course_number - b.course_number;
+        } else {
+          if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
+          if (a.course_number !== b.course_number) return a.course_number - b.course_number;
+          return (a.priorityScore ?? Infinity) - (b.priorityScore ?? Infinity);
+        }
+      });
+
+      setFilteredItems(sorted);
+    },
+    [user?.id, groupCooks, computeEarlyCourseHighlight, computeRecommendations]
+  );
 
   const loadData = useCallback(async () => {
     try {
@@ -369,11 +426,18 @@ const ChefOrders = () => {
       const ordersRes = await api.get('/orders/?status=active');
       const orders: Order[] = ordersRes.data;
 
+      const newAllOrderPlates = new Map<number, OrderPlate[]>();
+      for (const order of orders) {
+        newAllOrderPlates.set(order.id, order.plates);
+      }
+      setAllOrderPlates(newAllOrderPlates);
+
       const groupedMap = new Map<string, FlatOrderedPlate>();
       for (const order of orders) {
         for (const plate of order.plates) {
-          if (plate.is_considered === false) continue;
+          if (!plate.is_considered) continue;
           if (!allowedPlateIds.has(plate.plate_id)) continue;
+
           const key = `${order.id}_${plate.id}`;
           const existing = groupedMap.get(key);
           if (existing) {
@@ -398,7 +462,9 @@ const ChefOrders = () => {
       }
 
       const flatList = Array.from(groupedMap.values());
-      flatList.sort((a, b) => new Date(a.timestart).getTime() - new Date(b.timestart).getTime());
+      flatList.sort(
+        (a, b) => new Date(a.timestart).getTime() - new Date(b.timestart).getTime()
+      );
       setItems(flatList);
       await applyFilter(flatList, statusFilter, specializationFilter);
     } catch (error) {
@@ -410,18 +476,85 @@ const ChefOrders = () => {
   }, [loadAllowedPlateIds, statusFilter, specializationFilter, applyFilter]);
 
   useEffect(() => {
+    loadData();
+    loadGroupCooks();
+  }, []);
+
+  useEffect(() => {
     applyFilter(items, statusFilter, specializationFilter);
   }, [statusFilter, specializationFilter, items, applyFilter]);
 
-  const handleRefresh = () => {
+  useEffect(() => {
+    const interval = setInterval(() => { statsCacheRef.current.ts = 0; }, 5 * 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleRefresh = useCallback(() => {
     setRefreshing(true);
     loadData();
-  };
+  }, [loadData]);
 
-  const openDetail = (item: FlatOrderedPlate) => {
-    setSelectedItem(item);
-    setDetailModalVisible(true);
-  };
+  const { addHandler } = useWebSocket();
+  useEffect(() => {
+    const unsubscribe = addHandler((data: any) => {
+      if (
+        data.type === 'new_order' ||
+        data.type === 'plate_status_changed' ||
+        data.type === 'order_updated' ||
+        data.type === 'cooking_status_changed' ||
+        data.type === 'cook_group_updated' ||
+        data.type === 'spec_updated'
+      ) {
+        handleRefresh();
+      }
+    });
+    return unsubscribe;
+  }, [addHandler, handleRefresh]);
+
+  const grouped = useMemo(() => {
+    type CookSection = { cook: Cook; plates: FlatOrderedPlate[] };
+    const cookSections = new Map<number, CookSection>();
+    const unassigned: FlatOrderedPlate[] = [];
+
+    const showSections =
+      specializationFilter !== 'all' && statusFilter === 'waiting';
+
+    if (!showSections) {
+      filteredItems.forEach(item => unassigned.push(item));
+      return { cookSections, unassigned };
+    }
+
+    const specId = specializationFilter as number;
+    const eligibleCooks = groupCooks.filter(
+      c => c.specialization && c.specialization.id === specId
+    );
+
+    const MAX_PER_COOK = 4;
+    const inAnySectionUids = new Set<string>();
+
+    for (const cook of eligibleCooks) {
+      const cookPlates = filteredItems
+        .filter(item => {
+          const specs = plateToSpecializations.current.get(item.plate_id);
+          return specs && cook.specialization && specs.has(cook.specialization.id);
+        })
+        .slice(0, MAX_PER_COOK);
+
+      if (cookPlates.length > 0) {
+        cookSections.set(cook.id, { cook, plates: cookPlates });
+        cookPlates.forEach(p => inAnySectionUids.add(p.uid));
+      }
+    }
+
+    filteredItems.forEach(item => {
+      if (!inAnySectionUids.has(item.uid)) {
+        unassigned.push(item);
+      }
+    });
+
+    return { cookSections, unassigned };
+  }, [filteredItems, specializationFilter, statusFilter, groupCooks]);
+
 
   const getNextStatus = (current: string) => {
     switch (current) {
@@ -439,17 +572,27 @@ const ChefOrders = () => {
     }
   };
 
+  const getStatusInfo = (status: string) => {
+    switch (status) {
+      case 'waiting':   return { label: 'Ожидает',   color: '#f39c12' };
+      case 'preparing': return { label: 'Готовится', color: '#3498db' };
+      case 'ready':     return { label: 'Готово',    color: '#2ecc71' };
+      case 'served':    return { label: 'Подано',    color: '#95a5a6' };
+      default:          return { label: status,      color: '#7f8c8d' };
+    }
+  };
+
   const openChangeStatus = (nextStatus: string) => {
     setTargetStatus(nextStatus);
-
     const allowedSpecs = selectedItem
       ? plateToSpecializations.current.get(selectedItem.plate_id)
       : null;
     const currentUserAllowed =
       allowedSpecs && user?.id
-        ? groupCooks.find(c => c.id === user.id && c.specialization && allowedSpecs.has(c.specialization.id))
+        ? groupCooks.find(
+            c => c.id === user.id && c.specialization && allowedSpecs.has(c.specialization.id)
+          )
         : null;
-
     setSelectedCookId(currentUserAllowed ? user?.id ?? null : null);
     setChangeStatusModalVisible(true);
   };
@@ -458,15 +601,18 @@ const ChefOrders = () => {
     if (!selectedItem || !targetStatus || !selectedCookId) return;
     setLoadingChange(true);
     try {
-      await api.put(`/orders/plate/${selectedItem.plate_order_id}/status/${targetStatus}?change_by=${selectedCookId}`);
+      await api.put(
+        `/orders/plate/${selectedItem.plate_order_id}/status/${targetStatus}?change_by=${selectedCookId}`
+      );
       setChangeStatusModalVisible(false);
       setDetailModalVisible(false);
       loadData();
       Alert.alert('Успех', `Статус изменён на "${getStatusLabel(targetStatus)}"`);
     } catch (error: any) {
-      const msg = error.response?.status === 409
-        ? "Этот статус уже установлен другим поваром"
-        : (error.response?.data?.detail || error.message || 'Не удалось изменить статус');
+      const msg =
+        error.response?.status === 409
+          ? 'Этот статус уже установлен другим поваром'
+          : error.response?.data?.detail || error.message || 'Не удалось изменить статус';
       Alert.alert('Ошибка', msg);
       setChangeStatusModalVisible(false);
       setDetailModalVisible(false);
@@ -476,29 +622,20 @@ const ChefOrders = () => {
     }
   };
 
-  const getStatusInfo = (status: string) => {
-    switch (status) {
-      case 'waiting': return { label: 'Ожидает', color: '#f39c12' };
-      case 'preparing': return { label: 'Готовится', color: '#3498db' };
-      case 'ready': return { label: 'Готово', color: '#2ecc71' };
-      case 'served': return { label: 'Подано', color: '#95a5a6' };
-      default: return { label: status, color: '#7f8c8d' };
-    }
-  };
-
   const rollbackStatus = async (plateOrderId: number, expectedCurrentStatus: string) => {
     setLoadingRollback(true);
     try {
       await api.delete(`/cooking-status-history/rollback/${plateOrderId}`, {
-        params: { expected_current_status: expectedCurrentStatus }
+        params: { expected_current_status: expectedCurrentStatus },
       });
       Alert.alert('Успешно', 'Статус откачен');
       setDetailModalVisible(false);
       loadData();
     } catch (error: any) {
-      const msg = error.response?.status === 409
-        ? "Статус уже изменен другим поваром"
-        : (error.response?.data?.detail || error.message || 'Не удалось откатить статус');
+      const msg =
+        error.response?.status === 409
+          ? 'Статус уже изменен другим поваром'
+          : error.response?.data?.detail || error.message || 'Не удалось откатить статус';
       Alert.alert('Ошибка', msg);
       setDetailModalVisible(false);
       loadData();
@@ -507,68 +644,44 @@ const ChefOrders = () => {
     }
   };
 
-  const { addHandler } = useWebSocket();
-  useEffect(() => {
-    const unsubscribe = addHandler((data: any) => {
-      if (data.type === 'new_order' ||
-        data.type === 'plate_status_changed' ||
-        data.type === 'order_updated') {
-        handleRefresh();
-      }
-    });
-    return unsubscribe;
-  }, [addHandler, handleRefresh]);
 
-  const grouped = useMemo(() => {
-    const personal: FlatOrderedPlate[] = [];
-    const otherMap = new Map<number, { cook: Cook; plates: FlatOrderedPlate[] }>();
-    const unassigned: FlatOrderedPlate[] = [];
+  const openDetail = (item: FlatOrderedPlate) => {
+    setSelectedItem(item);
+    setDetailModalVisible(true);
+  };
 
-    if (specializationFilter === 'all' || statusFilter !== 'waiting') {
-      filteredItems.forEach(item => unassigned.push(item));
-      return { personal, otherMap, unassigned };
-    }
-
-    filteredItems.forEach(item => {
-      if (item.recommended) {
-        personal.push(item);
-      } else if (item.recommendedCookId && item.recommendedCookId !== user?.id) {
-        const cook = groupCooks.find(c => c.id === item.recommendedCookId);
-        if (cook) {
-          if (!otherMap.has(cook.id)) {
-            otherMap.set(cook.id, { cook, plates: [] });
-          }
-          otherMap.get(cook.id)!.plates.push(item);
-        } else {
-          unassigned.push(item);
-        }
-      } else {
-        unassigned.push(item);
-      }
-    });
-
-    return { personal, otherMap, unassigned };
-  }, [filteredItems, user?.id, groupCooks, specializationFilter]);
-
-  const renderSliderCard = (item: FlatOrderedPlate) => (
-    <TouchableOpacity key={item.uid} style={styles.recommendedCard} onPress={() => openDetail(item)}>
-      <Text style={styles.recPlateName} numberOfLines={1}>{item.plate_name}</Text>
+  const renderSliderCard = (item: FlatOrderedPlate, isCurrentCook: boolean) => (
+    <TouchableOpacity
+      key={item.uid}
+      style={[styles.recommendedCard, isCurrentCook && styles.recommendedCardHighlight]}
+      onPress={() => openDetail(item)}
+    >
+      <Text style={styles.recPlateName} numberOfLines={1}>
+        {item.plate_name}
+      </Text>
       <Text style={styles.recCount}>x{item.count}</Text>
       <Text style={styles.recOrder}>Заказ #{item.order_id}</Text>
-      {item.highlightedAsEarlyCourse && <Ionicons name="timer-outline" size={14} color="#e67e22" />}
+      {item.highlightedAsEarlyCourse && (
+        <Ionicons name="timer-outline" size={14} color="#e67e22" />
+      )}
     </TouchableOpacity>
   );
 
   const renderItem = ({ item }: { item: FlatOrderedPlate }) => {
     const statusInfo = getStatusInfo(item.current_status);
     const isRecommendedForCurrentUser = item.recommended && specializationFilter !== 'all';
-    const recommendedByOther = item.recommendedCookId && item.recommendedCookId !== user?.id;
+    const showOtherCookLabel =
+      specializationFilter !== 'all' &&
+      item.recommendedCookId &&
+      item.recommendedCookId !== user?.id;
 
     return (
-      <TouchableOpacity style={styles.card} onPress={() => openDetail(item)} activeOpacity={0.7}>
-        {item.highlightedAsEarlyCourse && (
-          <View style={styles.earlyCourseIndicator} />
-        )}
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => openDetail(item)}
+        activeOpacity={0.7}
+      >
+        {item.highlightedAsEarlyCourse && <View style={styles.earlyCourseIndicator} />}
         <View style={styles.cardHeader}>
           <Text style={styles.plateName}>
             {item.plate_name}
@@ -587,14 +700,22 @@ const ChefOrders = () => {
           </View>
         </View>
         <Text style={styles.time}>
-          {new Date(item.timestart).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+          {new Date(item.timestart).toLocaleTimeString('ru-RU', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
         </Text>
-        {item.highlightedAsEarlyCourse && (
-          <Text style={styles.earlyCourseLabel}> Повышенный приоритет</Text>
+        {item.comments.length > 0 && (
+          <Text style={styles.cardComment} numberOfLines={2}>
+            💬 {item.comments.join(' · ')}
+          </Text>
         )}
-        {recommendedByOther && (
+        {item.highlightedAsEarlyCourse && (
+          <Text style={styles.earlyCourseLabel}>Повышенный приоритет</Text>
+        )}
+        {showOtherCookLabel && (
           <Text style={styles.recommendedCookLabel}>
-            {item.recommendedCookName}
+            Рек.: {item.recommendedCookName}
           </Text>
         )}
       </TouchableOpacity>
@@ -660,34 +781,36 @@ const ChefOrders = () => {
         </View>
       )}
 
-      {statusFilter === 'waiting' && grouped.personal.length > 0 && (
-        <View style={styles.recommendedSection}>
-          <Text style={styles.sectionTitle}> {user?.name}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
-            {grouped.personal.map(item => renderSliderCard(item))}
-          </ScrollView>
-        </View>
-      )}
-
-      {statusFilter === 'waiting' && Array.from(grouped.otherMap.entries()).map(([cookId, { cook, plates }]) => (
-        <View key={cookId} style={styles.recommendedSection}>
-          <Text style={styles.sectionTitle}> {cook.name} </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
-            {plates.map(item => renderSliderCard(item))}
-          </ScrollView>
-        </View>
-      ))}
+      {statusFilter === 'waiting' &&
+        specializationFilter !== 'all' &&
+        Array.from(grouped.cookSections.entries()).map(([cookId, { cook, plates }]) => {
+          const isCurrentCook = cookId === user?.id;
+          return (
+            <View key={cookId} style={styles.recommendedSection}>
+              <Text style={[styles.sectionTitle, isCurrentCook && styles.sectionTitleHighlight]}>
+                {isCurrentCook ? `${cook.name} (вы)` : cook.name}
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 12 }}
+              >
+                {plates.map(item => renderSliderCard(item, isCurrentCook))}
+              </ScrollView>
+            </View>
+          );
+        })}
 
       <FlatList
         data={grouped.unassigned}
         renderItem={renderItem}
-        keyExtractor={(item) => item.uid}
+        keyExtractor={item => item.uid}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={['#FF6B6B']} />
         }
         ListEmptyComponent={
-          grouped.personal.length === 0 && grouped.otherMap.size === 0 ? (
+          grouped.cookSections.size === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="flame-outline" size={60} color="#ccc" />
               <Text>Нет заказов</Text>
@@ -721,8 +844,15 @@ const ChefOrders = () => {
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Статус:</Text>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusInfo(selectedItem.current_status).color }]}>
-                    <Text style={styles.statusText}>{getStatusInfo(selectedItem.current_status).label}</Text>
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      { backgroundColor: getStatusInfo(selectedItem.current_status).color },
+                    ]}
+                  >
+                    <Text style={styles.statusText}>
+                      {getStatusInfo(selectedItem.current_status).label}
+                    </Text>
                   </View>
                 </View>
                 {selectedItem.comments.length > 0 ? (
@@ -736,9 +866,11 @@ const ChefOrders = () => {
                   <Text style={styles.noComment}>Нет комментариев</Text>
                 )}
                 <Text style={styles.timeText}>
-                  Время заказа: {new Date(selectedItem.timestart).toLocaleString('ru-RU')}
+                  Время заказа:{' '}
+                  {new Date(selectedItem.timestart).toLocaleString('ru-RU')}
                 </Text>
-                {(selectedItem.current_status === 'preparing' || selectedItem.current_status === 'ready') && (
+                {(selectedItem.current_status === 'preparing' ||
+                  selectedItem.current_status === 'ready') && (
                   <TouchableOpacity
                     style={[styles.changeStatusButton, { backgroundColor: '#e74c3c' }]}
                     onPress={() => {
@@ -779,13 +911,10 @@ const ChefOrders = () => {
                 if (!allowedSpecs) return false;
                 return cook.specialization ? allowedSpecs.has(cook.specialization.id) : false;
               })}
-              keyExtractor={(item) => item.id.toString()}
+              keyExtractor={item => item.id.toString()}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[
-                    styles.cookItem,
-                    selectedCookId === item.id && styles.cookItemSelected,
-                  ]}
+                  style={[styles.cookItem, selectedCookId === item.id && styles.cookItemSelected]}
                   onPress={() => setSelectedCookId(item.id)}
                 >
                   <Text style={styles.cookName}>{item.name}</Text>

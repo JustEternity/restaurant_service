@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, text, exists, and_, desc
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, delete, text, exists, and_, desc, func
+from sqlalchemy.orm import selectinload, aliased
 from datetime import datetime
 from typing import List, Optional
 
@@ -127,7 +127,7 @@ async def get_all_orders(
                 plate_name=plate.menu_item.name if plate.menu_item else None,
                 course_number=plate.course_number,
                 is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False,
-                is_considered=plate.is_considered
+                is_considered=plate.is_considered if plate.is_considered is not None else True
             ))
         response.append(OrderResponse(
             id=order.id,
@@ -167,6 +167,108 @@ async def get_active_plate_ids(db: AsyncSession = Depends(get_async_db)):
     result = await db.execute(stmt)
     return result.scalars().all()
 
+@router.get("/active-cook-locks")
+async def get_active_cook_locks(db: AsyncSession = Depends(get_async_db)):
+    CSH = CookingStatusHistory
+    CSH2 = aliased(CookingStatusHistory)
+
+    last_status = (
+        select(
+            CSH.ordered_plate,
+            CSH.new_status,
+            CSH.change_by,
+            CSH.change_time
+        )
+        .where(
+            CSH.change_time == select(func.max(CSH2.change_time))
+            .where(CSH2.ordered_plate == CSH.ordered_plate)
+            .correlate(CSH)
+            .scalar_subquery()
+        )
+        .subquery()
+    )
+
+    stmt = (
+        select(last_status.c.change_by)
+        .join(PlateForOrder, PlateForOrder.id == last_status.c.ordered_plate)
+        .join(User, User.id == last_status.c.change_by)
+        .join(Role, Role.id == User.role)
+        .where(
+            last_status.c.new_status == "preparing",
+            Role.name == "cook",
+            (PlateForOrder.is_considered.is_(True) | PlateForOrder.is_considered.is_(None))
+        )
+        .distinct()
+    )
+    result = await db.execute(stmt)
+    preparing_cook_ids = {row[0] for row in result}
+
+    stmt2 = (
+        select(last_status.c.ordered_plate)
+        .join(PlateForOrder, PlateForOrder.id == last_status.c.ordered_plate)
+        .where(
+            last_status.c.new_status == "ready",
+            (PlateForOrder.is_considered.is_(True) | PlateForOrder.is_considered.is_(None))
+        )
+    )
+    result2 = await db.execute(stmt2)
+    ready_plate_ids = [row[0] for row in result2]
+
+    ready_cook_ids = set()
+    for plate_id in ready_plate_ids:
+        stmt3 = (
+            select(CSH.change_by)
+            .join(User, User.id == CSH.change_by)
+            .join(Role, Role.id == User.role)
+            .where(
+                CSH.ordered_plate == plate_id,
+                CSH.new_status == "preparing",
+                Role.name == "cook"
+            )
+            .order_by(desc(CSH.change_time))
+            .limit(1)
+        )
+        res3 = await db.execute(stmt3)
+        cook_id = res3.scalar()
+        if cook_id:
+            ready_cook_ids.add(cook_id)
+
+    all_locked = preparing_cook_ids.union(ready_cook_ids)
+    return {cook_id: True for cook_id in all_locked}
+
+@router.get("/locked-specialization-ids", response_model=List[int])
+async def get_locked_specialization_ids(db: AsyncSession = Depends(get_async_db)):
+    """
+    Возвращает id специализаций, у которых есть блюда в истории статусов
+    с последним статусом, отличным от 'served'.
+    """
+    CSH = CookingStatusHistory
+    CSH2 = aliased(CookingStatusHistory)
+
+    last_status_subq = (
+        select(
+            CSH.ordered_plate,
+            CSH.new_status,
+        )
+        .where(
+            CSH.change_time == select(func.max(CSH2.change_time))
+            .where(CSH2.ordered_plate == CSH.ordered_plate)
+            .correlate(CSH)
+            .scalar_subquery()
+        )
+        .subquery()
+    )
+
+    stmt = (
+        select(PlatesForSpecialization.specialization)
+        .join(PlateForOrder, PlateForOrder.plate_id == PlatesForSpecialization.plate)
+        .join(last_status_subq, last_status_subq.c.ordered_plate == PlateForOrder.id)
+        .where(last_status_subq.c.new_status != "served")
+        .distinct()
+    )
+
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
 @router.get("/active", response_model=List[OrderResponse])
 async def get_active_orders(db: AsyncSession = Depends(get_async_db)):
@@ -241,7 +343,7 @@ async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
             plate_name=plate.menu_item.name if plate.menu_item else None,
             course_number=plate.course_number,
             is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False,
-            is_considered=plate.is_considered
+            is_considered=plate.is_considered if plate.is_considered is not None else True
         ))
     return OrderResponse(
         id=order.id,

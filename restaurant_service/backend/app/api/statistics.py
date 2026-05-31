@@ -177,7 +177,9 @@ async def kitchen_detail_statistics(
         .select_from(PlateForOrder)
         .join(PrepAlias, (PlateForOrder.id == PrepAlias.ordered_plate) & (PrepAlias.new_status == "preparing"))
         .join(CookingStatusHistory, (PlateForOrder.id == CookingStatusHistory.ordered_plate) & (CookingStatusHistory.new_status == "ready") & (CookingStatusHistory.change_time > PrepAlias.change_time))
+        .join(Menu, PlateForOrder.plate_id == Menu.id)
         .where(
+            Menu.is_selfserve == False,
             PrepAlias.change_time >= start_dt,
             PrepAlias.change_time <= end_dt
         )
@@ -190,15 +192,6 @@ async def kitchen_detail_statistics(
 
     prep_result = await db.execute(prep_stmt)
     prep_rows = prep_result.all()
-    avg_preparation = []
-    for row in prep_rows:
-        dish = await db.get(Menu, row.plate_id)
-        avg_minutes = round(row[1], 1) if row[1] else 0.0
-        avg_preparation.append({
-            "plate_id": row.plate_id,
-            "plate_name": dish.name if dish else "Неизвестно",
-            "avg_minutes": avg_minutes
-        })
 
     wait_stmt = (
         select(
@@ -211,7 +204,9 @@ async def kitchen_detail_statistics(
         .select_from(PlateForOrder)
         .join(WaitAlias, (PlateForOrder.id == WaitAlias.ordered_plate) & (WaitAlias.new_status == "waiting"))
         .join(PrepAlias, (PlateForOrder.id == PrepAlias.ordered_plate) & (PrepAlias.new_status == "preparing") & (PrepAlias.change_time > WaitAlias.change_time))
+        .join(Menu, PlateForOrder.plate_id == Menu.id)
         .where(
+            Menu.is_selfserve == False,
             WaitAlias.change_time >= start_dt,
             WaitAlias.change_time <= end_dt
         )
@@ -220,19 +215,10 @@ async def kitchen_detail_statistics(
     if plate_id:
         wait_stmt = wait_stmt.where(PlateForOrder.plate_id == plate_id)
     if cook_id:
-        wait_stmt = wait_stmt.where(WaitAlias.change_by == cook_id)
+        wait_stmt = wait_stmt.where(PrepAlias.change_by == cook_id)
 
     wait_result = await db.execute(wait_stmt)
     wait_rows = wait_result.all()
-    avg_waiting = []
-    for row in wait_rows:
-        dish = await db.get(Menu, row.plate_id)
-        avg_minutes = round(row[1], 1) if row[1] else 0.0
-        avg_waiting.append({
-            "plate_id": row.plate_id,
-            "plate_name": dish.name if dish else "Неизвестно",
-            "avg_minutes": avg_minutes
-        })
 
     freq_stmt = (
         select(
@@ -242,7 +228,9 @@ async def kitchen_detail_statistics(
         )
         .select_from(PlateForOrder)
         .join(CookingStatusHistory, PlateForOrder.id == CookingStatusHistory.ordered_plate)
+        .join(Menu, PlateForOrder.plate_id == Menu.id)
         .where(
+            Menu.is_selfserve == False,
             CookingStatusHistory.new_status == "ready",
             CookingStatusHistory.change_time >= start_dt,
             CookingStatusHistory.change_time <= end_dt
@@ -256,15 +244,47 @@ async def kitchen_detail_statistics(
 
     freq_result = await db.execute(freq_stmt)
     freq_rows = freq_result.all()
+
+    all_plate_ids = (
+        {row.plate_id for row in prep_rows} |
+        {row.plate_id for row in wait_rows} |
+        {row.plate_id for row in freq_rows if row.plate_id}
+    )
+    all_cook_ids = {row.change_by for row in freq_rows if row.change_by}
+
+    menu_map = {}
+    if all_plate_ids:
+        menu_res = await db.execute(select(Menu.id, Menu.name).where(Menu.id.in_(all_plate_ids)))
+        menu_map = {mid: mname for mid, mname in menu_res.all()}
+
+    cook_name_map = {}
+    if all_cook_ids:
+        cook_res = await db.execute(select(User.id, User.name).where(User.id.in_(all_cook_ids)))
+        cook_name_map = {uid: uname for uid, uname in cook_res.all()}
+
+    avg_preparation = []
+    for row in prep_rows:
+        avg_preparation.append({
+            "plate_id": row.plate_id,
+            "plate_name": menu_map.get(row.plate_id, "Неизвестно"),
+            "avg_minutes": round(row[1], 1) if row[1] else 0.0
+        })
+
+    avg_waiting = []
+    for row in wait_rows:
+        avg_waiting.append({
+            "plate_id": row.plate_id,
+            "plate_name": menu_map.get(row.plate_id, "Неизвестно"),
+            "avg_minutes": round(row[1], 1) if row[1] else 0.0
+        })
+
     cook_freq = []
     for row in freq_rows:
-        cook = await db.get(User, row.change_by) if row.change_by else None
-        dish = await db.get(Menu, row.plate_id) if row.plate_id else None
         cook_freq.append({
             "cook_id": row.change_by,
-            "cook_name": cook.name if cook else "Неизвестный",
+            "cook_name": cook_name_map.get(row.change_by, "Неизвестный"),
             "plate_id": row.plate_id,
-            "plate_name": dish.name if dish else "Неизвестно",
+            "plate_name": menu_map.get(row.plate_id, "Неизвестно"),
             "cooked_count": int(row.total_cooked)
         })
 
@@ -273,3 +293,78 @@ async def kitchen_detail_statistics(
         "avg_waiting_time": avg_waiting,
         "cook_dish_frequency": cook_freq
     }
+
+@router.get("/kitchen/workload")
+async def kitchen_workload(
+    db: AsyncSession = Depends(get_async_db)
+):
+    latest_time_subq = (
+        select(
+            CookingStatusHistory.ordered_plate,
+            func.max(CookingStatusHistory.change_time).label("latest_time")
+        )
+        .group_by(CookingStatusHistory.ordered_plate)
+        .subquery()
+    )
+
+    stmt = (
+        select(
+            CookingStatusHistory.change_by,
+            CookingStatusHistory.new_status,
+            PlateForOrder.plate_id,
+            PlateForOrder.count,
+        )
+        .join(
+            latest_time_subq,
+            (CookingStatusHistory.ordered_plate == latest_time_subq.c.ordered_plate) &
+            (CookingStatusHistory.change_time == latest_time_subq.c.latest_time)
+        )
+        .join(PlateForOrder, CookingStatusHistory.ordered_plate == PlateForOrder.id)
+        .join(Order, PlateForOrder.order_id == Order.id)
+        .where(
+            CookingStatusHistory.new_status.in_(["preparing", "ready"]),
+            Order.status.notin_(["completed", "cancelled"])
+        )
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    plate_ids = {row.plate_id for row in rows}
+    cook_ids = {row.change_by for row in rows if row.change_by}
+
+    menu_map = {}
+    if plate_ids:
+        menu_res = await db.execute(
+            select(Menu.id, Menu.name).where(Menu.id.in_(plate_ids))
+        )
+        menu_map = {mid: mname for mid, mname in menu_res.all()}
+
+    cook_name_map = {}
+    if cook_ids:
+        cook_res = await db.execute(
+            select(User.id, User.name).where(User.id.in_(cook_ids))
+        )
+        cook_name_map = {uid: uname for uid, uname in cook_res.all()}
+
+    cook_map: dict = {}
+    for row in rows:
+        cid = row.change_by
+        if cid not in cook_map:
+            cook_map[cid] = {
+                "cook_id": cid,
+                "cook_name": cook_name_map.get(cid, "Неизвестный"),
+                "dishes": []
+            }
+        cook_map[cid]["dishes"].append({
+            "plate_id": row.plate_id,
+            "plate_name": menu_map.get(row.plate_id, "Неизвестно"),
+            "count": row.count,
+            "status": row.new_status,
+        })
+
+    for cook in cook_map.values():
+        cook["dishes"].sort(key=lambda d: 0 if d["status"] == "preparing" else 1)
+        cook["total_count"] = sum(d["count"] for d in cook["dishes"])
+
+    return list(cook_map.values())

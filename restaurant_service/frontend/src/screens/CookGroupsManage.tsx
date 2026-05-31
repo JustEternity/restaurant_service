@@ -49,6 +49,8 @@ const CookGroupManagement = () => {
   const [showAddCooksDropdown, setShowAddCooksDropdown] = useState(false);
   const [selectedCookIds, setSelectedCookIds] = useState<Set<number>>(new Set());
 
+  const [activeCookTasks, setActiveCookTasks] = useState<Record<number, boolean>>({});
+
   useEffect(() => {
     loadGroups();
     loadAllCooks();
@@ -81,7 +83,20 @@ const CookGroupManagement = () => {
     setLoadingDetails(true);
     try {
       const response = await api.get(`/cook-groups/${groupId}/cooks/`);
-      setGroupCooks(response.data);
+      const cooks: User[] = response.data;
+      setGroupCooks(cooks);
+
+      const tasks: Record<number, boolean> = {};
+      for (const cook of cooks) {
+        try {
+          const res = await api.get(`/orders/${cook.id}/active-tasks`);
+          tasks[cook.id] = res.data.length > 0;
+        } catch {
+          tasks[cook.id] = false;
+        }
+      }
+      setActiveCookTasks(tasks);
+
     } catch (error) {
       console.error('Error loading group cooks:', error);
       Alert.alert('Ошибка', 'Не удалось загрузить поваров группы');
@@ -111,9 +126,12 @@ const CookGroupManagement = () => {
     setSelectedGroup(group);
     setShowAddCooksDropdown(false);
     setSelectedCookIds(new Set());
+
     await loadGroupDetails(group.id);
+
     setDetailModalVisible(true);
   };
+
 
   const handleSaveGroup = async () => {
     if (!groupName.trim()) {
@@ -300,22 +318,37 @@ const CookGroupManagement = () => {
               <ScrollView>
                 <View style={styles.detailSection}>
                   <Text style={styles.sectionTitle}>Повара в группе</Text>
-                  <FlatList
-                    data={groupCooks}
-                    renderItem={({ item }) => (
-                      <View style={styles.detailItem}>
-                        <Text style={styles.detailItemText}>{item.name}</Text>
-                        <TouchableOpacity onPress={() => removeCookFromGroup(item.id)}>
-                          <Ionicons name="close-circle" size={22} color="#e74c3c" />
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                    keyExtractor={(item) => item.id.toString()}
-                    scrollEnabled={false}
-                    nestedScrollEnabled={true}
-                    style={{ maxHeight: 300 }}
-                    ListEmptyComponent={<Text style={styles.emptyDetail}>Нет поваров</Text>}
-                  />
+                  {groupCooks.length === 0 ? (
+                    <Text style={styles.emptyDetail}>Нет поваров</Text>
+                  ) : (
+                    groupCooks.map((item) => {
+                      const hasActive = activeCookTasks[item.id];
+
+                      return (
+                        <View key={item.id} style={styles.detailItem}>
+                          <Text style={styles.detailItemText}>{item.name}</Text>
+
+                          {hasActive ? (
+                            <TouchableOpacity
+                              onPress={() =>
+                                Alert.alert(
+                                  'Нельзя удалить',
+                                  'У повара есть активные блюда в приготовлении'
+                                )
+                              }
+                            >
+                              <Ionicons name="lock-closed" size={22} color="#aaa" />
+                            </TouchableOpacity>
+                          ) : (
+                            <TouchableOpacity onPress={() => removeCookFromGroup(item.id)}>
+                              <Ionicons name="close-circle" size={22} color="#e74c3c" />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      );
+                    })
+                  )}
+
 
                   <TouchableOpacity
                     style={styles.addDetailButton}

@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.db_models import Menu, Category, Specialization, PlatesForSpecialization
 from app.database import get_async_db
 from app.schemas.menu_schemas import *
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/menu", tags=["Меню"])
 
@@ -57,7 +58,6 @@ async def upload_menu_photo(
     await db.commit()
 
     return {"photo_url": f"/uploads/{menu_item.photo}"}
-
 
 # ===== ЭНДПОИНТЫ ДЛЯ БЛЮД =====
 @router.get("/", response_model=List[MenuResponse])
@@ -178,6 +178,10 @@ async def create_menu_item(menu_data: MenuCreate, db: AsyncSession = Depends(get
     # Подгружаем оба отношения
     await db.refresh(menu_item, attribute_names=["category_of_item", "plate_for_specialization"])
 
+    await manager.broadcast_to_role({"type": "plates_update"}, "admin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "plates_update"}, "superadmin")
+
     specializations_resp = []
     for link in menu_item.plate_for_specialization:
         await db.refresh(link, attribute_names=["spec_of_plates"])
@@ -233,6 +237,10 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
     await db.commit()
     await db.refresh(item, attribute_names=["category_of_item", "plate_for_specialization"])
 
+    await manager.broadcast_to_role({"type": "plates_update"}, "admin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "plates_update"}, "superadmin")
+
     category = item.category_of_item
     category_name = category.name if category else None
 
@@ -264,6 +272,9 @@ async def delete_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db
 
     await db.delete(item)
     await db.commit()
+    await manager.broadcast_to_role({"type": "plates_update"}, "admin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "plates_update"}, "superadmin")
     return {"message": "Блюдо удалено"}
 
 # ===== ЭНДПОИНТЫ ДЛЯ КАТЕГОРИЙ =====
@@ -370,6 +381,10 @@ async def create_category(category_data: CategoryCreate, db: AsyncSession = Depe
     await db.commit()
     await db.refresh(category)
 
+    await manager.broadcast_to_role({"type": "categories_update"}, "admin")
+    await manager.broadcast_to_role({"type": "categories_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "categories_update"}, "superadmin")
+
     return CategoryFlatResponse(
         id=category.id,
         name=category.name,
@@ -413,6 +428,10 @@ async def update_category(
     await db.commit()
     await db.refresh(category)
 
+    await manager.broadcast_to_role({"type": "categories_update"}, "admin")
+    await manager.broadcast_to_role({"type": "categories_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "categories_update"}, "superadmin")
+
     return CategoryFlatResponse(
         id=category.id,
         name=category.name,
@@ -435,5 +454,9 @@ async def delete_category(category_id: int, db: AsyncSession = Depends(get_async
 
     await db.delete(category)
     await db.commit()
+
+    await manager.broadcast_to_role({"type": "categories_update"}, "admin")
+    await manager.broadcast_to_role({"type": "categories_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "categories_update"}, "superadmin")
 
     return {"message": f"Категория '{category.name}' удалена"}

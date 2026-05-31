@@ -7,6 +7,8 @@ from app.database import get_async_db
 from app.db_models import Table, TableForOrder, Order
 from app.schemas.tables_schemas import TableCreate, TableUpdate, TableResponse
 
+from app.websocket.manager import manager
+
 router = APIRouter(prefix="/tables", tags=["Столы"])
 
 @router.get("/", response_model=List[TableResponse])
@@ -55,6 +57,9 @@ async def create_table(table_data: TableCreate, db: AsyncSession = Depends(get_a
         min_inactive.is_available = True
         await db.commit()
         await db.refresh(min_inactive)
+        await manager.broadcast_to_role({"type": "table_created"}, "admin")
+        await manager.broadcast_to_role({"type": "table_created"}, "waiter")
+        await manager.broadcast_to_role({"type": "table_created"}, "superadmin")
         return min_inactive
 
     stmt = select(Table).where(Table.number == table_data.number)
@@ -70,6 +75,9 @@ async def create_table(table_data: TableCreate, db: AsyncSession = Depends(get_a
         existing_table.is_available = True
         await db.commit()
         await db.refresh(existing_table)
+        await manager.broadcast_to_role({"type": "table_created"}, "admin")
+        await manager.broadcast_to_role({"type": "table_created"}, "waiter")
+        await manager.broadcast_to_role({"type": "table_created"}, "superadmin")
         return existing_table
 
     table = Table(
@@ -82,6 +90,9 @@ async def create_table(table_data: TableCreate, db: AsyncSession = Depends(get_a
     db.add(table)
     await db.commit()
     await db.refresh(table)
+    await manager.broadcast_to_role({"type": "table_created"}, "admin")
+    await manager.broadcast_to_role({"type": "table_created"}, "waiter")
+    await manager.broadcast_to_role({"type": "table_created"}, "superadmin")
     return table
 
 @router.put("/{table_id}", response_model=TableResponse)
@@ -130,4 +141,7 @@ async def delete_table(table_id: int, db: AsyncSession = Depends(get_async_db)):
     table.is_available = False
     await db.commit()
     await db.refresh(table)
+    await manager.broadcast_to_role({"type": "table_deleted"}, "admin")
+    await manager.broadcast_to_role({"type": "table_deleted"}, "waiter")
+    await manager.broadcast_to_role({"type": "table_deleted"}, "superadmin")
     return {"message": "Стол помечен неактивным"}

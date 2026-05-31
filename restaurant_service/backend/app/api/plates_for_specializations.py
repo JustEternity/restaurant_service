@@ -5,12 +5,14 @@ from sqlalchemy.orm import selectinload
 from typing import List
 
 from app.database import get_async_db
-from ..db_models import PlatesForSpecialization, Menu, Specialization
+from ..db_models import PlatesForSpecialization, Menu, Specialization, User, CooksInGroup, CookGroup
 from ..schemas.plates_for_specialization_schemas import (
     PlateSpecializationCreate,
     PlateSpecializationResponse,
     BatchUpdatePlates
 )
+
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/plates-specializations", tags=["Связи блюд и специализаций"])
 
@@ -151,4 +153,22 @@ async def update_plates_for_specialization(
         db.add(PlatesForSpecialization(plate=plate_id, specialization=spec_id))
 
     await db.commit()
+    stmt = (
+        select(User.id)
+        .join(CooksInGroup, CooksInGroup.cook == User.id)
+        .join(CookGroup, CookGroup.id == CooksInGroup.group)
+        .where(
+            CookGroup.id.in_(
+                select(CooksInGroup.group)
+                .join(User, User.id == CooksInGroup.cook)
+                .where(User.specialization == spec_id)
+            )
+        )
+    )
+
+    result = await db.execute(stmt)
+    user_ids = list(set(result.scalars().all()))
+
+    await manager.broadcast_to_users({"type": "spec_updated"}, user_ids)
+
     return {"message": "Связи обновлены", "plate_ids": data.plate_ids}

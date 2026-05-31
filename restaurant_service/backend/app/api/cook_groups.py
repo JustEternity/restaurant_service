@@ -12,6 +12,7 @@ from app.schemas.cook_group_schemas import (
 )
 from app.schemas.users_schemas import UserResponse
 from app.core.security import get_current_user
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/cook-groups", tags=["Группы поваров"])
 
@@ -42,7 +43,7 @@ async def create_cook_group(
     """Создать группу поваров"""
     if not current_user.role_of_user:
         await db.refresh(current_user, attribute_names=["role_of_user"])
-    if current_user.role_of_user.name != "admin":
+    if current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     stmt = select(CookGroup).where(CookGroup.name == group_data.name)
@@ -66,7 +67,7 @@ async def update_cook_group(
     """Обновить группу поваров"""
     if not current_user.role_of_user:
         await db.refresh(current_user, attribute_names=["role_of_user"])
-    if current_user.role_of_user.name != "admin":
+    if current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     stmt = select(CookGroup).where(CookGroup.id == group_id)
@@ -98,7 +99,7 @@ async def delete_cook_group(
     """Удалить группу поваров"""
     if not current_user.role_of_user:
         await db.refresh(current_user, attribute_names=["role_of_user"])
-    if current_user.role_of_user.name != "admin":
+    if current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     stmt = select(CookGroup).where(CookGroup.id == group_id)
@@ -150,7 +151,7 @@ async def add_cook_to_group(
     """Добавить повара в группу (только для администраторов)"""
     if not current_user.role_of_user:
         await db.refresh(current_user, attribute_names=["role_of_user"])
-    if current_user.role_of_user.name != "admin":
+    if current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     group = await db.get(CookGroup, group_id)
@@ -188,7 +189,7 @@ async def remove_cook_from_group(
     """Удалить повара из группы (только для администраторов)"""
     if not current_user.role_of_user:
         await db.refresh(current_user, attribute_names=["role_of_user"])
-    if current_user.role_of_user.name != "admin":
+    if current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     group = await db.get(CookGroup, group_id)
@@ -203,6 +204,15 @@ async def remove_cook_from_group(
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Повар не найден в группе")
     await db.commit()
+    stmt = select(CooksInGroup.cook).where(CooksInGroup.group == group_id)
+    result = await db.execute(stmt)
+    cook_ids = [row[0] for row in result]
+
+    await manager.broadcast_to_users({
+        "type": "cook_group_updated",
+        "group_id": group_id,
+        "action": "batch_added",
+    }, cook_ids)
     return {"message": "Повар удалён из группы"}
 
 @router.post("/{group_id}/cooks/batch")
@@ -215,7 +225,7 @@ async def add_cooks_to_group_batch(
     """Добавить нескольких поваров в группу (только для администраторов)"""
     if not current_user.role_of_user:
         await db.refresh(current_user, attribute_names=["role_of_user"])
-    if current_user.role_of_user.name != "admin":
+    if current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     group = await db.get(CookGroup, group_id)
@@ -250,4 +260,14 @@ async def add_cooks_to_group_batch(
         db.add(CooksInGroup(group=group_id, cook=cook_id))
 
     await db.commit()
+    stmt = select(CooksInGroup.cook).where(CooksInGroup.group == group_id)
+    result = await db.execute(stmt)
+    cook_ids = [row[0] for row in result]
+
+    await manager.broadcast_to_users({
+        "type": "cook_group_updated",
+        "group_id": group_id,
+        "action": "batch_added",
+        "cook_ids": payload.user_ids
+    }, cook_ids)
     return {"message": f"{len(payload.user_ids)} поваров добавлены в группу"}

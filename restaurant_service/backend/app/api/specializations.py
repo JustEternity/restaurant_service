@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.orm import aliased
 from typing import List
 
 from app.database import get_async_db
-from app.db_models import Specialization
+from app.db_models import Specialization, PlatesForSpecialization, PlateForOrder, CookingStatusHistory
 from app.schemas.specialization_schemas import (
     SpecializationCreate,
     SpecializationUpdate,
@@ -77,6 +78,43 @@ async def delete_specialization(spec_id: int, db: AsyncSession = Depends(get_asy
     spec = await db.get(Specialization, spec_id)
     if not spec:
         raise HTTPException(status_code=404, detail="Специализация не найдена")
+
+    CSH = CookingStatusHistory
+    CSH2 = aliased(CookingStatusHistory)
+
+    last_status_subq = (
+        select(
+            CSH.ordered_plate,
+            CSH.new_status
+        )
+        .where(
+            CSH.change_time == select(func.max(CSH2.change_time))
+            .where(CSH2.ordered_plate == CSH.ordered_plate)
+            .correlate(CSH)
+            .scalar_subquery()
+        )
+        .subquery()
+    )
+
+    stmt = (
+        select(func.count())
+        .select_from(PlateForOrder)
+        .join(last_status_subq, last_status_subq.c.ordered_plate == PlateForOrder.id)
+        .join(
+            PlatesForSpecialization,
+            PlatesForSpecialization.plate == PlateForOrder.plate_id
+        )
+        .where(
+            PlatesForSpecialization.specialization == spec_id,
+            last_status_subq.c.new_status.in_(["waiting", "preparing", "ready"])
+        )
+    )
+
+    if (await db.execute(stmt)).scalar_one() > 0:
+        raise HTTPException(
+            400,
+            "Нельзя удалить специализацию: есть блюда в активных статусах"
+        )
 
     await db.delete(spec)
     await db.commit()

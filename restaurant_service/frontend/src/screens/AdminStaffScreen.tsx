@@ -102,6 +102,11 @@ const AdminStaff = () => {
 
   const [blockedPlateIds, setBlockedPlateIds] = useState<Set<number>>(new Set());
 
+  const [activeCookTasks, setActiveCookTasks] = useState<Record<number, boolean>>({});
+  const [activeWaiterOrders, setActiveWaiterOrders] = useState<Record<number, boolean>>({});
+  const [lockedSpecIds, setLockedSpecIds] = useState<Set<number>>(new Set());
+
+
   const handleManageGroups = () => navigation.navigate('CookGroupManagement');
 
   const loadAllSpecializations = async () => {
@@ -123,6 +128,7 @@ const AdminStaff = () => {
         ? data.filter((u) => u.role !== 'superadmin')
         : data.filter((u) => u.role !== 'admin' && u.role !== 'superadmin');
       setStaff(nonAdminUsers);
+      await loadUserLocks(nonAdminUsers);
       applyFilters(nonAdminUsers);
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось загрузить список сотрудников');
@@ -131,6 +137,44 @@ const AdminStaff = () => {
       setRefreshing(false);
     }
   }, []);
+
+  const loadUserLocks = async (users: User[]) => {
+    const cookLocks: Record<number, boolean> = {};
+    const waiterLocks: Record<number, boolean> = {};
+
+    try {
+      const res = await api.get('/orders/active-cook-locks');
+      const locks = res.data;
+      for (const u of users) {
+        if (u.role === "cook") {
+          cookLocks[u.id] = !!locks[u.id];
+        }
+      }
+    } catch (err) {
+      console.error("Ошибка cookLocks", err);
+    }
+
+    for (const u of users) {
+      if (u.role === "waiter") {
+        try {
+          const res = await api.get(`/orders/?waiter_id=${u.id}&status=active`);
+          waiterLocks[u.id] = Array.isArray(res.data) && res.data.length > 0;
+        } catch (err) {
+          waiterLocks[u.id] = false;
+        }
+      }
+    }
+
+    try {
+      const res = await api.get('/orders/locked-specialization-ids');
+      setLockedSpecIds(new Set<number>(res.data));
+    } catch (err) {
+      console.error("Ошибка lockedSpecIds", err);
+    }
+
+    setActiveCookTasks(cookLocks);
+    setActiveWaiterOrders(waiterLocks);
+  };
 
   useEffect(() => {
     loadStaff();
@@ -205,6 +249,16 @@ const AdminStaff = () => {
         specialization_id: editData.role === 'cook' ? editData.specialization_id : null,
       };
       if (editData.password.trim()) updateData.password = editData.password;
+      if (selectedUser?.role === "cook" && activeCookTasks[selectedUser.id]) {
+        Alert.alert("Нельзя изменить данные", "У повара есть блюда в работе");
+        return;
+      }
+
+      if (selectedUser?.role === "waiter" && activeWaiterOrders[selectedUser.id]) {
+        Alert.alert("Нельзя изменить данные", "У официанта есть активные заказы");
+        return;
+      }
+
       const response = await api.put(`/users/${selectedUser?.id}`, updateData);
       const updatedUser: User = response.data;
       setStaff((prev) => prev.map((u) => (u.id === selectedUser?.id ? updatedUser : u)));
@@ -286,6 +340,10 @@ const AdminStaff = () => {
   };
 
   const handleDeleteSpec = (id: number) => {
+    if (lockedSpecIds.has(id)) {
+      Alert.alert('Нельзя удалить', 'В этой специализации есть блюда в приготовлении');
+      return;
+    }
     Alert.alert('Удалить', 'Вы уверены?', [
       { text: 'Отмена', style: 'cancel' },
       {
@@ -527,8 +585,20 @@ const AdminStaff = () => {
 
   const renderUserItem = ({ item }: { item: User }) => {
     const isAdmin = item.role === 'admin';
-    const canEdit = !isAdmin || isSuperAdmin;
-    const canDelete = !isAdmin || isSuperAdmin;
+    const hasCookLock = item.role === "cook" && activeCookTasks[item.id];
+    const hasWaiterLock = item.role === "waiter" && activeWaiterOrders[item.id];
+    const hasLock = hasCookLock || hasWaiterLock;
+
+    const canEdit = true;
+    let canDelete = (!isAdmin || isSuperAdmin) && !hasLock;
+
+    if (item.role === "cook" && activeCookTasks[item.id]) {
+      canDelete = false;
+    }
+
+    if (item.role === "waiter" && activeWaiterOrders[item.id]) {
+      canDelete = false;
+    }
 
     const roleDisplayName =
       item.role === 'cook' ? 'Повар' :
@@ -580,14 +650,41 @@ const AdminStaff = () => {
         </View>
       </View>
       <View style={styles.userActions}>
-        {canEdit && (
+        {canEdit ? (
           <TouchableOpacity style={styles.actionButton} onPress={() => handleEditUser(item)}>
             <Ionicons name="create-outline" size={22} color="#3498db" />
           </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() =>
+              Alert.alert(
+                "Действие недоступно",
+                item.role === "cook"
+                  ? "У повара есть блюда в работе"
+                  : "У официанта есть активные заказы"
+              )
+            }
+          >
+            <Ionicons name="lock-closed" size={22} color="#aaa" />
+          </TouchableOpacity>
         )}
-        {canDelete && (
+        {canDelete ? (
           <TouchableOpacity style={styles.actionButton} onPress={() => handleDeleteUser(item)}>
             <Ionicons name="trash-outline" size={22} color="#e74c3c" />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.actionButton, { opacity: 0.4 }]}
+            onPress={() => {
+              if (item.role === "cook") {
+                Alert.alert("Нельзя удалить", "У повара есть блюда в работе");
+              } else if (item.role === "waiter") {
+                Alert.alert("Нельзя удалить", "У официанта есть активные заказы");
+              }
+            }}
+          >
+            <Ionicons name="lock-closed" size={22} color="#aaa" />
           </TouchableOpacity>
         )}
       </View>
@@ -603,6 +700,8 @@ const AdminStaff = () => {
       </View>
     );
   }
+
+  const hasLocks = selectedUser ? !!(activeCookTasks[selectedUser.id] || activeWaiterOrders[selectedUser.id]): false;
 
   return (
     <View style={styles.container}>
@@ -763,8 +862,30 @@ const AdminStaff = () => {
                     <Text style={styles.modalActionButtonText}>Редактировать</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.modalActionButton, styles.deleteButton]}
-                    onPress={() => { setModalVisible(false); handleDeleteUser(selectedUser); }}
+                    style={[
+                      styles.modalActionButton,
+                      styles.deleteButton,
+                      (selectedUser?.role === "cook" && activeCookTasks[selectedUser.id]) ||
+                      (selectedUser?.role === "waiter" && activeWaiterOrders[selectedUser.id])
+                        ? { opacity: 0.5 }
+                        : null
+                    ]}
+                    disabled={
+                      (selectedUser?.role === "cook" && activeCookTasks[selectedUser.id]) ||
+                      (selectedUser?.role === "waiter" && activeWaiterOrders[selectedUser.id])
+                    }
+                    onPress={() => {
+                      if (selectedUser?.role === "cook" && activeCookTasks[selectedUser.id]) {
+                        Alert.alert("Нельзя удалить", "У повара есть блюда в работе");
+                        return;
+                      }
+                      if (selectedUser?.role === "waiter" && activeWaiterOrders[selectedUser.id]) {
+                        Alert.alert("Нельзя удалить", "У официанта есть активные заказы");
+                        return;
+                      }
+                      setModalVisible(false);
+                      handleDeleteUser(selectedUser);
+                    }}
                   >
                     <Ionicons name="trash-outline" size={20} color="#fff" />
                     <Text style={styles.modalActionButtonText}>Удалить</Text>
@@ -822,36 +943,85 @@ const AdminStaff = () => {
                 <Text style={styles.inputLabel}>Роль</Text>
                 <View style={styles.roleButtons}>
                   <TouchableOpacity
-                    style={[styles.roleButton, editData.role === 'waiter' && styles.roleButtonActive]}
-                    onPress={() => setEditData({ ...editData, role: 'waiter', specialization_id: null, _showSpecSelector: false })}
+                    style={[
+                      styles.roleButton,
+                      editData.role === 'waiter' && styles.roleButtonActive,
+                      hasLocks && selectedUser && selectedUser.role !== 'waiter' ? { opacity: 0.4 } : null,
+                    ]}
+                    disabled={!!(hasLocks && selectedUser && selectedUser.role !== 'waiter')}
+                    onPress={() => {
+                      if (hasLocks && selectedUser && selectedUser.role !== 'waiter') {
+                        Alert.alert('Нельзя изменить роль', 'У пользователя есть активные задачи');
+                        return;
+                      }
+                      setEditData({ ...editData, role: 'waiter', specialization_id: null });
+                    }}
                   >
-                    <Ionicons name="restaurant-outline" size={20} color={editData.role === 'waiter' ? '#fff' : '#666'} />
+                    <Ionicons
+                      name="restaurant-outline"
+                      size={20}
+                      color={editData.role === 'waiter' ? '#fff' : '#666'}
+                    />
                     <Text style={[styles.roleButtonText, editData.role === 'waiter' && styles.roleButtonTextActive]}>
                       Официант
                     </Text>
                   </TouchableOpacity>
+
                   <TouchableOpacity
-                    style={[styles.roleButton, editData.role === 'cook' && styles.roleButtonActive]}
-                    onPress={() => setEditData({ ...editData, role: 'cook' })}
+                    style={[
+                      styles.roleButton,
+                      editData.role === 'cook' && styles.roleButtonActive,
+                      hasLocks && selectedUser && selectedUser.role !== 'cook' ? { opacity: 0.4 } : null,
+                    ]}
+                    disabled={!!(hasLocks && selectedUser && selectedUser.role !== 'cook')}
+                    onPress={() => {
+                      if (hasLocks && selectedUser && selectedUser.role !== 'cook') {
+                        Alert.alert('Нельзя изменить роль', 'У пользователя есть активные задачи');
+                        return;
+                      }
+                      setEditData({ ...editData, role: 'cook' });
+                    }}
                   >
-                    <Ionicons name="flame-outline" size={20} color={editData.role === 'cook' ? '#fff' : '#666'} />
+                    <Ionicons
+                      name="flame-outline"
+                      size={20}
+                      color={editData.role === 'cook' ? '#fff' : '#666'}
+                    />
                     <Text style={[styles.roleButtonText, editData.role === 'cook' && styles.roleButtonTextActive]}>
                       Повар
                     </Text>
                   </TouchableOpacity>
+
                   {isSuperAdmin && (
                     <TouchableOpacity
-                      style={[styles.roleButton, editData.role === 'admin' && styles.roleButtonActive]}
-                      onPress={() => setEditData({ ...editData, role: 'admin', specialization_id: null })}
+                      style={[
+                        styles.roleButton,
+                        editData.role === 'admin' && styles.roleButtonActive,
+                        hasLocks && selectedUser && selectedUser.role !== 'admin' ? { opacity: 0.4 } : null,
+                      ]}
+                      disabled={!!(hasLocks && selectedUser && selectedUser.role !== 'admin')}
+                      onPress={() => {
+                        if (hasLocks && selectedUser && selectedUser.role !== 'admin') {
+                          Alert.alert('Нельзя изменить роль', 'У пользователя есть активные задачи');
+                          return;
+                        }
+                        setEditData({ ...editData, role: 'admin', specialization_id: null });
+                      }}
                     >
-                      <Ionicons name="shield-outline" size={20} color={editData.role === 'admin' ? '#fff' : '#666'} />
+                      <Ionicons
+                        name="shield-outline"
+                        size={20}
+                        color={editData.role === 'admin' ? '#fff' : '#666'}
+                      />
                       <Text style={[styles.roleButtonText, editData.role === 'admin' && styles.roleButtonTextActive]}>
                         Админ
                       </Text>
                     </TouchableOpacity>
                   )}
+
                 </View>
               </View>
+
               {editData.role === 'cook' && (
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Специализация</Text>
@@ -865,6 +1035,7 @@ const AdminStaff = () => {
                       backgroundColor: '#f9f9f9',
                     }}
                     onPress={() => setEditData({ ...editData, _showSpecSelector: !editData._showSpecSelector })}
+                    disabled={!!(selectedUser?.role === "cook" && activeCookTasks[selectedUser.id])}
                   >
                     <Text style={{ color: editData.specialization_id ? '#333' : '#999' }}>
                       {editData.specialization_id
@@ -911,9 +1082,11 @@ const AdminStaff = () => {
                 }>
                   <Switch
                     value={editData.is_available}
+                    disabled={
+                      (selectedUser?.role === "cook" && activeCookTasks[selectedUser.id]) ||
+                      (selectedUser?.role === "waiter" && activeWaiterOrders[selectedUser.id])
+                    }
                     onValueChange={(v) => setEditData({ ...editData, is_available: v })}
-                    trackColor={{ false: '#ddd', true: '#2ecc71' }}
-                    thumbColor={editData.is_available ? '#fff' : '#f4f3f4'}
                   />
                 </View>
               </View>
@@ -966,7 +1139,10 @@ const AdminStaff = () => {
                           <TouchableOpacity onPress={() => openPlatesForSpec(item)} style={{ marginRight: 15 }}>
                             <Ionicons name="list-outline" size={22} color="#3498db" />
                           </TouchableOpacity>
-                          <TouchableOpacity onPress={() => handleDeleteSpec(item.id)}>
+                          <TouchableOpacity
+                            onPress={() => handleDeleteSpec(item.id)}
+                            style={lockedSpecIds.has(item.id) ? { opacity: 0.4 } : undefined}
+                          >
                             <Ionicons name="trash-outline" size={22} color="#e74c3c" />
                           </TouchableOpacity>
                         </View>

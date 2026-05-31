@@ -23,12 +23,18 @@ class ConnectionManager:
 
     async def send_personal_message(self, message: dict, user_id: int):
         """Отправить сообщение пользователю"""
-        if user_id in self.active_connections:
-            for ws in self.active_connections[user_id]:
-                try:
-                    await ws.send_json(message)
-                except Exception:
-                    pass
+        if user_id not in self.active_connections:
+            return
+
+        is_force = message.get("type") == "force_logout"
+
+        for ws in list(self.active_connections[user_id]):
+            try:
+                await ws.send_json(message)
+                if is_force:
+                    await ws.close(code=4001, reason="force_logout")
+            except Exception:
+                pass
 
     async def broadcast_to_users(self, message: dict, user_ids: List[int]):
         for uid in user_ids:

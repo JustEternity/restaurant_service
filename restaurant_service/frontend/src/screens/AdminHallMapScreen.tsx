@@ -120,6 +120,10 @@ const HallMap = () => {
     mapLayout.value = mapLayoutState;
   }, [mapLayoutState]);
 
+  useEffect(() => {
+    setTableIds(selectedTableIds);
+  }, [selectedTableIds]);
+
   const getImageSize = (url: string) => {
     Image.getSize(url, (w, h) => {
       const size = { width: w, height: h };
@@ -280,7 +284,11 @@ const HallMap = () => {
     };
   };
 
-  useEffect(() => { setSelectedTableIds(draft.tableIds); }, [draft.tableIds]);
+  useEffect(() => {
+    if (selectedTableIds.join(',') !== draft.tableIds.join(',')) {
+      setSelectedTableIds(draft.tableIds);
+    }
+  }, [draft.tableIds]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -347,7 +355,7 @@ const HallMap = () => {
     const unsubscribe = addHandler((data: any) => {
       if (data.type === 'plate_ready' || data.type === 'plate_status_changed' ||
           data.type === 'order_completed' || data.type === 'order_created' ||
-          data.type === 'order_updated') {
+          data.type === 'order_updated' || data.type === 'table_created' || data.type === 'table_deleted') {
         manualRefresh();
       }
     });
@@ -404,7 +412,6 @@ const HallMap = () => {
             await api.delete(`/tables/${id}`);
             safeSetTables(prev => prev.filter(t => t.id !== id));
             setSelectedTableIds(prev => prev.filter(tid => tid !== id));
-            setTableIds(selectedTableIds.filter(tid => tid !== id));
           } catch (error) { Alert.alert('Ошибка', 'Не удалось удалить стол'); }
         },
       },
@@ -436,7 +443,6 @@ const HallMap = () => {
         const newSelection = prev.includes(table.id)
           ? prev.filter(tid => tid !== table.id)
           : [...prev, table.id];
-        setTableIds(newSelection);
         return newSelection;
       });
     }

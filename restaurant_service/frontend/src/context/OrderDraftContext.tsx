@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
 
 export interface CartItem {
   item: any;
@@ -27,30 +28,57 @@ const OrderDraftContext = createContext<OrderDraftContextType>({} as OrderDraftC
 export const useOrderDraft = () => useContext(OrderDraftContext);
 
 export const OrderDraftProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [draft, setDraft] = useState<OrderDraft>({
+  const { user } = useAuth();
+
+  const [drafts, setDrafts] = useState<Record<number, OrderDraft>>({});
+
+  const safeUserId = user?.id ?? -1;
+
+  const currentDraft: OrderDraft = drafts[safeUserId] ?? {
     tableIds: [],
     cart: [],
     isActive: false,
-  });
+  };
+
+  const updateDraft = useCallback(
+    (patch: Partial<OrderDraft>) => {
+      if (!user) return;
+      setDrafts(prev => ({
+        ...prev,
+        [user.id]: { ...currentDraft, ...patch },
+      }));
+    },
+    [user, currentDraft]
+  );
 
   const setTableIds = useCallback((ids: number[]) => {
-    setDraft(prev => ({ ...prev, tableIds: ids }));
-  }, []);
+    updateDraft({ tableIds: ids });
+  }, [updateDraft]);
 
   const updateCart = useCallback((cart: CartItem[]) => {
-    setDraft(prev => ({ ...prev, cart }));
-  }, []);
+    updateDraft({ cart });
+  }, [updateDraft]);
 
-  const clearDraft = useCallback(() => {
-    setDraft({ tableIds: [], cart: [], isActive: false });
-  }, []);
+  const clearDraft = useCallback(
+    () => updateDraft({ tableIds: [], cart: [], isActive: false }),
+    [updateDraft]
+  );
 
-  const activateDraft = useCallback(() => {
-    setDraft(prev => ({ ...prev, isActive: true }));
-  }, []);
+  const activateDraft = useCallback(
+    () => updateDraft({ isActive: true }),
+    [updateDraft]
+  );
 
   return (
-    <OrderDraftContext.Provider value={{ draft, setTableIds, updateCart, clearDraft, activateDraft }}>
+    <OrderDraftContext.Provider
+      value={{
+        draft: currentDraft,
+        setTableIds,
+        updateCart,
+        clearDraft,
+        activateDraft,
+      }}
+    >
       {children}
     </OrderDraftContext.Provider>
   );

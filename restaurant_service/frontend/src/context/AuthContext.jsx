@@ -12,20 +12,21 @@ const ForceLogoutSubscriber = ({ onForceLogout }) => {
 
   useEffect(() => {
     const unsubscribe = addHandler((data) => {
-      if (data.type === 'force_logout') {
-        let reasonText = 'Сеанс завершён. Войдите заново.';
-        if (data.reason === 'password_changed') {
-          reasonText = 'Ваш пароль был изменён администратором. Войдите с новым паролем.';
-        } else if (data.reason === 'user_deleted') {
-          reasonText = 'Ваша учётная запись была удалена.';
-        }
+      if (data?.type !== "force_logout") return;
 
-        onForceLogout();
+      const reason = String(data.reason || "").trim().toLowerCase();
 
-        InteractionManager.runAfterInteractions(() => {
-          Alert.alert('Уведомление', reasonText, [{ text: 'OK' }]);
-        });
+      let reasonText = "Сеанс завершён. Войдите заново.";
+
+      if (reason === "password_changed") {
+        reasonText = "Ваш пароль был изменён администратором. Войдите с новым паролем.";
+      } else if (reason === "role_or_status_changed") {
+        reasonText = "Ваши права доступа были изменены. Войдите заново.";
       }
+
+      Alert.alert("Уведомление", reasonText, [{ text: "OK" }]);
+
+      setTimeout(() => onForceLogout(), 200);
     });
 
     return unsubscribe;

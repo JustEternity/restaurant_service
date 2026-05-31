@@ -317,13 +317,14 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   addToCartButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 45,
+    height: 45,
+    borderRadius: 25,
     backgroundColor: '#007AFF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 10,
+    marginLeft: 15,
+    alignSelf: 'center',
   },
   cartBadge: {
     position: 'absolute',
@@ -343,10 +344,14 @@ const styles = StyleSheet.create({
   },
   modalAddToCartButton: {
     backgroundColor: '#007AFF',
-    padding: 16,
-    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    alignSelf: 'center',
+    minWidth: 270,
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: 10,
+    marginBottom: 10,
   },
   cartModalOverlay: {
     flex: 1,
@@ -354,10 +359,15 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   cartModalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '90%',
+  backgroundColor: '#fff',
+  borderTopLeftRadius: 20,
+  borderTopRightRadius: 20,
+  maxHeight: '85%',
+  overflow: 'hidden',
+  },
+  cartList: {
+    flexGrow: 0,
+    flexShrink: 1,
   },
   cartItem: {
     flexDirection: 'row',
@@ -384,8 +394,38 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#eee',
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
+  },
+
+  footerLeft: {
+    flexShrink: 0,
+    justifyContent: 'center',
+  },
+
+  footerRight: {
+    flexGrow: 1,
+    maxWidth: '60%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+
+  footerButton: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    minWidth: 120,
+    paddingVertical: 12,
+    borderRadius: 10,
     alignItems: 'center',
+    backgroundColor: '#007AFF',
+  },
+
+  footerButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
   },
   totalText: {
     fontSize: 18,
@@ -396,6 +436,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 24,
+    marginLeft: 10,
+    marginRight: 10,
   },
   saveButton: {
     backgroundColor: '#007AFF',

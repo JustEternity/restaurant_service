@@ -85,6 +85,18 @@ interface TableOrderCount {
   order_count: number;
 }
 
+interface CookWorkload {
+  cook_id: number;
+  cook_name: string;
+  total_count: number;
+  dishes: {
+    plate_id: number;
+    plate_name: string;
+    count: number;
+    status: 'preparing' | 'ready';
+  }[];
+}
+
 type TabType = 'general' | 'kitchen' | 'waiters';
 
 const AdminReports = () => {
@@ -113,6 +125,9 @@ const AdminReports = () => {
   const [showCookPicker, setShowCookPicker] = useState(false);
   const [showPlatePicker, setShowPlatePicker] = useState(false);
   const [showAllDishesModal, setShowAllDishesModal] = useState(false);
+
+  const [cookWorkload, setCookWorkload] = useState<CookWorkload[]>([]);
+  const [showWorkloadModal, setShowWorkloadModal] = useState(false);
 
   const handleStartDateChange = (_: any, d?: Date) => {
     if (d) setStartDate(d);
@@ -198,11 +213,24 @@ const AdminReports = () => {
     }
   };
 
+  const loadWorkload = async () => {
+    try {
+      const res = await api.get('/statistics/kitchen/workload');
+      setCookWorkload(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     loadAll();
     loadOrders();
-    loadKitchenDetail();
+  }, [startDate, endDate]);
+
+  useEffect(() => {
+      loadKitchenDetail();
   }, [startDate, endDate, selectedCook, selectedPlate]);
+
   useEffect(() => {
     loadWaiters();
     loadCooks();
@@ -317,10 +345,10 @@ const AdminReports = () => {
         {activeTab === 'general' && generalStats && (
           <View>
             <ReportCard title="Всего заказов" value={generalStats.total_orders} icon="receipt-outline" />
-            <ReportCard title="Общая выручка" value={`${generalStats.total_revenue.toFixed(0)} ₽`} icon="cash-outline" />
-            <ReportCard title="Средний чек" value={`${generalStats.avg_check.toFixed(0)} ₽`} icon="card-outline" />
+            <ReportCard title="Общая выручка" value={`${generalStats.total_revenue.toFixed(2)} ₽`} icon="cash-outline" />
+            <ReportCard title="Средний чек" value={`${generalStats.avg_check.toFixed(2)} ₽`} icon="card-outline" />
             <ReportCard title="Общее количество блюд" value={generalStats.total_dishes} icon="restaurant-outline" />
-            <ReportCard title="Среднее количество блюд в заказе" value={generalStats.avg_dishes_per_order} icon="restaurant-outline" />
+            <ReportCard title="Среднее количество блюд в заказе" value={generalStats.avg_dishes_per_order.toFixed(1)} icon="restaurant-outline" />
             <ReportCard title="Среднее время выполнения заказа" value={`${generalStats.avg_order_time_minutes.toFixed(0)} мин`} icon="time-outline" />
             {tableOrders.length > 0 && (
               <View style={styles.section}>
@@ -342,8 +370,8 @@ const AdminReports = () => {
               <Ionicons name="chevron-down" size={18} color="#666" />
             </TouchableOpacity>
             <ReportCard title="Количество заказов" value={waiterTotalOrders} icon="receipt-outline" />
-            <ReportCard title="Средний чек" value={`${waiterAvgCheck.toFixed(0)} ₽`} icon="cash-outline" />
-            <ReportCard title="Среднее количество блюд в заказе" value={waiterAvgDishes} icon="restaurant-outline" />
+            <ReportCard title="Средний чек" value={`${waiterAvgCheck.toFixed(2)} ₽`} icon="cash-outline" />
+            <ReportCard title="Среднее количество блюд в заказе" value={waiterAvgDishes.toFixed(1)} icon="restaurant-outline" />
           </View>
         )}
 
@@ -412,9 +440,16 @@ const AdminReports = () => {
                 onPress={() => setShowAllDishesModal(true)}
               >
                 <Ionicons name="restaurant-outline" size={20} color="#007AFF" />
-                <Text style={styles.additionalButtonText}>Все блюда (таблица)</Text>
+                <Text style={styles.additionalButtonText}>Все блюда</Text>
               </TouchableOpacity>
             )}
+            <TouchableOpacity
+              style={styles.additionalButton}
+              onPress={() => { loadWorkload(); setShowWorkloadModal(true); }}
+            >
+              <Ionicons name="people-outline" size={20} color="#007AFF" />
+              <Text style={styles.additionalButtonText}>Загруженность поваров</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -527,6 +562,61 @@ const AdminReports = () => {
               )}
             />
             <TouchableOpacity style={styles.closeButton} onPress={() => setShowPlatePicker(false)}>
+              <Text style={styles.closeButtonText}>Закрыть</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showWorkloadModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContentLarge}>
+            <Text style={styles.modalTitle}>Загруженность поваров</Text>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.tableHeaderCell, { flex: 2 }]}>Повар</Text>
+              <Text style={[styles.tableHeaderCell, { flex: 3 }]}>Блюда</Text>
+              <Text style={[styles.tableHeaderCell, { flex: 1, textAlign: 'center' }]}>Порций</Text>
+            </View>
+
+            <FlatList
+              data={cookWorkload}
+              keyExtractor={item => item.cook_id?.toString() ?? 'unknown'}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>Нет активных блюд</Text>
+              }
+              renderItem={({ item }) => (
+                <View style={[styles.tableRow, { alignItems: 'flex-start' }]}>
+                  <Text style={[styles.tableCell, { flex: 2, paddingTop: 4 }]}>
+                    {item.cook_name}
+                  </Text>
+                  <View style={{ flex: 3 }}>
+                    {item.dishes.map((d, i) => (
+                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3, gap: 0 }}>
+                        <Text style={{
+                          fontSize: 10,
+                          paddingHorizontal: 5,
+                          paddingVertical: 2,
+                          borderRadius: 4,
+                          overflow: 'hidden',
+                          backgroundColor: d.status === 'preparing' ? '#FFF3CD' : '#D4EDDA',
+                          color: d.status === 'preparing' ? '#856404' : '#155724',
+                        }}>
+                          {d.status === 'preparing' ? '⌛' : '✅'}
+                        </Text>
+                        <Text style={[styles.tableCell, { flex: 1 }]}>
+                          {d.plate_name} × {d.count}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                  <Text style={[styles.tableCell, { flex: 1, textAlign: 'center', paddingTop: 4 }]}>
+                    {item.total_count}
+                  </Text>
+                </View>
+              )}
+            />
+
+            <TouchableOpacity style={styles.closeButton} onPress={() => setShowWorkloadModal(false)}>
               <Text style={styles.closeButtonText}>Закрыть</Text>
             </TouchableOpacity>
           </View>

@@ -179,6 +179,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontStyle: 'italic',
   },
+  sectionTitleHighlight: { color: '#FF6B6B', fontWeight: '700' },
+  recommendedCardHighlight: { borderColor: '#FF6B6B', borderWidth: 1.5 },
+  cardComment: { fontSize: 12, color: '#888', marginTop: 2, fontStyle: 'italic' }
 });
 
 export default styles;

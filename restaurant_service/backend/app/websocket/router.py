@@ -36,8 +36,14 @@ async def websocket_endpoint(
     role_name = user.role_of_user.name if user.role_of_user else "unknown"
 
     await manager.connect(user.id, websocket, role=role_name)
+
     try:
         while True:
-            await websocket.receive_text()
+            data = await websocket.receive_json()
+
+            if data.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+
     except WebSocketDisconnect:
         manager.disconnect(user.id, websocket)
