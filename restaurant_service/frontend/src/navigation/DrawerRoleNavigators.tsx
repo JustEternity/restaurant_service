@@ -111,7 +111,7 @@ const AdminDrawerBase = ({ color }: { color: string }) => (
       name="Статистика"
       component={AdminReports}
       options={{
-        headerTitle: () => <HeaderTitle title="Статистика по работе ресторана" color="#FFFFFF" />,
+        headerTitle: () => <HeaderTitle title="Статистика" color="#FFFFFF" />,
         drawerLabel: 'Статистика',
       }}
     />
@@ -220,7 +220,7 @@ export const WaiterDrawer = () => (
       name="Меню"
       component={MenuStack}
       options={{
-        headerTitle: () => <HeaderTitle title="Меню ресторана" color="#FFFFFF" />,
+        headerTitle: () => <HeaderTitle title="Меню" color="#FFFFFF" />,
         drawerLabel: 'Меню',
       }}
     />

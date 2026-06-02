@@ -858,26 +858,6 @@ const ChefOrders = () => {
         </View>
       )}
 
-      {statusFilter === 'waiting' &&
-        specializationFilter !== 'all' &&
-        Array.from(grouped.cookSections.entries()).map(([cookId, { cook, plates }]) => {
-          const isCurrentCook = cookId === user?.id;
-          return (
-            <View key={cookId} style={styles.recommendedSection}>
-              <Text style={[styles.sectionTitle, isCurrentCook && styles.sectionTitleHighlight]}>
-                {isCurrentCook ? `${cook.name}` : cook.name}
-              </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 12 }}
-              >
-                {plates.map(item => renderSliderCard(item, isCurrentCook))}
-              </ScrollView>
-            </View>
-          );
-        })}
-
       <FlatList
         data={grouped.unassigned}
         renderItem={renderItem}
@@ -886,6 +866,29 @@ const ChefOrders = () => {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={['#FF6B6B']} />
         }
+        ListHeaderComponent={() => (
+          <View>
+            {statusFilter === 'waiting' &&
+              specializationFilter !== 'all' &&
+              Array.from(grouped.cookSections.entries()).map(([cookId, { cook, plates }]) => {
+                const isCurrentCook = cookId === user?.id;
+                return (
+                  <View key={cookId} style={styles.recommendedSection}>
+                    <Text style={[styles.sectionTitle, isCurrentCook && styles.sectionTitleHighlight]}>
+                      {isCurrentCook ? `${cook.name}` : cook.name}
+                    </Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingHorizontal: 12 }}
+                    >
+                      {plates.map(item => renderSliderCard(item, isCurrentCook))}
+                    </ScrollView>
+                  </View>
+                );
+              })}
+          </View>
+        )}
         ListEmptyComponent={
           grouped.cookSections.size === 0 ? (
             <View style={styles.empty}>

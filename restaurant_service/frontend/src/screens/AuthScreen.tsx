@@ -31,14 +31,13 @@ export default function AuthScreen({ navigation }: Props) {
   const [password, setPassword] = useState('');
   const [localLoading, setLocalLoading] = useState(false);
   const [error, setError] = useState('');
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
-  const [name, setName] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
 
-  const { login: authLogin, register: authRegister } = useAuth();
+  const { login: authLogin } = useAuth();
 
 
   const handleLogin = async () => {
+    setError('');
+
     if (!login.trim() || !password.trim()) {
       setError('Пожалуйста, заполните все поля');
       return;
@@ -50,61 +49,33 @@ export default function AuthScreen({ navigation }: Props) {
     }
 
     setLocalLoading(true);
-    setError('');
 
     try {
       const result = await authLogin(login, password);
 
       if (result.success) {
         console.log('Успешный вход:', result.user?.role);
-      } else {
-        setError(result.error || 'Ошибка входа');
+        return;
       }
-    } catch (error) {
-      console.error('Ошибка входа:', error);
-      setError('Произошла ошибка. Проверьте подключение к серверу.');
-    } finally {
-      setLocalLoading(false);
-    }
-  };
 
-  const handleRegister = async () => {
-    if (!name.trim() || !login.trim() || !password.trim() || !confirmPassword.trim()) {
-      setError('Пожалуйста, заполните все поля');
-      return;
-    }
-
-    if (password.length < 6) {
-      setError('Пароль должен содержать минимум 6 символов');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError('Пароли не совпадают');
-      return;
-    }
-
-    setLocalLoading(true);
-    setError('');
-
-    try {
-      const result = await authRegister(name, login, password, 'admin');
-
-      if (result.success) {
-        Alert.alert(
-          'Успешная регистрация!',
-          'Ваш аккаунт создан. Теперь вы можете войти в систему.',
-          [{ text: 'OK' }]
-        );
-        setIsRegisterMode(false);
-        setPassword('');
-        setConfirmPassword('');
-      } else {
-        setError(result.error || 'Ошибка регистрации');
+      if (result.error) {
+        setError(result.error);
+        return;
       }
-    } catch (error) {
-      console.error('Ошибка регистрации:', error);
-      setError('Произошла ошибка регистрации');
+
+      setError('Ошибка входа. Попробуйте снова.');
+    } catch (err: any) {
+      console.error('Ошибка входа:', err);
+
+      if (err.response?.status === 401) {
+        setError('Неверный логин или пароль');
+      } else if (err.response?.status === 404) {
+        setError('Пользователь не найден');
+      } else if (err.response?.data?.detail) {
+        setError(err.response.data.detail);
+      } else {
+        setError('Не удалось подключиться к серверу');
+      }
     } finally {
       setLocalLoading(false);
     }
@@ -128,26 +99,12 @@ export default function AuthScreen({ navigation }: Props) {
           </View>
           <Text style={styles.title}>Restaurant service</Text>
           <Text style={styles.subtitle}>
-            {isRegisterMode ? 'Регистрация' : 'Вход в систему'}
+            {'Вход в систему'}
           </Text>
         </View>
 
         {/* Форма */}
         <View style={styles.form}>
-          {isRegisterMode && (
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Имя</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Введите ваше имя"
-                placeholderTextColor="#95A5A6"
-                value={name}
-                onChangeText={setName}
-                editable={!localLoading}
-              />
-            </View>
-          )}
-
           {/* Поле Логин */}
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Логин</Text>
@@ -176,21 +133,6 @@ export default function AuthScreen({ navigation }: Props) {
             />
           </View>
 
-          {isRegisterMode && (
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Подтверждение пароля</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Повторите пароль"
-                placeholderTextColor="#95A5A6"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
-                editable={!localLoading}
-              />
-            </View>
-          )}
-
           {/* Сообщение об ошибке */}
           {error ? (
             <View style={styles.errorContainer}>
@@ -201,7 +143,7 @@ export default function AuthScreen({ navigation }: Props) {
           {/* Кнопка входа/регистрации */}
           <TouchableOpacity
             style={[styles.loginButton, localLoading && styles.loginButtonDisabled]}
-            onPress={isRegisterMode ? handleRegister : handleLogin}
+            onPress={handleLogin}
             disabled={localLoading}
             activeOpacity={0.8}
           >
@@ -209,29 +151,14 @@ export default function AuthScreen({ navigation }: Props) {
               <ActivityIndicator color="#FFFFFF" size="small" />
             ) : (
               <Text style={styles.loginButtonText}>
-                {isRegisterMode ? 'Зарегистрироваться' : 'Войти'}
+                {'Войти'}
               </Text>
             )}
           </TouchableOpacity>
 
-          {/* Переключение между входом и регистрацией */}
-          <TouchableOpacity
-            style={styles.toggleButton}
-            onPress={() => {
-              setIsRegisterMode(!isRegisterMode);
-              setError('');
-            }}
-            disabled={localLoading}
-          >
-            <Text style={styles.toggleButtonText}>
-              {isRegisterMode
-                ? 'Уже есть аккаунт? Войти'
-                : 'Нет аккаунта? Зарегистрироваться'}
-            </Text>
-          </TouchableOpacity>
 
           {/* Быстрый вход для тестирования*/}
-          {__DEV__ && !isRegisterMode && (
+          {__DEV__ &&  (
             <View style={styles.testContainer}>
               <Text style={styles.testTitle}>Тестовые пользователи:</Text>
               <View style={styles.testButtons}>

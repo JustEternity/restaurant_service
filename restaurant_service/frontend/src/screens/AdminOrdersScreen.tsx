@@ -52,7 +52,17 @@ const AdminOrders = () => {
       setLoading(true);
       const response = await api.get('/orders/');
       const data: Order[] = response.data;
-      data.sort((a, b) => new Date(b.timestart).getTime() - new Date(a.timestart).getTime());
+      const statusPriority: Record<string, number> = {
+        active: 1,
+        completed: 2,
+        cancelled: 3,
+      };
+      data.sort((a, b) => {
+        const statusDiff = statusPriority[a.status] - statusPriority[b.status];
+        if (statusDiff !== 0) return statusDiff;
+
+        return new Date(b.timestart).getTime() - new Date(a.timestart).getTime();
+      });
       setOrders(data);
     } catch (error) {
       console.error(error);

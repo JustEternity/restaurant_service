@@ -54,6 +54,11 @@ interface CartItem {
   course_number: number;
 }
 
+type UnifiedListItem =
+  | { type: 'category'; data: Category }
+  | { type: 'item'; data: MenuItem };
+
+
 type RootStackParamList = {
   HallMap: { clearDraft?: boolean };
   MenuItemForm: { itemId?: number };
@@ -195,10 +200,31 @@ const WaiterMenu = () => {
     }, [orderId])
   );
 
+  const flattenMenuByCategories = useCallback((): UnifiedListItem[] => {
+    const result: UnifiedListItem[] = [];
+
+    const walk = (category: Category) => {
+      result.push({ type: 'category', data: category });
+
+      const items = menuItems.filter(i => i.category === category.id);
+      items.forEach(item => result.push({ type: 'item', data: item }));
+
+      category.children?.forEach(child => walk(child));
+    };
+
+    categoriesTree.forEach(root => walk(root));
+
+    return result;
+  }, [categoriesTree, menuItems]);
+
+
   const filteredItems = useMemo(() => {
-    if (currentCategory) return menuItems.filter(item => item.category === currentCategory.id);
-    return menuItems;
-  }, [currentCategory, menuItems]);
+    if (currentCategory) {
+      return menuItems.filter(item => item.category === currentCategory.id);
+    }
+    return flattenMenuByCategories();
+  }, [currentCategory, menuItems, flattenMenuByCategories]);
+
 
   const loadData = async (silent = false) => {
     try {
@@ -330,17 +356,6 @@ const WaiterMenu = () => {
     setAvailableParentCategories(getAvailableParents(null, categoriesTree));
     setShowParentSelector(false);
     setCategoryTreeModalVisible(false);
-    setCategoryEditModalVisible(true);
-  };
-
-  const handleAddSubcategory = () => {
-    if (!isAdmin || !selectedCategory) return;
-    setSelectedCategory(null);
-    setIsCreatingCategory(true);
-    setEditingCategoryName('');
-    setSelectedParentId(selectedCategory.id);
-    setAvailableParentCategories(getAvailableParents(null, categoriesTree));
-    setShowParentSelector(false);
     setCategoryEditModalVisible(true);
   };
 
@@ -600,6 +615,20 @@ const WaiterMenu = () => {
     </View>
   );
 
+  const renderUnifiedItem = ({ item }: { item: UnifiedListItem | MenuItem }) => {
+    if ('type' in item) {
+      if (item.type === 'category') {
+        return (
+          <View style={styles.categoryHeader}>
+            <Text style={styles.categoryHeaderText}>{item.data.name}</Text>
+          </View>
+        );
+      }
+      return renderMenuItem({ item: item.data });
+    }
+    return renderMenuItem({ item });
+  };
+
   const renderMenuItem = ({ item }: { item: MenuItem }) => {
     const content = (
       <View style={[styles.menuItemContent, !item.is_available && { opacity: 0.3 }]}>
@@ -648,6 +677,11 @@ const WaiterMenu = () => {
     return <View style={styles.menuItem}>{content}</View>;
   };
 
+  const totalItemsCount =
+    currentCategory
+      ? (filteredItems as MenuItem[]).length
+      : menuItems.length;
+
   if (isInitialLoad) {
     return (
       <View style={styles.loadingContainer}>
@@ -681,7 +715,7 @@ const WaiterMenu = () => {
           )}
         </View>
         <Text style={styles.headerSubtitle}>
-          {categoryPath.length > 0 ? categoryPath.map(c => c.name).join(' / ') : 'Все блюда'} • {filteredItems.length} позиций
+          {categoryPath.length > 0 ? categoryPath.map(c => c.name).join(' / ') : 'Все блюда'} • {totalItemsCount} позиций
         </Text>
       </View>
 
@@ -713,16 +747,25 @@ const WaiterMenu = () => {
       </View>
 
       <FlatList
-        data={filteredItems}
-        renderItem={renderMenuItem}
-        keyExtractor={(item) => item.id.toString()}
+        data={filteredItems as any}
+        renderItem={renderUnifiedItem}
+        keyExtractor={(item, index) => {
+          if ('type' in item) {
+            return item.type === 'category'
+              ? `cat-${item.data.id}-${index}`
+              : `item-${item.data.id}-${index}`;
+          }
+          return `item-${(item as MenuItem).id}-${index}`;
+        }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={['#007AFF']} />}
         contentContainerStyle={styles.menuList}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="restaurant-outline" size={60} color="#ccc" />
             <Text style={styles.emptyText}>
-              {categoryPath.length > 0 ? `В категории "${categoryPath[categoryPath.length - 1].name}" нет блюд` : 'Меню пусто'}
+              {categoryPath.length > 0
+                ? `В категории "${categoryPath[categoryPath.length - 1].name}" нет блюд`
+                : 'Меню пусто'}
             </Text>
           </View>
         }
@@ -993,11 +1036,6 @@ const WaiterMenu = () => {
                         {isCreatingCategory ? 'Создать категорию' : 'Сохранить изменения'}
                       </Text>
                     </TouchableOpacity>
-                    {!isCreatingCategory && (
-                      <TouchableOpacity style={{ backgroundColor: '#f9991c', paddingVertical: 12, borderRadius: 8, alignItems: 'center' }} onPress={handleAddSubcategory}>
-                        <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Добавить подкатегорию</Text>
-                      </TouchableOpacity>
-                    )}
                     {!isCreatingCategory && (
                       <TouchableOpacity style={{ backgroundColor: '#e74c3c', paddingVertical: 12, borderRadius: 8, alignItems: 'center' }} onPress={deleteCategory}>
                         <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Удалить категорию</Text>

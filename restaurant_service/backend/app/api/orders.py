@@ -672,15 +672,25 @@ async def update_plate_status(
 
 @router.delete("/{order_id}")
 async def delete_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
-    order = await db.get(Order, order_id, options=[selectinload(Order.tables).selectinload(TableForOrder.table_for_order)])
+    stmt = select(Order).where(Order.id == order_id).options(
+        selectinload(Order.tables).selectinload(TableForOrder.table_for_order)
+    )
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
+
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    order.status = "cancelled"
+    order.endtime = datetime.now()
+
     for link in order.tables:
         if link.table_for_order:
             link.table_for_order.status = "free"
-    await db.delete(order)
+
     await db.commit()
-    return {"message": "Заказ удалён"}
+
+    return {"message": "Заказ отменён"}
 
 @router.post("/{order_id}/plates", response_model=PlateInOrderResponse)
 async def add_plate_to_order(
@@ -916,3 +926,47 @@ async def delete_plate_from_order(plate_id: int, db: AsyncSession = Depends(get_
             "message": "Поступил новый заказ"
         }, list(cooks_to_notify))
     return {"message": "Блюдо удалено из заказа"}
+
+@router.put("/{order_id}/reactivate")
+async def reactivate_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
+    stmt = select(Order).where(Order.id == order_id).options(
+        selectinload(Order.tables).selectinload(TableForOrder.table_for_order)
+    )
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    if order.status not in ["completed", "cancelled"]:
+        raise HTTPException(status_code=400, detail="Можно активировать только завершённые или отменённые заказы")
+
+    table_ids = [link.table_for_order.id for link in order.tables if link.table_for_order]
+
+    if table_ids:
+        tables_sorted = sorted(table_ids)
+        lock_key = hash(f"tables:{','.join(map(str, tables_sorted))}") % 2_147_483_647
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
+        conflict_stmt = select(exists().where(
+            and_(
+                Order.status == "active",
+                TableForOrder.table.in_(tables_sorted),
+                TableForOrder.order == Order.id,
+                Order.id != order.id
+            )
+        ))
+        result = await db.execute(conflict_stmt)
+        if result.scalar():
+            raise HTTPException(status_code=409, detail="Стол занят другим активным заказом")
+
+        for link in order.tables:
+            if link.table_for_order:
+                link.table_for_order.status = "occupied"
+
+    order.status = "active"
+    order.endtime = None
+
+    await db.commit()
+
+    return {"message": "Заказ снова активен"}

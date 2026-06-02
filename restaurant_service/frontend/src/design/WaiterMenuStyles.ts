@@ -504,6 +504,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
+  categoryHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#F5F5F7',
+  },
+  categoryHeaderText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
 });
 
 export default styles;

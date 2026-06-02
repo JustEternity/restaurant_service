@@ -57,7 +57,18 @@ const WaiterOrders = () => {
       setLoading(true);
       const response = await api.get(`/orders/?waiter_id=${user?.id}`);
       const data: Order[] = response.data;
-      data.sort((a, b) => new Date(b.timestart).getTime() - new Date(a.timestart).getTime());
+      const statusPriority: Record<string, number> = {
+        active: 1,
+        completed: 2,
+        cancelled: 3,
+      };
+
+      data.sort((a, b) => {
+        const statusDiff = statusPriority[a.status] - statusPriority[b.status];
+        if (statusDiff !== 0) return statusDiff;
+
+        return new Date(b.timestart).getTime() - new Date(a.timestart).getTime();
+      });
       setOrders(data);
     } catch (error) {
       console.error(error);
@@ -245,37 +256,69 @@ const WaiterOrders = () => {
   const renderOrderItem = ({ item }: { item: Order }) => {
     const consideredPlates = item.plates.filter(p => p.is_considered);
     const hasReady = consideredPlates.some(p => p.current_status === 'ready');
+    const renderRightActions = () => {
+      if (item.status === "completed" || item.status === "cancelled") {
+        return (
+          <View
+            style={{
+              width: 80,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <RectButton
+              style={[
+                styles.swipeButton,
+                {
+                  backgroundColor: "#2ecc71",
+                  marginBottom: 15,
+                },
+              ]}
+              onPress={() => reactivateOrder(item.id) }
+            >
+              <Ionicons name="refresh" size={24} color="#fff" />
+            </RectButton>
+          </View>
+        );
+      }
+      return null;
+    };
     return (
-      <TouchableOpacity
-        style={[styles.orderCard, hasReady && styles.readyOrderCard]}
-        onPress={() => openOrderDetails(item)} activeOpacity={0.7}
+      <Swipeable
+        renderRightActions={renderRightActions}
+        overshootRight={false}
       >
-        <View style={styles.orderHeader}>
-          <View style={styles.orderIdContainer}>
-            <Text style={styles.orderId}>Заказ #{item.id}</Text>
-            <View style={[styles.statusBadge, { backgroundColor: hasReady ? '#e91e8c' : getStatusColor(item.status) }]}>
-              <Text style={styles.statusText}>{hasReady ? 'Готово подать' : getStatusText(item.status)}</Text>
+        <TouchableOpacity
+          style={[styles.orderCard, hasReady && styles.readyOrderCard]}
+          onPress={() => openOrderDetails(item)} activeOpacity={0.7}
+        >
+          <View style={styles.orderHeader}>
+            <View style={styles.orderIdContainer}>
+              <Text style={styles.orderId}>Заказ #{item.id}</Text>
+              <View style={[styles.statusBadge, { backgroundColor: hasReady ? '#e91e8c' : getStatusColor(item.status) }]}>
+                <Text style={styles.statusText}>{hasReady ? 'Готово подать' : getStatusText(item.status)}</Text>
+              </View>
+            </View>
+            <Text style={styles.orderTime}>
+              {new Date(item.timestart).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          </View>
+          <View style={styles.orderInfo}>
+            <View style={styles.infoRow}>
+              <Ionicons name="restaurant-outline" size={16} color="#666" />
+              <Text style={styles.infoText}>Столы: {item.table_numbers.join(', ')}</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Ionicons name="receipt-outline" size={16} color="#666" />
+              <Text style={styles.infoText}>Позиций: {consideredPlates.reduce((sum, p) => sum + p.count, 0)}</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Ionicons name="cash-outline" size={16} color="#666" />
+              <Text style={styles.infoText}>Сумма: {consideredPlates.reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽</Text>
             </View>
           </View>
-          <Text style={styles.orderTime}>
-            {new Date(item.timestart).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-        </View>
-        <View style={styles.orderInfo}>
-          <View style={styles.infoRow}>
-            <Ionicons name="restaurant-outline" size={16} color="#666" />
-            <Text style={styles.infoText}>Столы: {item.table_numbers.join(', ')}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Ionicons name="receipt-outline" size={16} color="#666" />
-            <Text style={styles.infoText}>Позиций: {consideredPlates.reduce((sum, p) => sum + p.count, 0)}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Ionicons name="cash-outline" size={16} color="#666" />
-            <Text style={styles.infoText}>Сумма: {consideredPlates.reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽</Text>
-          </View>
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+      </Swipeable>
     );
   };
 
@@ -341,9 +384,6 @@ const WaiterOrders = () => {
     const unsubscribe = addHandler((data: any) => {
       if (data.type === 'plate_ready' || data.type === 'plate_status_changed') {
         loadOrders();
-        if (data.type === 'plate_ready') {
-          Alert.alert('Блюдо готово', data.message || 'Блюдо готово к подаче');
-        }
       }
     });
     return unsubscribe;
@@ -359,6 +399,15 @@ const WaiterOrders = () => {
   }
 
   const allServed = selectedOrder?.plates.filter(p => p.is_considered).every(p => p.current_status === 'served');
+
+  const reactivateOrder = async (orderId: number) => {
+    try {
+      await api.put(`/orders/${orderId}/reactivate`);
+      await loadOrders();
+    } catch (error: any) {
+      Alert.alert("Ошибка", error.response?.data?.detail || "Не удалось активировать заказ");
+    }
+  };
 
   return (
     <View style={styles.container}>

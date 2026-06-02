@@ -138,7 +138,6 @@ export const AuthProvider = ({ children }) => {
   }, [restoreSession]);
 
   const login = async (login, password) => {
-    setIsLoading(true);
     try {
       const response = await api.post('/auth/login-json', { login, password });
       const { access_token, user_id, role, name } = response.data;
@@ -152,34 +151,22 @@ export const AuthProvider = ({ children }) => {
       await setTokenWithExpiry(access_token);
 
       return { success: true, user: userData };
-    } catch (error) {
-      console.error('Ошибка входа:', error);
-      return { success: false, error: error.response?.data?.detail || error.message };
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    } catch (err) {
+      console.log("LOGIN ERROR:", err.response?.data);
 
-  const register = async (name, login, password, role = 'admin') => {
-    setIsLoading(true);
-    try {
-      const response = await api.post('/auth/register', { name, login, password, role });
-      const { access_token, user_id, role: userRole, name: userName } = response.data;
+      if (err.response?.status === 401) {
+        return { success: false, error: "Неверный логин или пароль" };
+      }
 
-      const userData = { id: user_id, login, role: userRole, name: userName, is_available: true };
+      if (err.response?.status === 403) {
+        return { success: false, error: "Пользователь заблокирован" };
+      }
 
-      await AsyncStorage.setItem(API_CONFIG.STORAGE_KEYS.AUTH_TOKEN, access_token);
-      await AsyncStorage.setItem(API_CONFIG.STORAGE_KEYS.USER_DATA, JSON.stringify(userData));
+      if (err.response?.data?.detail) {
+        return { success: false, error: err.response.data.detail };
+      }
 
-      setUser(userData);
-      await setTokenWithExpiry(access_token);
-
-      return { success: true, user: userData };
-    } catch (error) {
-      console.error('Ошибка регистрации:', error);
-      return { success: false, error: error.message };
-    } finally {
-      setIsLoading(false);
+      return { success: false, error: "Ошибка подключения к серверу" };
     }
   };
 
@@ -201,7 +188,6 @@ export const AuthProvider = ({ children }) => {
     authToken,
     login,
     logout,
-    register,
     hasRole,
     hasPermission,
   };

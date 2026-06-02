@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useCallback } from 'react';
 import { API_CONFIG } from '../config';
+import Toast from 'react-native-root-toast';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type MessageHandler = (data: any) => void;
 
@@ -27,6 +29,11 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
 
   const HEARTBEAT_INTERVAL = 10000;
   const HEARTBEAT_TIMEOUT = 20000;
+
+  const lastReadyToastRef = useRef(0);
+  const TOAST_COOLDOWN = 3000;
+
+  const insets = useSafeAreaInsets();
 
   const startHeartbeat = () => {
     stopHeartbeat();
@@ -94,6 +101,27 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
           if (data.type === "pong") {
             lastPongRef.current = Date.now();
             return;
+          }
+
+          if (data.type === "plate_ready") {
+            const now = Date.now();
+            if (now - lastReadyToastRef.current > TOAST_COOLDOWN) {
+              lastReadyToastRef.current = now;
+
+
+              Toast.show(data.message || "Блюдо готово к подаче", {
+                duration: Toast.durations.SHORT,
+                position: Toast.positions.TOP,
+                containerStyle: {
+                  marginTop: insets.top + 30,
+                },
+                shadow: true,
+                animation: true,
+                backgroundColor: "#2ecc71",
+                textColor: "#fff",
+                opacity: 1,
+              });
+            }
           }
 
           handlersRef.current.forEach(h => h(data));

@@ -7,6 +7,8 @@ import { OrderDraftProvider } from './src/context/OrderDraftContext';
 import { ChefDrawer, WaiterDrawer, AdminDrawer, SuperAdminDrawer } from './src/navigation/DrawerRoleNavigators';
 import AuthScreen from './src/screens/AuthScreen';
 import LoadingScreen from './src/components/LoadingScreen';
+import { RootSiblingParent } from 'react-native-root-siblings';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 const Stack = createNativeStackNavigator();
 
@@ -45,10 +47,14 @@ function AppNavigator() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <OrderDraftProvider>
-        <AppNavigator/>
-      </OrderDraftProvider>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <RootSiblingParent>
+        <AuthProvider>
+          <OrderDraftProvider>
+            <AppNavigator/>
+          </OrderDraftProvider>
+        </AuthProvider>
+      </RootSiblingParent>
+    </SafeAreaProvider>
   );
 }
