@@ -288,6 +288,16 @@ const styles = StyleSheet.create({
   adminBadge: {
     backgroundColor: '#45B7D1',
   },
+  specNameInput: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    paddingVertical: 4,
+    borderColor: '#ccc',
+    marginRight: 12,
+    textAlign: 'center',
+  },
 });
 
 export default styles;

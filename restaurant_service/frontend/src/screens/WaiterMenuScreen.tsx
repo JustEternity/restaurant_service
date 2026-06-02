@@ -583,7 +583,11 @@ const WaiterMenu = () => {
       setCartModalVisible(false);
       setCart([]);
       setOrderSaved(true);
-      navigation.goBack();
+      navigation.replace('MenuList', {
+        orderId: undefined,
+        existingPlates: [],
+        selectedTableIds: [],
+      });
     } catch (error: any) {
       Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось обновить заказ');
     } finally {

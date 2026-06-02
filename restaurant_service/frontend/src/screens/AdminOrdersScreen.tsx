@@ -167,6 +167,20 @@ const AdminOrders = () => {
     </TouchableOpacity>
   );
 
+  const groupPlatesByCourse = (plates: PlateInOrder[]) => {
+    const map = new Map<number, PlateInOrder[]>();
+
+    plates.forEach(p => {
+      const course = (p as any).course_number ?? 1;
+      const arr = map.get(course) || [];
+      arr.push(p);
+      map.set(course, arr);
+    });
+
+    return Array.from(map.entries()).sort(([a], [b]) => a - b);
+  };
+
+
 const renderPlateItem = (plate: PlateInOrder) => {
     const cookingStatus = plate.cooking_status ?? plate.current_status ?? 'waiting';
 
@@ -283,9 +297,15 @@ const renderPlateItem = (plate: PlateInOrder) => {
                   )}
                 </View>
                 <Text style={styles.platesTitle}>Блюда в заказе:</Text>
-                {selectedOrder.plates.map(plate => (
-                  <View key={plate.id}>
-                    {renderPlateItem(plate)}
+                {groupPlatesByCourse(selectedOrder.plates).map(([courseNumber, plates]) => (
+                  <View key={courseNumber} style={{ marginBottom: 12 }}>
+                    <Text style={styles.courseTitle}>Курс {courseNumber}</Text>
+
+                    {plates.map(plate => (
+                      <View key={plate.id}>
+                        {renderPlateItem(plate)}
+                      </View>
+                    ))}
                   </View>
                 ))}
               </ScrollView>

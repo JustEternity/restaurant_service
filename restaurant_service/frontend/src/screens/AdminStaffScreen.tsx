@@ -93,6 +93,7 @@ const AdminStaff = () => {
   const [newSpecName, setNewSpecName] = useState('');
   const [mode, setMode] = useState<'list' | 'plates'>('list');
   const [selectedSpec, setSelectedSpec] = useState<Specialization | null>(null);
+  const [editedSpecName, setEditedSpecName] = useState('');
   const [linkedPlates, setLinkedPlates] = useState<MenuItem[]>([]);
   const [allMenuItems, setAllMenuItems] = useState<MenuItem[]>([]);
   const [platesLoading, setPlatesLoading] = useState(false);
@@ -396,6 +397,7 @@ const AdminStaff = () => {
 
   const openPlatesForSpec = async (spec: Specialization) => {
     setSelectedSpec(spec);
+    setEditedSpecName(spec.name);
     setMode('plates');
     setPlatesLoading(true);
     try {
@@ -489,6 +491,25 @@ const AdminStaff = () => {
 
   const goBackToList = async () => {
     await savePlatesBatch();
+    if (selectedSpec) {
+      const newName = editedSpecName.trim();
+
+      if (newName && newName !== selectedSpec.name) {
+        try {
+          await api.put(`/specializations/${selectedSpec.id}`, {
+            name: newName
+          });
+
+          setSpecializations(prev =>
+            prev.map(s =>
+              s.id === selectedSpec.id ? { ...s, name: newName } : s
+            )
+          );
+        } catch (e) {
+          console.log('Ошибка обновления названия специализации', e);
+        }
+      }
+    }
     setMode('list');
   };
 
@@ -603,9 +624,26 @@ const AdminStaff = () => {
     );
   };
 
-  const closeSpecModal = () => {
+  const closeSpecModal =  async () => {
     if (mode === 'plates' && selectedSpec) {
       savePlatesBatch();
+
+      const newName = editedSpecName.trim();
+      if (newName && newName !== selectedSpec.name) {
+        try {
+          await api.put(`/specializations/${selectedSpec.id}`, {
+            name: newName
+          });
+
+          setSpecializations(prev =>
+            prev.map(s =>
+              s.id === selectedSpec.id ? { ...s, name: newName } : s
+            )
+          );
+        } catch (err) {
+          console.log('Ошибка обновления названия специализации', err);
+        }
+      }
     }
     setSpecModalVisible(false);
     setMode('list');
@@ -1118,7 +1156,13 @@ const AdminStaff = () => {
                   <TouchableOpacity onPress={goBackToList} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#007AFF" />
                   </TouchableOpacity>
-                  <Text style={styles.modalTitle}>{selectedSpec?.name}</Text>
+                  <TextInput
+                    style={styles.specNameInput}
+                    value={editedSpecName}
+                    onChangeText={setEditedSpecName}
+                    placeholder="Название специализации"
+                    placeholderTextColor="#888"
+                  />
                   <TouchableOpacity onPress={closeSpecModal}>
                     <Ionicons name="close" size={24} color="#666" />
                   </TouchableOpacity>

@@ -33,7 +33,7 @@ class PlateInOrderResponse(BaseModel):
     course_number: int
     is_selfserve: bool = False
     is_considered: bool = True
-    cook_id_preparing: Optional[int]
+    cook_id_preparing: Optional[int] = None
 
     class Config:
         from_attributes = True

@@ -110,6 +110,13 @@ const styles = StyleSheet.create({
   },
   totalText: { fontSize: 18, fontWeight: '600', color: '#333', marginLeft: 20 },
   totalValue: { fontSize: 20, fontWeight: 'bold', color: '#007AFF', marginRight: 20 },
+  courseTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 12,
+    marginBottom: 4,
+    color: '#333',
+  },
 });
 
 export default styles;

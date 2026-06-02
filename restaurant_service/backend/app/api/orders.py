@@ -767,7 +767,7 @@ async def add_plate_to_order(
         price=plate.price,
         plate_name=plate.menu_item.name if plate.menu_item else None,
         course_number=plate.course_number,
-        is_selfserve=dish.is_selfserve if dish else False
+        is_selfserve=dish.is_selfserve if dish else False,
     )
 
 @router.put("/plates/{plate_id}", response_model=PlateInOrderResponse)
@@ -776,11 +776,14 @@ async def update_plate_in_order(
     plate_data: PlateInOrderUpdate,
     db: AsyncSession = Depends(get_async_db)
 ):
-    plate = await db.get(PlateForOrder, plate_id, options=[
+    stmt = select(PlateForOrder).where(PlateForOrder.id == plate_id).options(
         selectinload(PlateForOrder.menu_item),
         selectinload(PlateForOrder.order),
         selectinload(PlateForOrder.statuses_of_plate)
-    ])
+    )
+    result = await db.execute(stmt)
+    plate = result.scalar_one_or_none()
+
     if not plate:
         raise HTTPException(status_code=404, detail="Блюдо в заказе не найдено")
     if plate.order.status not in ["active", "waiting"]:
@@ -792,6 +795,8 @@ async def update_plate_in_order(
         plate.comment = plate_data.comment
     if plate_data.price is not None:
         plate.price = plate_data.price
+    if plate_data.course_number is not None:
+        plate.course_number = plate_data.course_number
     if plate_data.new_status is not None:
         allowed_statuses = ["waiting", "preparing", "ready", "served"]
         if plate_data.new_status not in allowed_statuses:
@@ -805,14 +810,24 @@ async def update_plate_in_order(
         db.add(history)
 
     await db.commit()
-    await db.refresh(plate)
-    cooks_to_notify = await get_cooks_to_notify(plate_id, db)
+
+    stmt = select(PlateForOrder).where(PlateForOrder.id == plate_id).options(
+        selectinload(PlateForOrder.menu_item),
+        selectinload(PlateForOrder.order),
+        selectinload(PlateForOrder.statuses_of_plate)
+    )
+    result = await db.execute(stmt)
+    plate = result.scalar_one()
+
+    order_id = plate.order.id
+    cooks_to_notify = await get_cooks_to_notify(order_id, db)
     if cooks_to_notify:
         await manager.broadcast_to_users({
-            "type": "new_order",
-            "order_id": plate_id,
-            "message": "Поступил новый заказ"
+            "type": "order_updated",
+            "order_id": order_id,
+            "message": "Состав заказа изменён"
         }, list(cooks_to_notify))
+
     return PlateInOrderResponse(
         id=plate.id,
         plate_id=plate.plate_id,
@@ -822,7 +837,9 @@ async def update_plate_in_order(
         price=plate.price,
         plate_name=plate.menu_item.name if plate.menu_item else None,
         course_number=plate.course_number,
-        is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False
+        is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False,
+        is_considered=plate.is_considered if plate.is_considered is not None else True,
+        cook_id_preparing=get_preparing_cook(plate),
     )
 
 @router.put("/{order_id}/plates", response_model=OrderResponse)

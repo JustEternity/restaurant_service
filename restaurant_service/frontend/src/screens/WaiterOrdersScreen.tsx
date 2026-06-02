@@ -161,7 +161,6 @@ const WaiterOrders = () => {
       const res = await api.post(`/orders/${selectedOrder.id}/activate-next-course`);
       await loadOrders();
       await refreshSelectedOrder();
-      Alert.alert('Успех', res.data.message || 'Следующий курс отправлен на кухню');
     } catch (error: any) {
       const detail = error.response?.data?.detail || 'Не удалось активировать следующий курс';
       Alert.alert('Ошибка', detail);
@@ -389,15 +388,6 @@ const WaiterOrders = () => {
     return unsubscribe;
   }, [loadOrders]);
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Загрузка заказов...</Text>
-      </View>
-    );
-  }
-
   const allServed = selectedOrder?.plates.filter(p => p.is_considered).every(p => p.current_status === 'served');
 
   const reactivateOrder = async (orderId: number) => {
@@ -408,6 +398,15 @@ const WaiterOrders = () => {
       Alert.alert("Ошибка", error.response?.data?.detail || "Не удалось активировать заказ");
     }
   };
+
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Загрузка заказов...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
