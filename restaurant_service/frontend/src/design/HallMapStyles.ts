@@ -15,7 +15,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e9ecef',
   },
   headerButtons: { flexDirection: 'row', alignItems: 'center'},
-  sizeLabel: { marginLeft: 20, fontSize: 14, color: '#333', textAlign: 'right', width: 50},
+  sizeLabel: { marginLeft: 10, fontSize: 14, color: '#333', textAlign: 'right', width: 70},
   clearButton: { marginRight: 12, padding: 4 },
   refreshButton: { marginLeft: 12, padding: 4 },
   editButton: {

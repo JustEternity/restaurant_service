@@ -23,43 +23,25 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
-
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastPongRef = useRef<number>(Date.now());
-
-  const HEARTBEAT_INTERVAL = 10000;
-  const HEARTBEAT_TIMEOUT = 20000;
-
   const lastReadyToastRef = useRef(0);
+  const isConnectingRef = useRef(false);
+
+  const HEARTBEAT_INTERVAL = 15000;
+  const HEARTBEAT_TIMEOUT = 30000;
   const TOAST_COOLDOWN = 3000;
+  const MAX_RECONNECT_ATTEMPTS = 5;
+  const BASE_DELAY = 3000;
 
   const insets = useSafeAreaInsets();
 
-  const startHeartbeat = () => {
-    stopHeartbeat();
-
-    heartbeatIntervalRef.current = setInterval(() => {
-      const ws = wsRef.current;
-
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-      const now = Date.now();
-      if (now - lastPongRef.current > HEARTBEAT_TIMEOUT) {
-        console.log("Heartbeat timeout → reconnect WebSocket");
-        ws.close();
-        return;
-      }
-
-      ws.send(JSON.stringify({ type: "ping" }));
-    }, HEARTBEAT_INTERVAL);
-  };
-
-  const stopHeartbeat = () => {
+  const stopHeartbeat = useCallback(() => {
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
     }
-  };
+  }, []);
 
   const addHandler = useCallback((handler: MessageHandler) => {
     handlersRef.current.add(handler);
@@ -68,57 +50,68 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
 
   useEffect(() => {
     if (!user || !authToken) {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      wsRef.current?.close();
+      wsRef.current = null;
       stopHeartbeat();
       return;
     }
 
-    const maxReconnectAttempts = 5;
-    const baseDelay = 3000;
-
     const connect = () => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+      if (
+        isConnectingRef.current ||
+        wsRef.current?.readyState === WebSocket.OPEN ||
+        wsRef.current?.readyState === WebSocket.CONNECTING
+      ) return;
+
+      isConnectingRef.current = true;
 
       const wsUrl = `${API_CONFIG.WS_BASE_URL}/ws?token=${authToken}`;
-      wsRef.current = new WebSocket(wsUrl);
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-      wsRef.current.onopen = () => {
-        console.log("WebSocket connected");
+      ws.onopen = () => {
+        isConnectingRef.current = false;
+        console.log('WebSocket connected');
         reconnectAttemptRef.current = 0;
         lastPongRef.current = Date.now();
-        startHeartbeat();
 
-        handlersRef.current.forEach(h => h({ type: "ws_status", connected: true }));
+        stopHeartbeat();
+        heartbeatIntervalRef.current = setInterval(() => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+
+          if (Date.now() - lastPongRef.current > HEARTBEAT_TIMEOUT) {
+            console.log('Heartbeat timeout → reconnect');
+            ws.close();
+            return;
+          }
+
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }, HEARTBEAT_INTERVAL);
+
+        handlersRef.current.forEach(h => h({ type: 'ws_status', connected: true }));
       };
 
-      wsRef.current.onmessage = (event) => {
+      ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
 
-          if (data.type === "pong") {
+          if (data.type === 'pong') {
             lastPongRef.current = Date.now();
             return;
           }
 
-          if (data.type === "plate_ready") {
+          if (data.type === 'plate_ready') {
             const now = Date.now();
             if (now - lastReadyToastRef.current > TOAST_COOLDOWN) {
               lastReadyToastRef.current = now;
-
-
-              Toast.show(data.message || "Блюдо готово к подаче", {
+              Toast.show(data.message || 'Блюдо готово к подаче', {
                 duration: Toast.durations.SHORT,
                 position: Toast.positions.TOP,
-                containerStyle: {
-                  marginTop: insets.top + 30,
-                },
+                containerStyle: { marginTop: insets.top + 30 },
                 shadow: true,
                 animation: true,
-                backgroundColor: "#2ecc71",
-                textColor: "#fff",
+                backgroundColor: '#2ecc71',
+                textColor: '#fff',
                 opacity: 1,
               });
             }
@@ -126,25 +119,32 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
 
           handlersRef.current.forEach(h => h(data));
         } catch (e) {
-          console.error("WebSocket parse error:", e);
+          console.error('WebSocket parse error:', e);
         }
       };
 
-      wsRef.current.onerror = (err) => console.error("WebSocket error:", err);
+      ws.onerror = (err) => {
+        isConnectingRef.current = false;
+        console.error('WebSocket error:', err);
+      };
 
-      wsRef.current.onclose = (event) => {
-        console.log("WebSocket closed:", event.code, event.reason);
+      ws.onclose = (event) => {
+        isConnectingRef.current = false;
+        console.log('WebSocket closed:', event.code, event.reason);
         stopHeartbeat();
-        handlersRef.current.forEach(h => h({ type: "ws_status", connected: false }));
+        handlersRef.current.forEach(h => h({ type: 'ws_status', connected: false }));
 
-        if (reconnectAttemptRef.current < maxReconnectAttempts) {
-          const delay = baseDelay * Math.pow(2, reconnectAttemptRef.current);
+        if (event.code === 1000) return;
+
+        if (reconnectAttemptRef.current < MAX_RECONNECT_ATTEMPTS) {
+          const delay = BASE_DELAY * Math.pow(2, reconnectAttemptRef.current);
+          console.log(`Reconnect attempt ${reconnectAttemptRef.current + 1} in ${delay}ms`);
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptRef.current++;
             connect();
           }, delay);
         } else {
-          console.log("Max reconnect attempts reached");
+          console.log('Max reconnect attempts reached');
         }
       };
     };
@@ -156,10 +156,12 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (wsRef.current) {
         wsRef.current.onclose = null;
-        wsRef.current.close();
+        wsRef.current.close(1000, 'Component unmounted');
+        wsRef.current = null;
       }
+      isConnectingRef.current = false;
     };
-  }, [user, authToken]);
+  }, [user?.id, authToken]);
 
   return (
     <WebSocketContext.Provider value={{ addHandler }}>
@@ -170,8 +172,6 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
 
 export const useWebSocket = (): WebSocketContextType => {
   const context = useContext(WebSocketContext);
-  if (!context) {
-    throw new Error("useWebSocket must be used within a WebSocketProvider");
-  }
+  if (!context) throw new Error('useWebSocket must be used within a WebSocketProvider');
   return context;
 };

@@ -7,7 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import api from '../services/api';
@@ -52,6 +52,8 @@ const WaiterOrders = () => {
 
   const [footerHeight, setFooterHeight] = useState(0);
 
+  const route = useRoute();
+
   const loadOrders = useCallback(async () => {
     try {
       setLoading(true);
@@ -70,6 +72,14 @@ const WaiterOrders = () => {
         return new Date(b.timestart).getTime() - new Date(a.timestart).getTime();
       });
       setOrders(data);
+      if (openOrderIdRef.current) {
+        const target = data.find(o => o.id === openOrderIdRef.current);
+        if (target) {
+          setSelectedOrder(target);
+          setModalVisible(true);
+        }
+        openOrderIdRef.current = null;
+        navigation.setParams({ openOrderId: undefined } as any);}
     } catch (error) {
       console.error(error);
       Alert.alert('Ошибка', 'Не удалось загрузить заказы');
@@ -78,6 +88,15 @@ const WaiterOrders = () => {
       setRefreshing(false);
     }
   }, [user?.id]);
+
+  const openOrderIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const params = route.params as any;
+    if (params?.openOrderId) {
+      openOrderIdRef.current = params.openOrderId;
+    }
+  }, [route.params]);
 
   useFocusEffect(
     useCallback(() => {

@@ -699,7 +699,7 @@ const ChefOrders = () => {
   const renderSliderCard = (item: FlatOrderedPlate, isCurrentCook: boolean) => (
     <TouchableOpacity
       key={item.uid}
-      style={[styles.recommendedCard, isCurrentCook && styles.recommendedCardHighlight]}
+      style={[styles.recommendedCard]}
       onPress={() => openDetail(item)}
     >
       <Text style={styles.recPlateName} numberOfLines={1}>
@@ -731,42 +731,40 @@ const ChefOrders = () => {
         activeOpacity={0.7}
       >
         {item.highlightedAsEarlyCourse && <View style={styles.earlyCourseIndicator} />}
+
         <View style={styles.cardHeader}>
-          <Text style={styles.plateName}>
-            {item.plate_name}
-            {isRecommendedForCurrentUser && (
-              <Ionicons name="star" size={16} color="#f1c40f" style={{ marginLeft: 6 }} />
-            )}
-          </Text>
+          <Text style={styles.plateName}>{item.plate_name}</Text>
           <Text style={styles.count}>x{item.count}</Text>
         </View>
+
         <View style={styles.cardFooter}>
-          <Text style={styles.orderInfo}>
-            Заказ #{item.order_id} • Столы {item.table_numbers.join(', ')}
+          <Text style={styles.orderInfo}></Text>
+          {cookName && <Text style={styles.cookName}>{cookName}</Text>}
+        </View>
+
+        <View style={styles.bottomRow}>
+          <Text style={styles.time}>
+            {new Date(item.timestart).toLocaleTimeString('ru-RU', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
           </Text>
-          <View style={{ alignItems: 'flex-end' }}>
-            <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
-              <Text style={styles.statusText}>{statusInfo.label}</Text>
-            </View>
-            {cookName && (
-              <Text style={styles.cookName}>{cookName}</Text>
-            )}
+
+          <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
+            <Text style={styles.statusText}>{statusInfo.label}</Text>
           </View>
         </View>
-        <Text style={styles.time}>
-          {new Date(item.timestart).toLocaleTimeString('ru-RU', {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </Text>
+
         {item.comments.length > 0 && (
           <Text style={styles.cardComment} numberOfLines={2}>
             💬 {item.comments.join(' · ')}
           </Text>
         )}
+
         {item.highlightedAsEarlyCourse && (
           <Text style={styles.earlyCourseLabel}>Повышенный приоритет</Text>
         )}
+
         {showOtherCookLabel && (
           <Text style={styles.recommendedCookLabel}>
             Рек.: {item.recommendedCookName}
@@ -874,7 +872,7 @@ const ChefOrders = () => {
                 const isCurrentCook = cookId === user?.id;
                 return (
                   <View key={cookId} style={styles.recommendedSection}>
-                    <Text style={[styles.sectionTitle, isCurrentCook && styles.sectionTitleHighlight]}>
+                    <Text style={[styles.sectionTitle]}>
                       {isCurrentCook ? `${cook.name}` : cook.name}
                     </Text>
                     <ScrollView
@@ -913,10 +911,6 @@ const ChefOrders = () => {
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Заказ:</Text>
                   <Text style={styles.detailValue}>#{selectedItem.order_id}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Столы:</Text>
-                  <Text style={styles.detailValue}>{selectedItem.table_numbers.join(', ')}</Text>
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Количество:</Text>

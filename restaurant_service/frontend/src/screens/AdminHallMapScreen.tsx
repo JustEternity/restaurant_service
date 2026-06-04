@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -111,6 +111,22 @@ const HallMap = () => {
   const focalX = useSharedValue(0);
   const focalY = useSharedValue(0);
   const minFitScale = useSharedValue(1);
+
+  const lastTapRef = useRef<number>(0);
+
+  const navigateToOrder = useCallback((orderId: number | undefined) => {
+    setOrderModalVisible(false);
+    (navigation as any).navigate('Заказы', { openOrderId: orderId });
+  }, [navigation]);
+
+  const handleModalDoubleTap = useCallback(() => {
+    if (user?.role !== 'waiter') return;
+    const now = Date.now();
+    if (now - lastTapRef.current < 350) {
+      navigateToOrder(selectedOrder?.id);
+    }
+    lastTapRef.current = now;
+  }, [selectedOrder?.id, navigateToOrder]);
 
   useEffect(() => {
     imageNaturalSize.value = imageNaturalSizeState;
@@ -401,7 +417,7 @@ const HallMap = () => {
   };
 
   const deleteTable = (id: number) => {
-    if (!isAdmin) return;
+    if (!isAdmin || !isEditMode) return;
 
     const table = tables.find(t => t.id === id);
     if (!table) return;
@@ -621,17 +637,6 @@ const HallMap = () => {
   const safeTables = Array.isArray(tables) ? tables : [];
   const imgSize = imageNaturalSizeState || { width: 0, height: 0 };
 
-  const doubleTap = Gesture.Tap()
-    .numberOfTaps(2)
-    .onEnd(() => {
-      setOrderModalVisible(false);
-
-      navigation.navigate('Заказы');
-
-      setOrderModalVisible(true);
-    });
-
-
   return (
     <GestureHandlerRootView style={styles.container}>
       {(isAdmin) && (
@@ -767,55 +772,57 @@ const HallMap = () => {
       )}
 
       <Modal visible={orderModalVisible} animationType="slide" transparent>
-
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Заказ #{selectedOrder?.id}</Text>
-                <TouchableOpacity onPress={() => setOrderModalVisible(false)}>
-                  <Ionicons name="close" size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
-              {loadingOrder ? (
-                <ActivityIndicator size="large" style={{ margin: 20 }} />
-              ) : selectedOrder ? (
-                <ScrollView>
-                  <View style={styles.orderDetails}>
-                    <Text style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Статус: </Text>
-                      {getOrderStatusText(selectedOrder.status)}
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={handleModalDoubleTap}
+              style={styles.modalHeader}
+            >
+              <Text style={styles.modalTitle}>Заказ #{selectedOrder?.id}</Text>
+              <TouchableOpacity onPress={() => setOrderModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </TouchableOpacity>
+            {loadingOrder ? (
+              <ActivityIndicator size="large" style={{ margin: 20 }} />
+            ) : selectedOrder ? (
+              <ScrollView>
+                <View style={styles.orderDetails}>
+                  <Text style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Статус: </Text>
+                    {getOrderStatusText(selectedOrder.status)}
+                  </Text>
+                  <Text style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Официант: </Text>
+                    {selectedOrder.waiter_name}
+                  </Text>
+                  <Text style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Столы: </Text>
+                    {selectedOrder.table_numbers.join(', ')}
+                  </Text>
+                </View>
+                <Text style={styles.platesTitle}>Блюда:</Text>
+                {selectedOrder.plates.map((plate, idx) => (
+                  <View key={idx} style={styles.plateItem}>
+                    <View style={styles.plateInfo}>
+                      <Text style={styles.plateName}>{plate.plate_name}</Text>
+                      {plate.comment && (
+                        <Text style={styles.plateComment}>Комм: {plate.comment}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.platePrice}>
+                      {plate.count} x {plate.price} ₽
                     </Text>
-                    <Text style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Официант: </Text>
-                      {selectedOrder.waiter_name}
-                    </Text>
-                    <Text style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Столы: </Text>
-                      {selectedOrder.table_numbers.join(', ')}
+                    <Text style={styles.plateStatus}>
+                      {getCookingStatusText(plate.current_status)}
                     </Text>
                   </View>
-                  <Text style={styles.platesTitle}>Блюда:</Text>
-                  {selectedOrder.plates.map((plate, idx) => (
-                    <View key={idx} style={styles.plateItem}>
-                      <View style={styles.plateInfo}>
-                        <Text style={styles.plateName}>{plate.plate_name}</Text>
-                        {plate.comment && (
-                          <Text style={styles.plateComment}>Комм: {plate.comment}</Text>
-                        )}
-                      </View>
-                      <Text style={styles.platePrice}>
-                        {plate.count} x {plate.price} ₽
-                      </Text>
-                      <Text style={styles.plateStatus}>
-                        {getCookingStatusText(plate.current_status)}
-                      </Text>
-                    </View>
-                  ))}
-                </ScrollView>
-              ) : null}
-            </View>
+                ))}
+              </ScrollView>
+            ) : null}
           </View>
-
+        </View>
       </Modal>
     </GestureHandlerRootView>
   );

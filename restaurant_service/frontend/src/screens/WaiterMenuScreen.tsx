@@ -214,6 +214,18 @@ const WaiterMenu = () => {
 
     categoriesTree.forEach(root => walk(root));
 
+    const uncategorized = menuItems.filter(i => !i.category || i.category === 0);
+      if (uncategorized.length > 0) {
+        result.push({
+          type: 'category',
+          data: { id: -1, name: 'Без категории', parent_category: null, children: [] }
+        });
+
+        uncategorized.forEach(item =>
+          result.push({ type: 'item', data: item })
+        );
+      }
+
     return result;
   }, [categoriesTree, menuItems]);
 
