@@ -19,6 +19,7 @@ class PlateForOrder(BaseModel):
     price = Column(NUMERIC, nullable=False)
     course_number = Column(Integer)
     is_considered = Column(BOOLEAN)
+    considered_count = Column(Integer, nullable=True)
 
     # Внешние ключи
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)

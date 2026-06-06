@@ -142,6 +142,7 @@ async def get_all_orders(
                 is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False,
                 is_considered=plate.is_considered if plate.is_considered is not None else True,
                 cook_id_preparing=get_preparing_cook(plate),
+                considered_count=plate.considered_count,
             ))
         response.append(OrderResponse(
             id=order.id,
@@ -374,6 +375,7 @@ async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db), cur
             is_selfserve=plate.menu_item.is_selfserve if plate.menu_item else False,
             is_considered=plate.is_considered if plate.is_considered is not None else True,
             cook_id_preparing=get_preparing_cook(plate),
+            considered_count=plate.considered_count,
         ))
     return OrderResponse(
         id=order.id,
@@ -1062,3 +1064,34 @@ async def reactivate_order(order_id: int, db: AsyncSession = Depends(get_async_d
     await db.commit()
 
     return {"message": "Заказ снова активен"}
+
+@router.put("/plate/{plate_id}/consider-count")
+async def update_plate_considered_count(
+    plate_id: int,
+    delta: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+):
+    stmt = select(PlateForOrder).where(PlateForOrder.id == plate_id).options(
+        selectinload(PlateForOrder.statuses_of_plate)
+    )
+    result = await db.execute(stmt)
+    plate = result.scalar_one_or_none()
+    if not plate:
+        raise HTTPException(status_code=404, detail="Блюдо в заказе не найдено")
+
+    current_status = get_current_status(plate)
+    if current_status != "served":
+        raise HTTPException(
+            status_code=400,
+            detail="Изменить учёт можно только после подачи блюда"
+        )
+
+    current = plate.considered_count if plate.considered_count is not None else plate.count
+    new_val = max(0, min(plate.count, current + delta))
+
+    plate.considered_count = new_val
+    plate.is_considered = new_val > 0
+
+    await db.commit()
+    return {"considered_count": new_val, "is_considered": plate.is_considered, "total_count": plate.count}

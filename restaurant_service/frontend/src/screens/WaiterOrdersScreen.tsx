@@ -24,6 +24,7 @@ interface PlateInOrder {
   course_number: number;
   is_selfserve: boolean;
   is_considered: boolean;
+  considered_count: number | null;
 }
 
 interface Order {
@@ -37,6 +38,13 @@ interface Order {
   plates: PlateInOrder[];
 }
 
+const getEffectiveConsideredCount = (plate: PlateInOrder): number => {
+  if (plate.considered_count !== null && plate.considered_count !== undefined) {
+    return plate.considered_count;
+  }
+  return plate.is_considered ? plate.count : 0;
+};
+
 const WaiterOrders = () => {
   const { user } = useAuth();
   const navigation = useNavigation();
@@ -49,9 +57,7 @@ const WaiterOrders = () => {
   const [cancelling, setCancelling] = useState(false);
 
   const swipeableRefs = useRef<Map<number, Swipeable>>(new Map());
-
   const [footerHeight, setFooterHeight] = useState(0);
-
   const route = useRoute();
 
   const loadOrders = useCallback(async () => {
@@ -68,7 +74,6 @@ const WaiterOrders = () => {
       data.sort((a, b) => {
         const statusDiff = statusPriority[a.status] - statusPriority[b.status];
         if (statusDiff !== 0) return statusDiff;
-
         return new Date(b.timestart).getTime() - new Date(a.timestart).getTime();
       });
       setOrders(data);
@@ -79,7 +84,8 @@ const WaiterOrders = () => {
           setModalVisible(true);
         }
         openOrderIdRef.current = null;
-        navigation.setParams({ openOrderId: undefined } as any);}
+        navigation.setParams({ openOrderId: undefined } as any);
+      }
     } catch (error) {
       console.error(error);
       Alert.alert('Ошибка', 'Не удалось загрузить заказы');
@@ -161,15 +167,19 @@ const WaiterOrders = () => {
     }
   };
 
-  const toggleConsiderPlate = async (plateId: number, currentConsider: boolean) => {
-    const newConsider = !currentConsider;
+  const adjustConsideredCount = async (plate: PlateInOrder, delta: number) => {
+    const current = getEffectiveConsideredCount(plate);
+    const next = current + delta;
+
+    if (next < 0 || next > plate.count) return;
+
     try {
-      await api.put(`/orders/plate/${plateId}/consider?is_considered=${newConsider}`);
-      swipeableRefs.current.get(plateId)?.close();
+      await api.put(`/orders/plate/${plate.id}/consider-count?delta=${delta}`);
+      swipeableRefs.current.get(plate.id)?.close();
       await loadOrders();
       await refreshSelectedOrder();
     } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось изменить учёт блюда');
+      Alert.alert('Ошибка', 'Не удалось изменить количество');
     }
   };
 
@@ -177,7 +187,7 @@ const WaiterOrders = () => {
     if (!selectedOrder) return;
     setActivatingCourse(true);
     try {
-      const res = await api.post(`/orders/${selectedOrder.id}/activate-next-course`);
+      await api.post(`/orders/${selectedOrder.id}/activate-next-course`);
       await loadOrders();
       await refreshSelectedOrder();
     } catch (error: any) {
@@ -277,22 +287,10 @@ const WaiterOrders = () => {
     const renderRightActions = () => {
       if (item.status === "completed" || item.status === "cancelled") {
         return (
-          <View
-            style={{
-              width: 80,
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
+          <View style={{ width: 80, justifyContent: "center", alignItems: "center" }}>
             <RectButton
-              style={[
-                styles.swipeButton,
-                {
-                  backgroundColor: "#2ecc71",
-                  marginBottom: 15,
-                },
-              ]}
-              onPress={() => reactivateOrder(item.id) }
+              style={[styles.swipeButton, { backgroundColor: "#2ecc71", marginBottom: 15 }]}
+              onPress={() => reactivateOrder(item.id)}
             >
               <Ionicons name="refresh" size={24} color="#fff" />
             </RectButton>
@@ -302,13 +300,11 @@ const WaiterOrders = () => {
       return null;
     };
     return (
-      <Swipeable
-        renderRightActions={renderRightActions}
-        overshootRight={false}
-      >
+      <Swipeable renderRightActions={renderRightActions} overshootRight={false}>
         <TouchableOpacity
           style={[styles.orderCard, hasReady && styles.readyOrderCard]}
-          onPress={() => openOrderDetails(item)} activeOpacity={0.7}
+          onPress={() => openOrderDetails(item)}
+          activeOpacity={0.7}
         >
           <View style={styles.orderHeader}>
             <View style={styles.orderIdContainer}>
@@ -328,11 +324,15 @@ const WaiterOrders = () => {
             </View>
             <View style={styles.infoRow}>
               <Ionicons name="receipt-outline" size={16} color="#666" />
-              <Text style={styles.infoText}>Позиций: {consideredPlates.reduce((sum, p) => sum + p.count, 0)}</Text>
+              <Text style={styles.infoText}>
+                Позиций: {consideredPlates.reduce((sum, p) => sum + getEffectiveConsideredCount(p), 0)}
+              </Text>
             </View>
             <View style={styles.infoRow}>
               <Ionicons name="cash-outline" size={16} color="#666" />
-              <Text style={styles.infoText}>Сумма: {consideredPlates.reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽</Text>
+              <Text style={styles.infoText}>
+                Сумма: {consideredPlates.reduce((sum, p) => sum + p.price * getEffectiveConsideredCount(p), 0).toFixed(2)} ₽
+              </Text>
             </View>
           </View>
         </TouchableOpacity>
@@ -341,56 +341,98 @@ const WaiterOrders = () => {
   };
 
   const renderPlateItem = (plate: PlateInOrder) => {
-    const renderRightActions = () => {
-      return (
+    const consideredCount = getEffectiveConsideredCount(plate);
+    const canDecrement = consideredCount > 0;
+    const canIncrement = consideredCount < plate.count;
+    const isPartiallyConsidered = consideredCount > 0 && consideredCount < plate.count;
+    const isFullyExcluded = consideredCount === 0;
+
+    const canAdjust = plate.current_status === 'served';
+
+    const renderRightActions = canAdjust ? () => (
+      <View style={considerActionPanel.container}>
         <RectButton
-          style={[
-            styles.swipeButton,
-            { backgroundColor: plate.is_considered ? '#e67e22' : '#2ecc71' }
-          ]}
-          onPress={() => toggleConsiderPlate(plate.id, plate.is_considered)}
+          style={[considerActionPanel.btn, considerActionPanel.btnMinus, !canDecrement && considerActionPanel.btnDisabled]}
+          onPress={() => canDecrement && adjustConsideredCount(plate, -1)}
         >
-          <Ionicons
-            name={plate.is_considered ? 'remove-circle-outline' : 'add-circle-outline'}
-            size={24}
-            color="#fff"
-          />
+          <Ionicons name="remove" size={20} color={canDecrement ? '#fff' : 'rgba(255,255,255,0.35)'} />
         </RectButton>
-      );
-    };
+        <View style={considerActionPanel.counter}>
+          <Text style={considerActionPanel.counterText}>{consideredCount}</Text>
+          <Text style={considerActionPanel.counterTotal}>/{plate.count}</Text>
+        </View>
+        <RectButton
+          style={[considerActionPanel.btn, considerActionPanel.btnPlus, !canIncrement && considerActionPanel.btnDisabled]}
+          onPress={() => canIncrement && adjustConsideredCount(plate, +1)}
+        >
+          <Ionicons name="add" size={20} color={canIncrement ? '#fff' : 'rgba(255,255,255,0.35)'} />
+        </RectButton>
+      </View>
+    ) : undefined;
 
     return (
       <Swipeable
         key={plate.id}
         ref={(ref) => {
           if (ref) swipeableRefs.current.set(plate.id, ref);
+          else swipeableRefs.current.delete(plate.id);
         }}
         renderRightActions={renderRightActions}
         overshootRight={false}
       >
-        <View style={[styles.plateItem, !plate.is_considered && { opacity: 0.5 }]}>
+        <View style={[
+          styles.plateItem,
+          isFullyExcluded && { opacity: 0.45 },
+        ]}>
           <View style={styles.plateInfo}>
-            <Text style={styles.plateName}>
-              {plate.plate_name}
-              {plate.is_selfserve ? ' ✋🏻' : ''}
-              {!plate.is_considered && ''}
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+              <Text style={styles.plateName}>
+                {plate.plate_name}
+                {plate.is_selfserve ? ' ✋🏻' : ''}
+              </Text>
+
+              {isPartiallyConsidered && (
+                <View style={partialBadge.container}>
+                  <Text style={partialBadge.text}>учтено {consideredCount}/{plate.count}</Text>
+                </View>
+              )}
+              {isFullyExcluded && (
+                <View style={[partialBadge.container, { backgroundColor: '#fde8e8' }]}>
+                  <Text style={[partialBadge.text, { color: '#c0392b' }]}>исключено</Text>
+                </View>
+              )}
+            </View>
+
+            {plate.comment && (
+              <Text style={styles.plateComment}>Комментарий: {plate.comment}</Text>
+            )}
+
+            <Text style={styles.platePrice}>
+              {consideredCount > 0
+                ? `${consideredCount} × ${plate.price} ₽ = ${(consideredCount * plate.price).toFixed(2)} ₽`
+                : `${plate.count} × ${plate.price} ₽`
+              }
             </Text>
-            {plate.comment && <Text style={styles.plateComment}>Комментарий: {plate.comment}</Text>}
-            <Text style={styles.platePrice}>{plate.count} x {plate.price} ₽ = {(plate.count * plate.price).toFixed(2)} ₽</Text>
           </View>
+
           <View style={styles.plateStatusContainer}>
             {(!plate.is_selfserve || plate.current_status) && (
-              <View style={[styles.cookingStatusBadge, { backgroundColor: getCookingStatusColor(plate.current_status || 'waiting') }]}>
+              <View style={[
+                styles.cookingStatusBadge,
+                { backgroundColor: getCookingStatusColor(plate.current_status || 'waiting') },
+              ]}>
                 <Text style={styles.cookingStatusText}>
                   {plate.current_status ? getCookingStatusText(plate.current_status) : 'Не отправлено'}
                 </Text>
               </View>
             )}
-            {(plate.current_status === 'ready' || (plate.is_selfserve && plate.current_status !== 'served')) && plate.is_considered && (
-              <TouchableOpacity style={styles.servedButton} onPress={() => markAsServed(plate.id)}>
-                <Text style={styles.servedButtonText}>Подано</Text>
-              </TouchableOpacity>
-            )}
+            {(plate.current_status === 'ready' ||
+              (plate.is_selfserve && plate.current_status !== 'served')) &&
+              plate.is_considered && (
+                <TouchableOpacity style={styles.servedButton} onPress={() => markAsServed(plate.id)}>
+                  <Text style={styles.servedButtonText}>Подано</Text>
+                </TouchableOpacity>
+              )}
           </View>
         </View>
       </Swipeable>
@@ -400,10 +442,7 @@ const WaiterOrders = () => {
   const hasWaitingCourse = (order: Order) => {
     const considered = order.plates.filter(p => p.is_considered && !p.is_selfserve);
     const grouped = groupPlatesByCourse(considered);
-
-    return grouped.some(([course, plates]) =>
-      plates.some(p => p.current_status === "waiting")
-    );
+    return grouped.some(([_, plates]) => plates.some(p => p.current_status === "waiting"));
   };
 
   const cancelLastCourse = async () => {
@@ -427,7 +466,9 @@ const WaiterOrders = () => {
     return unsubscribe;
   }, [loadOrders]);
 
-  const allServed = selectedOrder?.plates.filter(p => p.is_considered).every(p => p.current_status === 'served');
+  const allServed = selectedOrder?.plates
+    .filter(p => p.is_considered)
+    .every(p => p.current_status === 'served');
 
   const reactivateOrder = async (orderId: number) => {
     try {
@@ -447,6 +488,11 @@ const WaiterOrders = () => {
     );
   }
 
+  const modalTotal = selectedOrder?.plates
+    .filter(p => p.is_considered)
+    .reduce((sum, p) => sum + p.price * getEffectiveConsideredCount(p), 0)
+    .toFixed(2);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -458,7 +504,9 @@ const WaiterOrders = () => {
         renderItem={renderOrderItem}
         keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.listContainer}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={['#007AFF']} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={['#007AFF']} />
+        }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="receipt-outline" size={60} color="#ccc" />
@@ -466,6 +514,7 @@ const WaiterOrders = () => {
           </View>
         }
       />
+
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -485,9 +534,7 @@ const WaiterOrders = () => {
 
               <ScrollView
                 style={styles.modalBody}
-                contentContainerStyle={{
-                  paddingBottom: footerHeight,
-                }}
+                contentContainerStyle={{ paddingBottom: footerHeight }}
               >
                 {selectedOrder && (
                   <>
@@ -498,28 +545,18 @@ const WaiterOrders = () => {
                           {selectedOrder.table_numbers.join(', ')}
                         </Text>
                       </View>
-
                       <View style={styles.detailRow}>
                         <Text style={styles.detailLabel}>Время создания:</Text>
                         <Text style={styles.detailValue}>
                           {new Date(selectedOrder.timestart).toLocaleString('ru-RU')}
                         </Text>
                       </View>
-
                       <View style={styles.detailRow}>
                         <Text style={styles.detailLabel}>Статус:</Text>
-                        <View
-                          style={[
-                            styles.statusBadge,
-                            { backgroundColor: getStatusColor(selectedOrder.status) }
-                          ]}
-                        >
-                          <Text style={styles.statusText}>
-                            {getStatusText(selectedOrder.status)}
-                          </Text>
+                        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedOrder.status) }]}>
+                          <Text style={styles.statusText}>{getStatusText(selectedOrder.status)}</Text>
                         </View>
                       </View>
-
                       {selectedOrder.endtime && (
                         <View style={styles.detailRow}>
                           <Text style={styles.detailLabel}>Время завершения:</Text>
@@ -532,16 +569,14 @@ const WaiterOrders = () => {
 
                     <Text style={styles.platesTitle}>Блюда в заказе:</Text>
 
-                    {groupPlatesByCourse(selectedOrder.plates).map(
-                      ([courseNumber, plates]) => (
-                        <View key={courseNumber} style={{ marginBottom: 10 }}>
-                          <Text style={styles.courseTitle}>Курс {courseNumber}</Text>
-                          {plates.map((plate) => (
-                            <View key={plate.id}>{renderPlateItem(plate)}</View>
-                          ))}
-                        </View>
-                      )
-                    )}
+                    {groupPlatesByCourse(selectedOrder.plates).map(([courseNumber, plates]) => (
+                      <View key={courseNumber} style={{ marginBottom: 10 }}>
+                        <Text style={styles.courseTitle}>Курс {courseNumber}</Text>
+                        {plates.map((plate) => (
+                          <View key={plate.id}>{renderPlateItem(plate)}</View>
+                        ))}
+                      </View>
+                    ))}
                   </>
                 )}
               </ScrollView>
@@ -552,12 +587,7 @@ const WaiterOrders = () => {
               >
                 <View style={styles.totalContainer}>
                   <Text style={styles.totalText}>Итого:</Text>
-                  <Text style={styles.totalValue}>
-                    {selectedOrder?.plates
-                      .filter((p) => p.is_considered)
-                      .reduce((sum, p) => sum + p.price * p.count, 0)
-                      .toFixed(2)} ₽
-                  </Text>
+                  <Text style={styles.totalValue}>{modalTotal} ₽</Text>
                 </View>
 
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
@@ -567,11 +597,10 @@ const WaiterOrders = () => {
                       onPress={cancelOrder}
                       disabled={cancelling}
                     >
-                      {cancelling ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Text style={styles.editOrderButtonText}>Отменить</Text>
-                      )}
+                      {cancelling
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Text style={styles.editOrderButtonText}>Отменить</Text>
+                      }
                     </TouchableOpacity>
                   )}
 
@@ -593,20 +622,18 @@ const WaiterOrders = () => {
                     </TouchableOpacity>
                   )}
 
-                  {selectedOrder?.status === 'active' &&
-                    hasInactiveCourses(selectedOrder) && (
-                      <TouchableOpacity
-                        style={[styles.activateCourseButton, { flexBasis: "48%" }]}
-                        onPress={handleActivateNextCourse}
-                        disabled={activatingCourse}
-                      >
-                        {activatingCourse ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <Text style={styles.editOrderButtonText}>Следующий курс</Text>
-                        )}
-                      </TouchableOpacity>
-                    )}
+                  {selectedOrder?.status === 'active' && hasInactiveCourses(selectedOrder) && (
+                    <TouchableOpacity
+                      style={[styles.activateCourseButton, { flexBasis: "48%" }]}
+                      onPress={handleActivateNextCourse}
+                      disabled={activatingCourse}
+                    >
+                      {activatingCourse
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Text style={styles.editOrderButtonText}>Следующий курс</Text>
+                      }
+                    </TouchableOpacity>
+                  )}
 
                   {allServed && selectedOrder?.status === 'active' && (
                     <TouchableOpacity
@@ -623,9 +650,67 @@ const WaiterOrders = () => {
           </View>
         </GestureHandlerRootView>
       </Modal>
-
     </View>
   );
+};
+
+const considerActionPanel = {
+  container: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 12,
+    marginVertical: 4,
+    marginRight: 8,
+    overflow: 'hidden' as const,
+  },
+  btn: {
+    width: 44,
+    height: '100%' as any,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    minHeight: 52,
+  },
+  btnMinus: {
+    backgroundColor: '#e67e22',
+  },
+  btnPlus: {
+    backgroundColor: '#2ecc71',
+  },
+  btnDisabled: {
+    opacity: 0.4,
+  },
+  counter: {
+    flexDirection: 'row' as const,
+    alignItems: 'baseline' as const,
+    paddingHorizontal: 10,
+    minWidth: 48,
+    justifyContent: 'center' as const,
+  },
+  counterText: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: '#2c3e50',
+  },
+  counterTotal: {
+    fontSize: 13,
+    color: '#95a5a6',
+    marginLeft: 1,
+  },
+};
+
+const partialBadge = {
+  container: {
+    backgroundColor: '#fef3e2',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  text: {
+    fontSize: 11,
+    color: '#d35400',
+    fontWeight: '600' as const,
+  },
 };
 
 export default WaiterOrders;
