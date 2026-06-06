@@ -32,7 +32,7 @@ def get_preparing_cook(plate: PlateForOrder):
     preparing.sort(key=lambda x: x.change_time)
     return preparing[-1].change_by
 
-async def get_cooks_to_notify(order_id: int, db: AsyncSession, plates_for_first_course: Optional[List[int]] = None):
+async def get_cooks_to_notify(order_id: int, db: AsyncSession, plates_for_first_course: Optional[List[int]] = None, current_user: User = Depends(get_current_user),):
     """
     Возвращает список id поваров, у которых в специализациях есть блюда из заказа (order_id).
     Блюда с is_selfserve=True или is_considered=False игнорируются.
@@ -106,7 +106,8 @@ async def get_all_orders(
     status: Optional[str] = None,
     waiter_id: Optional[int] = None,
     table_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
 ):
     stmt = select(Order).options(
         selectinload(Order.waiter_user),
@@ -155,7 +156,7 @@ async def get_all_orders(
     return response
 
 @router.get("/active-plate-ids", response_model=List[int])
-async def get_active_plate_ids(db: AsyncSession = Depends(get_async_db)):
+async def get_active_plate_ids(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     """Возвращает plate_id блюд, у которых последний статус 'готовится' или 'готово'"""
     subq = (
         select(
@@ -181,7 +182,7 @@ async def get_active_plate_ids(db: AsyncSession = Depends(get_async_db)):
     return result.scalars().all()
 
 @router.get("/active-cook-locks")
-async def get_active_cook_locks(db: AsyncSession = Depends(get_async_db)):
+async def get_active_cook_locks(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     CSH = CookingStatusHistory
     CSH2 = aliased(CookingStatusHistory)
 
@@ -250,7 +251,7 @@ async def get_active_cook_locks(db: AsyncSession = Depends(get_async_db)):
     return {cook_id: True for cook_id in all_locked}
 
 @router.get("/locked-specialization-ids", response_model=List[int])
-async def get_locked_specialization_ids(db: AsyncSession = Depends(get_async_db)):
+async def get_locked_specialization_ids(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     """
     Возвращает id специализаций, у которых есть блюда в истории статусов
     с последним статусом, отличным от 'served'.
@@ -284,11 +285,11 @@ async def get_locked_specialization_ids(db: AsyncSession = Depends(get_async_db)
     return result.scalars().all()
 
 @router.get("/active", response_model=List[OrderResponse])
-async def get_active_orders(db: AsyncSession = Depends(get_async_db)):
+async def get_active_orders(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     return await get_all_orders(status="active", db=db)
 
 @router.get("/{cook_id}/active-tasks")
-async def get_active_tasks(cook_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_active_tasks(cook_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     """
     Возвращает список позиций заказа, которые в данный момент готовятся указанным поваром.
     Статус последней записи в истории для позиции должен быть "preparing",
@@ -331,7 +332,7 @@ async def get_active_tasks(cook_id: int, db: AsyncSession = Depends(get_async_db
     return tasks
 
 @router.get("/{order_id}", response_model=OrderResponse)
-async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     stmt = select(Order).where(Order.id == order_id).options(
         selectinload(Order.waiter_user),
         selectinload(Order.tables).selectinload(TableForOrder.table_for_order),
@@ -374,7 +375,8 @@ async def get_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
 async def toggle_plate_consider(
     plate_id: int,
     is_considered: bool,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Включить/исключить блюдо из заказа"""
     plate = await db.get(PlateForOrder, plate_id)
@@ -546,7 +548,7 @@ async def activate_next_course(
     return {"message": f"Курс {next_course} отправлен на кухню", "course": next_course}
 
 @router.put("/{order_id}", response_model=OrderResponse)
-async def update_order(order_id: int, order_data: OrderUpdate, db: AsyncSession = Depends(get_async_db)):
+async def update_order(order_id: int, order_data: OrderUpdate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     order = await db.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
@@ -575,7 +577,7 @@ async def update_order(order_id: int, order_data: OrderUpdate, db: AsyncSession 
     return await get_order(order.id, db)
 
 @router.put("/{order_id}/complete")
-async def complete_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
+async def complete_order(order_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     order = await db.get(Order, order_id, options=[selectinload(Order.tables).selectinload(TableForOrder.table_for_order)])
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
@@ -602,7 +604,8 @@ async def update_plate_status(
     plate_id: int,
     status: str,
     change_by: Optional[int] = None,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
 ):
     allowed_statuses = ["waiting", "preparing", "ready", "served"]
     if status not in allowed_statuses:
@@ -671,7 +674,7 @@ async def update_plate_status(
     return {"message": f"Статус блюда изменён на {status}"}
 
 @router.delete("/{order_id}")
-async def delete_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
+async def delete_order(order_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     stmt = select(Order).where(Order.id == order_id).options(
         selectinload(Order.tables).selectinload(TableForOrder.table_for_order)
     )
@@ -774,7 +777,8 @@ async def add_plate_to_order(
 async def update_plate_in_order(
     plate_id: int,
     plate_data: PlateInOrderUpdate,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
 ):
     stmt = select(PlateForOrder).where(PlateForOrder.id == plate_id).options(
         selectinload(PlateForOrder.menu_item),
@@ -927,7 +931,7 @@ async def update_order_plates(
     return await get_order(order.id, db)
 
 @router.delete("/plates/{plate_id}")
-async def delete_plate_from_order(plate_id: int, db: AsyncSession = Depends(get_async_db)):
+async def delete_plate_from_order(plate_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     plate = await db.get(PlateForOrder, plate_id, options=[selectinload(PlateForOrder.order)])
     if not plate:
         raise HTTPException(status_code=404, detail="Блюдо в заказе не найдено")
@@ -945,7 +949,7 @@ async def delete_plate_from_order(plate_id: int, db: AsyncSession = Depends(get_
     return {"message": "Блюдо удалено из заказа"}
 
 @router.put("/{order_id}/reactivate")
-async def reactivate_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
+async def reactivate_order(order_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     stmt = select(Order).where(Order.id == order_id).options(
         selectinload(Order.tables).selectinload(TableForOrder.table_for_order)
     )

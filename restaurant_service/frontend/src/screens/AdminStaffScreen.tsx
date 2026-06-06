@@ -895,7 +895,7 @@ const AdminStaff = () => {
             </View>
             <ScrollView style={styles.editModalBody}>
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Имя *</Text>
+                <Text style={styles.inputLabel}>Имя</Text>
                 <TextInput
                   style={styles.input}
                   value={editData.name}
@@ -905,7 +905,7 @@ const AdminStaff = () => {
                 />
               </View>
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Логин *</Text>
+                <Text style={styles.inputLabel}>Логин</Text>
                 <TextInput
                   style={styles.input}
                   value={editData.login}
@@ -916,7 +916,7 @@ const AdminStaff = () => {
                 />
               </View>
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Пароль {selectedUser ? '(заполните для смены)' : '*'}</Text>
+                <Text style={styles.inputLabel}>Пароль {selectedUser ? '(заполните для смены)' : ''}</Text>
                 <TextInput
                   style={styles.input}
                   value={editData.password}

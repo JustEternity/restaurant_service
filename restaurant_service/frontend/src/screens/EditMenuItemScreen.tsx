@@ -216,7 +216,7 @@ const MenuItemFormScreen = () => {
       </View>
 
       <View style={styles.form}>
-        <Text style={styles.label}>Название *</Text>
+        <Text style={styles.label}>Название</Text>
         <TextInput
           style={styles.input}
           value={formData.name}
@@ -236,7 +236,7 @@ const MenuItemFormScreen = () => {
           numberOfLines={4}
         />
 
-        <Text style={styles.label}>Цена *</Text>
+        <Text style={styles.label}>Цена</Text>
         <TextInput
           style={styles.input}
           value={formData.price}
@@ -246,7 +246,7 @@ const MenuItemFormScreen = () => {
           keyboardType="numeric"
         />
 
-        <Text style={styles.label}>Категория *</Text>
+        <Text style={styles.label}>Категория</Text>
         <TouchableOpacity style={styles.tagSelector} onPress={() => setCategoryModalVisible(true)}>
           <Text style={styles.tagSelectorText}>
             {formData.category

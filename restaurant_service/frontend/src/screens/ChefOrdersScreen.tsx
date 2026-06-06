@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import api from '../services/api';
 import styles from '../design/ChefOrdersStyles';
+import { applyRecommendations } from '../services/recommendation';
 
 interface Specialization {
   id: number;
@@ -124,17 +125,6 @@ const ChefOrders = () => {
     data: new Map(),
   });
 
-  const activeTasksCacheRef = useRef<{ ts: number; data: Map<number, ActiveTask[]> }>({
-    ts: 0,
-    data: new Map(),
-  });
-
-  const recommendationsCache = useRef<{
-    key: string;
-    data: FlatOrderedPlate[];
-    ts: number;
-  } | null>(null);
-
   const loadAllowedPlateIds = useCallback(async (): Promise<Set<number>> => {
     const specializationIds = new Set<number>();
     const specializationsMap = new Map<number, Specialization>();
@@ -230,131 +220,6 @@ const ChefOrders = () => {
     [allOrderPlates]
   );
 
-  const computeRecommendations = useCallback(
-    async (
-      plates: FlatOrderedPlate[],
-      currentCookId: number,
-      cooks: Cook[]
-    ): Promise<FlatOrderedPlate[]> => {
-      if (plates.length === 0) return plates;
-
-      const cacheKey = JSON.stringify({
-        plates: plates.map(p => `${p.uid}:${p.current_status}`),
-        cooks: cooks.map(c => c.id),
-        currentCookId,
-      });
-
-      if (
-        recommendationsCache.current?.key === cacheKey &&
-        Date.now() - recommendationsCache.current.ts < 10_000
-      ) {
-        return recommendationsCache.current.data;
-      }
-
-      const now = Date.now();
-
-      if (now - activeTasksCacheRef.current.ts > 30_000) {
-        activeTasksCacheRef.current = { ts: now, data: new Map() };
-      }
-
-      const fetchActiveTasksCached = async (cookId: number): Promise<ActiveTask[]> => {
-        if (activeTasksCacheRef.current.data.has(cookId)) {
-          return activeTasksCacheRef.current.data.get(cookId)!;
-        }
-        try {
-          const res = await api.get(`/orders/${cookId}/active-tasks`);
-          activeTasksCacheRef.current.data.set(cookId, res.data);
-          return res.data;
-        } catch {
-          return [];
-        }
-      };
-
-      const statsExpired = now - statsCacheRef.current.ts > 5 * 60_000;
-      let avgCache = statsCacheRef.current.data;
-
-      if (statsExpired) {
-        avgCache = new Map();
-        const uniquePlateIds = [...new Set(plates.map(p => p.plate_id))];
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        const dateStr = (d: Date) => d.toISOString().split('T')[0];
-
-        for (const cook of cooks) {
-          for (const plateId of uniquePlateIds) {
-            try {
-              const res = await api.get('/statistics/kitchen/details', {
-                params: {
-                  start_date: dateStr(thirtyDaysAgo),
-                  end_date: dateStr(new Date()),
-                  cook_id: cook.id,
-                  plate_id: plateId,
-                },
-              });
-              const avgItem = res.data.avg_preparation_time?.find(
-                (item: any) => item.plate_id === plateId
-              );
-              if (avgItem && typeof avgItem.avg_minutes === 'number') {
-                avgCache.set(`${cook.id}_${plateId}`, avgItem.avg_minutes);
-              }
-            } catch {}
-          }
-        }
-        statsCacheRef.current = { ts: now, data: avgCache };
-      }
-
-      const getAvgTime = (cookId: number, plateId: number): number =>
-        avgCache.get(`${cookId}_${plateId}`) ?? 20;
-
-      const busyUntilMap = new Map<number, number>();
-      for (const cook of cooks) {
-        const tasks = await fetchActiveTasksCached(cook.id);
-        let totalLoad = 0;
-        for (const task of tasks) {
-          const avgTime = getAvgTime(cook.id, task.plate_id);
-          const elapsedMin = (now - new Date(task.started_at).getTime()) / 60_000;
-          const remaining = Math.max(0, avgTime - elapsedMin);
-          totalLoad += remaining * 0.6;
-        }
-        busyUntilMap.set(cook.id, totalLoad);
-      }
-
-      const enriched = plates.map(plate => {
-        const portionFactor = 1 + (plate.count - 1) * 0.7;
-
-        let bestCookId: number | null = null;
-        let bestCookName = '';
-        let bestEta = Infinity;
-
-        for (const cook of cooks) {
-          const specs = plateToSpecializations.current.get(plate.plate_id);
-          if (!specs || !cook.specialization || !specs.has(cook.specialization.id)) continue;
-
-          const avgTime = getAvgTime(cook.id, plate.plate_id);
-          const eta = (busyUntilMap.get(cook.id) ?? 0) + avgTime * portionFactor;
-
-          if (eta < bestEta) {
-            bestEta = eta;
-            bestCookId = cook.id;
-            bestCookName = cook.name;
-          }
-        }
-
-        return {
-          ...plate,
-          recommendedCookId: bestCookId ?? undefined,
-          recommendedCookName: bestCookName || undefined,
-          recommended: bestCookId === currentCookId,
-          priorityScore: bestEta !== Infinity ? bestEta : undefined,
-        };
-      });
-
-      recommendationsCache.current = { key: cacheKey, data: enriched, ts: now };
-      return enriched;
-    },
-    []
-  );
-
   const applyFilter = useCallback(
     async (
       source: FlatOrderedPlate[],
@@ -388,7 +253,7 @@ const ChefOrders = () => {
       let withRecs: FlatOrderedPlate[];
       if (statusF === 'waiting') {
         try {
-          withRecs = await computeRecommendations(withWaiting, user?.id ?? 0, groupCooks);
+          withRecs = await applyRecommendations(withWaiting, user?.id ?? 0, groupCooks);
         } catch (error) {
           console.error('Ошибка расчёта рекомендаций:', error);
           withRecs = withWaiting.map(p => ({ ...p, recommended: false }));
@@ -420,7 +285,7 @@ const ChefOrders = () => {
 
       setFilteredItems(sorted);
     },
-    [user?.id, groupCooks, computeEarlyCourseHighlight, computeRecommendations]
+    [user?.id, groupCooks, computeEarlyCourseHighlight]
   );
 
   const loadData = useCallback(async () => {
@@ -706,7 +571,6 @@ const ChefOrders = () => {
         {item.plate_name}
       </Text>
       <Text style={styles.recCount}>x{item.count}</Text>
-      <Text style={styles.recOrder}>Заказ #{item.order_id}</Text>
       {item.highlightedAsEarlyCourse && (
         <Ionicons name="timer-outline" size={14} color="#e67e22" />
       )}
@@ -765,11 +629,7 @@ const ChefOrders = () => {
           <Text style={styles.earlyCourseLabel}>Повышенный приоритет</Text>
         )}
 
-        {showOtherCookLabel && (
-          <Text style={styles.recommendedCookLabel}>
-            Рек.: {item.recommendedCookName}
-          </Text>
-        )}
+
       </TouchableOpacity>
     );
   };

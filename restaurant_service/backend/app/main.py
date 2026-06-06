@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from app.websocket.router import router as websocket_router
 from app.core.config import settings
 
-from app.api import users, tables, menu, orders, health, status_history, table_for_order, auth, cook_groups, specializations, plates_for_specializations, statistics, hallmap
+from app.api import users, tables, menu, orders, health, status_history, table_for_order, auth, cook_groups, specializations, plates_for_specializations, statistics, hallmap, recommendations
 
 from pathlib import Path
 import os
@@ -40,6 +40,7 @@ app.include_router(specializations.router, prefix="/api")
 app.include_router(plates_for_specializations.router, prefix="/api")
 app.include_router(statistics.router, prefix="/api")
 app.include_router(hallmap.router, prefix="/api")
+app.include_router(recommendations.router, prefix="/api")
 
 UPLOADS_DIR = Path(__file__).parent.parent / "uploads"
 os.makedirs(UPLOADS_DIR, exist_ok=True)

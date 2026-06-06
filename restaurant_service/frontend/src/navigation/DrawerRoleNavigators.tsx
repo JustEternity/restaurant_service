@@ -50,6 +50,7 @@ const HeaderTitle = ({ title, color }: { title: string; color: string }) => (
 
 const AdminDrawerBase = ({ color }: { color: string }) => (
   <Drawer.Navigator
+    initialRouteName='Профиль'
     screenOptions={{
       drawerStyle: {
         width: 250,
@@ -79,7 +80,7 @@ const AdminDrawerBase = ({ color }: { color: string }) => (
       name="Персонал"
       component={AdminStack}
       options={{
-        headerTitle: () => <HeaderTitle title="Управление персоналом" color="#FFFFFF" />,
+        headerTitle: () => <HeaderTitle title="Персонал" color="#FFFFFF" />,
         drawerLabel: 'Персонал',
       }}
     />
@@ -132,6 +133,7 @@ export const SuperAdminDrawer = () => <AdminDrawerBase color="#6C5CE7" />;
 // Для повара
 export const ChefDrawer = () => (
   <Drawer.Navigator
+    initialRouteName='Профиль'
     screenOptions={{
       drawerStyle: {
         width: 250,
@@ -177,6 +179,7 @@ export const ChefDrawer = () => (
 // Для официанта
 export const WaiterDrawer = () => (
   <Drawer.Navigator
+    initialRouteName='Профиль'
     screenOptions={{
       drawerStyle: {
         width: 250,
