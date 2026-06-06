@@ -120,20 +120,13 @@ async def login_json(
     user_data: dict,
     db: AsyncSession = Depends(get_async_db)
 ):
-    """Вход в систему с использованием JSON"""
-    try:
-        username = user_data.get("login") or user_data.get("username")
-        password = user_data.get("password")
+    username = user_data.get("login") or user_data.get("username")
+    password = user_data.get("password")
 
-        if not username or not password:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Требуются поля username и password"
-            )
-    except Exception as e:
+    if not username or not password:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Неверные данные: {str(e)}"
+            detail="Требуются поля login и password"
         )
 
     stmt = select(User).where(User.login == username).options(selectinload(User.role_of_user))
@@ -143,8 +136,7 @@ async def login_json(
     if not user or not verify_password(password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Неверный логин или пароль",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Неверный логин или пароль"
         )
 
     if not user.is_available:
@@ -153,15 +145,21 @@ async def login_json(
             detail="Пользователь заблокирован"
         )
 
+    role_name = user.role_of_user.name if user.role_of_user else "unknown"
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": str(user.id), "role": user.role},
+        data={"sub": str(user.id), "role": role_name},
         expires_delta=access_token_expires
     )
 
-    role_name = user.role_of_user.name if user.role_of_user else "unknown"
-    access_token = create_access_token(data={"sub": str(user.id), "role": role_name})
-    return Token(access_token=access_token, token_type="bearer", user_id=user.id, role=role_name, name=user.name)
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        user_id=user.id,
+        role=role_name,
+        name=user.name
+    )
 
 @router.post("/logout")
 async def logout():

@@ -288,6 +288,21 @@ async def get_locked_specialization_ids(db: AsyncSession = Depends(get_async_db)
 async def get_active_orders(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     return await get_all_orders(status="active", db=db)
 
+@router.get("/active-menu-ids", response_model=List[int])
+async def get_active_menu_ids(
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+):
+    stmt = (
+        select(PlateForOrder.plate_id)
+        .join(Order, Order.id == PlateForOrder.order_id)
+        .where(Order.status == "active")
+        .distinct()
+    )
+
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
 @router.get("/{cook_id}/active-tasks")
 async def get_active_tasks(cook_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user),):
     """
@@ -546,6 +561,62 @@ async def activate_next_course(
             }, list(cooks))
 
     return {"message": f"Курс {next_course} отправлен на кухню", "course": next_course}
+
+@router.post("/{order_id}/cancel-last-course")
+async def cancel_last_course(
+    order_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    stmt = select(Order).where(Order.id == order_id).options(
+        selectinload(Order.plates).selectinload(PlateForOrder.statuses_of_plate),
+        selectinload(Order.plates).selectinload(PlateForOrder.menu_item)
+    )
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+    if order.status != "active":
+        raise HTTPException(status_code=400, detail="Заказ не активен")
+
+    max_course = 0
+    for plate in order.plates:
+        if plate.menu_item and plate.menu_item.is_selfserve:
+            continue
+        if plate.statuses_of_plate:
+            if plate.course_number > max_course:
+                max_course = plate.course_number
+
+    if max_course == 0:
+        raise HTTPException(status_code=400, detail="Нет активированных курсов")
+
+    target_plates = [p for p in order.plates if p.course_number == max_course]
+
+    deleted_plate_ids = []
+    for plate in target_plates:
+        waiting_statuses = [
+            s for s in plate.statuses_of_plate if s.new_status == "waiting"
+        ]
+        for st in waiting_statuses:
+            await db.delete(st)
+            deleted_plate_ids.append(plate.id)
+
+    if not deleted_plate_ids:
+        raise HTTPException(status_code=400, detail="Нет статусов 'Ожидает' для отмены")
+
+    await db.commit()
+
+    cooks = await get_cooks_to_notify(order.id, db, plates_for_first_course=deleted_plate_ids)
+    if cooks:
+        await manager.broadcast_to_users({
+            "type": "course_cancelled",
+            "order_id": order.id,
+            "course": max_course,
+            "message": f"Курс {max_course} отменён"
+        }, list(cooks))
+
+    return {"message": f"Последний курс ({max_course}) отменён"}
 
 @router.put("/{order_id}", response_model=OrderResponse)
 async def update_order(order_id: int, order_data: OrderUpdate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):

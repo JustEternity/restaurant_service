@@ -185,7 +185,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  }
+  },
+  multiBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    padding: 12,
+    borderTopWidth: 1,
+    borderColor: '#ddd',
+    justifyContent: 'space-between',
+  },
 });
 
 export default styles;

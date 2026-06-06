@@ -397,6 +397,26 @@ const WaiterOrders = () => {
     );
   };
 
+  const hasWaitingCourse = (order: Order) => {
+    const considered = order.plates.filter(p => p.is_considered && !p.is_selfserve);
+    const grouped = groupPlatesByCourse(considered);
+
+    return grouped.some(([course, plates]) =>
+      plates.some(p => p.current_status === "waiting")
+    );
+  };
+
+  const cancelLastCourse = async () => {
+    if (!selectedOrder) return;
+    try {
+      await api.post(`/orders/${selectedOrder.id}/cancel-last-course`);
+      await loadOrders();
+      await refreshSelectedOrder();
+    } catch (error: any) {
+      Alert.alert("Ошибка", error.response?.data?.detail || "Не удалось отменить курс");
+    }
+  };
+
   const { addHandler } = useWebSocket();
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
@@ -540,10 +560,10 @@ const WaiterOrders = () => {
                   </Text>
                 </View>
 
-                <View style={styles.actionsRow}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                   {selectedOrder?.status === 'active' && (
                     <TouchableOpacity
-                      style={[styles.cancelOrderButton, { flex: 1 }]}
+                      style={[styles.cancelOrderButton, styles.actionButton]}
                       onPress={cancelOrder}
                       disabled={cancelling}
                     >
@@ -557,17 +577,26 @@ const WaiterOrders = () => {
 
                   {selectedOrder?.status === 'active' && (
                     <TouchableOpacity
-                      style={[styles.editOrderButton, { flex: 1 }]}
+                      style={[styles.editOrderButton, { flexBasis: "48%" }]}
                       onPress={handleEditOrder}
                     >
                       <Text style={styles.editOrderButtonText}>Редактировать</Text>
                     </TouchableOpacity>
                   )}
 
+                  {selectedOrder?.status === "active" && hasWaitingCourse(selectedOrder) && (
+                    <TouchableOpacity
+                      style={[styles.cancelOrderButton, styles.actionButton]}
+                      onPress={cancelLastCourse}
+                    >
+                      <Text style={styles.editOrderButtonText}>Откат курса</Text>
+                    </TouchableOpacity>
+                  )}
+
                   {selectedOrder?.status === 'active' &&
                     hasInactiveCourses(selectedOrder) && (
                       <TouchableOpacity
-                        style={[styles.activateCourseButton, { flex: 1 }]}
+                        style={[styles.activateCourseButton, { flexBasis: "48%" }]}
                         onPress={handleActivateNextCourse}
                         disabled={activatingCourse}
                       >
@@ -581,7 +610,7 @@ const WaiterOrders = () => {
 
                   {allServed && selectedOrder?.status === 'active' && (
                     <TouchableOpacity
-                      style={[styles.completeOrderButton, { flex: 1 }]}
+                      style={[styles.completeOrderButton, { flexBasis: "48%" }]}
                       onPress={completeOrder}
                     >
                       <Text style={styles.editOrderButtonText}>Завершить заказ</Text>

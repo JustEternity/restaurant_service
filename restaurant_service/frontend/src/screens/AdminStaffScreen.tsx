@@ -243,28 +243,59 @@ const AdminStaff = () => {
       Alert.alert('Ошибка', 'Имя и логин обязательны к заполнению');
       return;
     }
+
     try {
       const updateData: any = {
         name: editData.name,
         login: editData.login,
-        role: editData.role,
-        is_available: editData.is_available,
-        specialization_id: editData.role === 'cook' ? editData.specialization_id : null,
       };
-      if (editData.password.trim()) updateData.password = editData.password;
-      if (selectedUser?.role === "cook" && activeCookTasks[selectedUser.id]) {
-        Alert.alert("Нельзя изменить данные", "У повара есть блюда в работе");
-        return;
+
+      if (editData.password.trim()) {
+        updateData.password = editData.password;
       }
 
-      if (selectedUser?.role === "waiter" && activeWaiterOrders[selectedUser.id]) {
-        Alert.alert("Нельзя изменить данные", "У официанта есть активные заказы");
-        return;
+      if (editData.role !== selectedUser?.role) {
+        if (selectedUser?.role === "cook" && activeCookTasks[selectedUser.id]) {
+          Alert.alert("Нельзя изменить роль", "У повара есть блюда в работе");
+          return;
+        }
+        if (selectedUser?.role === "waiter" && activeWaiterOrders[selectedUser.id]) {
+          Alert.alert("Нельзя изменить роль", "У официанта есть активные заказы");
+          return;
+        }
+        updateData.role = editData.role;
+      }
+
+      if (editData.is_available !== selectedUser?.is_available) {
+        if (selectedUser?.role === "cook" && activeCookTasks[selectedUser.id]) {
+          Alert.alert("Нельзя изменить доступность", "У повара есть блюда в работе");
+          return;
+        }
+        if (selectedUser?.role === "waiter" && activeWaiterOrders[selectedUser.id]) {
+          Alert.alert("Нельзя изменить доступность", "У официанта есть активные заказы");
+          return;
+        }
+        updateData.is_available = editData.is_available;
+      }
+
+      if (
+        selectedUser?.role === "cook" &&
+        editData.specialization_id !== selectedUser?.specialization?.id
+      ) {
+        if (activeCookTasks[selectedUser.id]) {
+          Alert.alert("Нельзя изменить специализацию", "У повара есть блюда в работе");
+          return;
+        }
+        updateData.specialization_id = editData.specialization_id;
       }
 
       const response = await api.put(`/users/${selectedUser?.id}`, updateData);
       const updatedUser: User = response.data;
-      setStaff((prev) => prev.map((u) => (u.id === selectedUser?.id ? updatedUser : u)));
+
+      setStaff((prev) =>
+        prev.map((u) => (u.id === selectedUser?.id ? updatedUser : u))
+      );
+
       setEditModalVisible(false);
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось обновить данные сотрудника');

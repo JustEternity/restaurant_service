@@ -273,7 +273,7 @@ async def update_user(
             user.is_available = user_data.is_available
         else:
             raise HTTPException(status_code=403, detail="Только администратор или суперадмин может менять статус доступности")
-    if user_data.specialization_id is not None:
+    if "specialization_id" in user_data.model_fields_set:
         user.specialization = user_data.specialization_id
 
     if user_data.cook_group_ids is not None:

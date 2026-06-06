@@ -11,6 +11,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Swipeable from 'react-native-gesture-handler/Swipeable';
+import { RectButton } from 'react-native-gesture-handler';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import api from '../services/api';
@@ -54,12 +56,6 @@ interface Order {
   plates: OrderPlate[];
 }
 
-interface ActiveTask {
-  plate_order_id: number;
-  plate_id: number;
-  started_at: string;
-}
-
 interface FlatOrderedPlate {
   uid: string;
   plate_name: string;
@@ -93,20 +89,18 @@ type SpecializationFilter = 'all' | number;
 const isCourseDone = (status: string) =>
   status === 'ready' || status === 'served';
 
-
 const ChefOrders = () => {
   const { user } = useAuth();
 
   const [items, setItems] = useState<FlatOrderedPlate[]>([]);
   const [allOrderPlates, setAllOrderPlates] = useState<Map<number, OrderPlate[]>>(new Map());
-
   const [filteredItems, setFilteredItems] = useState<FlatOrderedPlate[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedItem, setSelectedItem] = useState<FlatOrderedPlate | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('waiting');
-  const [cookFilter, setCookFilter] = useState<number | "all">("all");
+  const [cookFilter, setCookFilter] = useState<number | 'all'>('all');
   const [specializationFilter, setSpecializationFilter] = useState<SpecializationFilter>('all');
   const [availableSpecializations, setAvailableSpecializations] = useState<Specialization[]>([]);
 
@@ -118,12 +112,158 @@ const ChefOrders = () => {
   const [loadingChange, setLoadingChange] = useState(false);
   const [loadingRollback, setLoadingRollback] = useState(false);
 
-  const plateToSpecializations = useRef<Map<number, Set<number>>>(new Map());
+  const [selectedUids, setSelectedUids] = useState<Set<string>>(new Set());
+  const isSelectionMode = selectedUids.size > 0;
+  const canMultiSelect =
+    (statusFilter === 'waiting' && specializationFilter !== 'all') ||
+    ((statusFilter === 'preparing' || statusFilter === 'ready') && cookFilter !== 'all');
 
-  const statsCacheRef = useRef<{ ts: number; data: Map<string, number> }>({
-    ts: 0,
-    data: new Map(),
-  });
+  const [bulkListModalVisible, setBulkListModalVisible] = useState(false);
+  const [bulkStatusModalVisible, setBulkStatusModalVisible] = useState(false);
+  const [bulkTargetStatus, setBulkTargetStatus] = useState<string>('');
+  const [bulkSelectedCookId, setBulkSelectedCookId] = useState<number | null>(null);
+  const [bulkLoadingChange, setBulkLoadingChange] = useState(false);
+
+  const plateToSpecializations = useRef<Map<number, Set<number>>>(new Map());
+  const statsCacheRef = useRef<{ ts: number; data: Map<string, number> }>({ ts: 0, data: new Map() });
+
+  const selectedItems = useMemo(
+    () => filteredItems.filter(i => selectedUids.has(i.uid)),
+    [filteredItems, selectedUids]
+  );
+
+  const bulkEligibleCooks = useMemo(() => {
+    if (selectedUids.size === 0) return groupCooks;
+    const allowedSpecIds = new Set<number>();
+    for (const uid of selectedUids) {
+      const item = filteredItems.find(i => i.uid === uid);
+      if (item) {
+        const specs = plateToSpecializations.current.get(item.plate_id);
+        specs?.forEach(s => allowedSpecIds.add(s));
+      }
+    }
+    return groupCooks.filter(c => c.specialization && allowedSpecIds.has(c.specialization.id));
+  }, [selectedUids, filteredItems, groupCooks]);
+
+  const toggleSelectItem = useCallback((item: FlatOrderedPlate) => {
+    setSelectedUids(prev => {
+      const next = new Set(prev);
+      if (next.has(item.uid)) next.delete(item.uid);
+      else next.add(item.uid);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedUids(new Set()), []);
+
+  const handleCardPress = useCallback(
+    (item: FlatOrderedPlate) => {
+      if (selectedUids.has(item.uid)) {
+        setBulkListModalVisible(true);
+      } else {
+        setSelectedItem(item);
+        setDetailModalVisible(true);
+      }
+    },
+    [selectedUids]
+  );
+
+  const openBulkStatusChange = useCallback(
+    async (nextStatus: string) => {
+      setBulkTargetStatus(nextStatus);
+      if (nextStatus === 'ready') {
+        setBulkLoadingChange(true);
+        let successCount = 0;
+        let failCount = 0;
+        for (const uid of selectedUids) {
+          const item = filteredItems.find(i => i.uid === uid);
+          if (!item) continue;
+          const cookId = item.cook_id_preparing;
+          if (!cookId) { failCount++; continue; }
+          try {
+            await api.put(
+              `/orders/plate/${item.plate_order_id}/status/ready?change_by=${cookId}`
+            );
+            successCount++;
+          } catch {
+            failCount++;
+          }
+        }
+        setBulkLoadingChange(false);
+        clearSelection();
+        loadData();
+        if (failCount > 0) {
+          Alert.alert('Результат', `Изменено: ${successCount}, ошибок: ${failCount}`);
+        }
+        return;
+      }
+      const currentUserAllowed = user?.id
+        ? bulkEligibleCooks.find(c => c.id === user.id)
+        : null;
+      setBulkSelectedCookId(currentUserAllowed ? user!.id : null);
+      setBulkStatusModalVisible(true);
+    },
+    [bulkEligibleCooks, user, selectedUids, filteredItems]
+  );
+
+  const confirmBulkStatusChange = useCallback(async () => {
+    if (selectedUids.size === 0) return;
+    setBulkLoadingChange(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const uid of selectedUids) {
+      const item = filteredItems.find(i => i.uid === uid);
+      if (!item) continue;
+      const cookId = bulkTargetStatus === 'ready' ? item.cook_id_preparing : bulkSelectedCookId;
+      if (!cookId) { failCount++; continue; }
+      try {
+        await api.put(
+          `/orders/plate/${item.plate_order_id}/status/${bulkTargetStatus}?change_by=${cookId}`
+        );
+        successCount++;
+      } catch {
+        failCount++;
+      }
+    }
+
+    setBulkLoadingChange(false);
+    setBulkStatusModalVisible(false);
+    setBulkListModalVisible(false);
+    clearSelection();
+    loadData();
+
+    if (failCount > 0) {
+      Alert.alert('Результат', `Изменено: ${successCount}, ошибок: ${failCount}`);
+    }
+  }, [selectedUids, filteredItems, bulkTargetStatus, bulkSelectedCookId]);
+
+  const confirmBulkRollback = useCallback(async () => {
+    if (selectedUids.size === 0) return;
+    setBulkLoadingChange(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const uid of selectedUids) {
+      const item = filteredItems.find(i => i.uid === uid);
+      if (!item) continue;
+      try {
+        await api.delete(`/cooking-status-history/rollback/${item.plate_order_id}`, {
+          params: { expected_current_status: item.current_status },
+        });
+        successCount++;
+      } catch {
+        failCount++;
+      }
+    }
+
+    setBulkLoadingChange(false);
+    clearSelection();
+    loadData();
+    if (failCount > 0) {
+      Alert.alert('Результат', `Откачено: ${successCount}, ошибок: ${failCount}`);
+    }
+  }, [selectedUids, filteredItems]);
 
   const loadAllowedPlateIds = useCallback(async (): Promise<Set<number>> => {
     const specializationIds = new Set<number>();
@@ -175,14 +315,12 @@ const ChefOrders = () => {
       const userRes = await api.get(`/users/${user?.id}`);
       const currentUser = userRes.data;
       const cooksMap = new Map<number, Cook>();
-
       if (currentUser.cook_groups?.length > 0) {
         for (const group of currentUser.cook_groups) {
           const cooksRes = await api.get(`/cook-groups/${group.id}/cooks/`);
           cooksRes.data.forEach((c: any) => {
-            if (!cooksMap.has(c.id)) {
+            if (!cooksMap.has(c.id))
               cooksMap.set(c.id, { id: c.id, name: c.name, specialization: c.specialization });
-            }
           });
         }
       }
@@ -195,7 +333,6 @@ const ChefOrders = () => {
   const computeEarlyCourseHighlight = useCallback(
     (plates: FlatOrderedPlate[]): FlatOrderedPlate[] => {
       const earliestPendingCourse = new Map<number, number>();
-
       for (const [orderId, allPlates] of allOrderPlates.entries()) {
         const pendingCourses = allPlates
           .filter(p => !isCourseDone(p.current_status))
@@ -203,17 +340,14 @@ const ChefOrders = () => {
         if (pendingCourses.length === 0) continue;
         earliestPendingCourse.set(orderId, Math.min(...pendingCourses));
       }
-
       return plates.map(p => {
         const earliest = earliestPendingCourse.get(p.order_id);
         const orderPlates = allOrderPlates.get(p.order_id) ?? [];
         const courseNumbers = new Set(orderPlates.map(op => op.course_number));
-        const hasMultipleCourses = courseNumbers.size > 1;
-
         return {
           ...p,
           highlightedAsEarlyCourse:
-            hasMultipleCourses && earliest !== undefined && p.course_number === earliest,
+            courseNumbers.size > 1 && earliest !== undefined && p.course_number === earliest,
         };
       });
     },
@@ -225,7 +359,7 @@ const ChefOrders = () => {
       source: FlatOrderedPlate[],
       statusF: StatusFilter,
       specF: SpecializationFilter,
-      cookF: number | "all" = "all"
+      cookF: number | 'all' = 'all'
     ) => {
       let filtered = source.filter(item => item.current_status === statusF);
 
@@ -237,13 +371,12 @@ const ChefOrders = () => {
           });
         }
       } else {
-        if (cookF !== "all") {
+        if (cookF !== 'all') {
           filtered = filtered.filter(item => item.cook_id_preparing === cookF);
         }
       }
 
       const withHighlight = computeEarlyCourseHighlight(filtered);
-
       const now = Date.now();
       const withWaiting = withHighlight.map(p => ({
         ...p,
@@ -254,8 +387,7 @@ const ChefOrders = () => {
       if (statusF === 'waiting') {
         try {
           withRecs = await applyRecommendations(withWaiting, user?.id ?? 0, groupCooks);
-        } catch (error) {
-          console.error('Ошибка расчёта рекомендаций:', error);
+        } catch {
           withRecs = withWaiting.map(p => ({ ...p, recommended: false }));
         }
       } else {
@@ -271,7 +403,6 @@ const ChefOrders = () => {
       const sorted = [...withRecs].sort((a, b) => {
         if (a.highlightedAsEarlyCourse !== b.highlightedAsEarlyCourse)
           return a.highlightedAsEarlyCourse ? -1 : 1;
-
         if (specF === 'all' || statusF !== 'waiting') {
           const waitDiff = (b.waitingMinutes ?? 0) - (a.waitingMinutes ?? 0);
           if (Math.abs(waitDiff) > 0.5) return waitDiff;
@@ -302,9 +433,7 @@ const ChefOrders = () => {
       const orders: Order[] = ordersRes.data;
 
       const newAllOrderPlates = new Map<number, OrderPlate[]>();
-      for (const order of orders) {
-        newAllOrderPlates.set(order.id, order.plates);
-      }
+      for (const order of orders) newAllOrderPlates.set(order.id, order.plates);
       setAllOrderPlates(newAllOrderPlates);
 
       const groupedMap = new Map<string, FlatOrderedPlate>();
@@ -312,7 +441,6 @@ const ChefOrders = () => {
         for (const plate of order.plates) {
           if (!plate.is_considered) continue;
           if (!allowedPlateIds.has(plate.plate_id)) continue;
-
           const key = `${order.id}_${plate.id}`;
           const existing = groupedMap.get(key);
           if (existing) {
@@ -338,9 +466,7 @@ const ChefOrders = () => {
       }
 
       const flatList = Array.from(groupedMap.values());
-      flatList.sort(
-        (a, b) => new Date(a.timestart).getTime() - new Date(b.timestart).getTime()
-      );
+      flatList.sort((a, b) => new Date(a.timestart).getTime() - new Date(b.timestart).getTime());
       setItems(flatList);
       await applyFilter(flatList, statusFilter, specializationFilter, cookFilter);
     } catch (error) {
@@ -357,13 +483,18 @@ const ChefOrders = () => {
   }, []);
 
   useEffect(() => {
+    clearSelection();
     if (statusFilter === 'waiting') {
-      setCookFilter("all");
-      applyFilter(items, statusFilter, specializationFilter, "all");
+      setCookFilter('all');
+      applyFilter(items, statusFilter, specializationFilter, 'all');
     } else {
       applyFilter(items, statusFilter, specializationFilter, cookFilter);
     }
   }, [statusFilter, specializationFilter, items, applyFilter]);
+
+  useEffect(() => {
+    if (!canMultiSelect) clearSelection();
+  }, [canMultiSelect]);
 
   useEffect(() => {
     applyFilter(items, statusFilter, specializationFilter, cookFilter);
@@ -376,6 +507,7 @@ const ChefOrders = () => {
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
+    clearSelection();
     loadData();
   }, [loadData]);
 
@@ -400,9 +532,7 @@ const ChefOrders = () => {
     type CookSection = { cook: Cook; plates: FlatOrderedPlate[] };
     const cookSections = new Map<number, CookSection>();
     const unassigned: FlatOrderedPlate[] = [];
-
-    const showSections =
-      specializationFilter !== 'all' && statusFilter === 'waiting';
+    const showSections = specializationFilter !== 'all' && statusFilter === 'waiting';
 
     if (!showSections) {
       filteredItems.forEach(item => unassigned.push(item));
@@ -410,10 +540,7 @@ const ChefOrders = () => {
     }
 
     const specId = specializationFilter as number;
-    const eligibleCooks = groupCooks.filter(
-      c => c.specialization && c.specialization.id === specId
-    );
-
+    const eligibleCooks = groupCooks.filter(c => c.specialization?.id === specId);
     const MAX_PER_COOK = 4;
     const inAnySectionUids = new Set<string>();
 
@@ -424,7 +551,6 @@ const ChefOrders = () => {
           return specs && cook.specialization && specs.has(cook.specialization.id);
         })
         .slice(0, MAX_PER_COOK);
-
       if (cookPlates.length > 0) {
         cookSections.set(cook.id, { cook, plates: cookPlates });
         cookPlates.forEach(p => inAnySectionUids.add(p.uid));
@@ -432,14 +558,11 @@ const ChefOrders = () => {
     }
 
     filteredItems.forEach(item => {
-      if (!inAnySectionUids.has(item.uid)) {
-        unassigned.push(item);
-      }
+      if (!inAnySectionUids.has(item.uid)) unassigned.push(item);
     });
 
     return { cookSections, unassigned };
   }, [filteredItems, specializationFilter, statusFilter, groupCooks]);
-
 
   const getNextStatus = (current: string) => {
     switch (current) {
@@ -472,37 +595,32 @@ const ChefOrders = () => {
       await api.put(
         `/orders/plate/${selectedItem?.plate_order_id}/status/${nextStatus}?change_by=${cookId}`
       );
-
       setDetailModalVisible(false);
       loadData();
     } catch (error: any) {
       const msg =
         error.response?.status === 409
-          ? "Этот статус уже установлен другим поваром"
-          : error.response?.data?.detail || error.message || "Не удалось изменить статус";
-
-      Alert.alert("Ошибка", msg);
+          ? 'Этот статус уже установлен другим поваром'
+          : error.response?.data?.detail || error.message || 'Не удалось изменить статус';
+      Alert.alert('Ошибка', msg);
       loadData();
     }
   };
 
   const openChangeStatus = (nextStatus: string) => {
     setTargetStatus(nextStatus);
-    if (nextStatus === "ready") {
+    if (nextStatus === 'ready') {
       const cookId = selectedItem?.cook_id_preparing;
       if (!cookId) return;
       changePlateStatusAuto(nextStatus, cookId);
       return;
     }
-
     const allowedSpecs = selectedItem
       ? plateToSpecializations.current.get(selectedItem.plate_id)
       : null;
     const currentUserAllowed =
       allowedSpecs && user?.id
-        ? groupCooks.find(
-            c => c.id === user.id && c.specialization && allowedSpecs.has(c.specialization.id)
-          )
+        ? groupCooks.find(c => c.id === user.id && c.specialization && allowedSpecs.has(c.specialization.id))
         : null;
     setSelectedCookId(currentUserAllowed ? user?.id ?? null : null);
     setChangeStatusModalVisible(true);
@@ -555,21 +673,13 @@ const ChefOrders = () => {
     }
   };
 
-
-  const openDetail = (item: FlatOrderedPlate) => {
-    setSelectedItem(item);
-    setDetailModalVisible(true);
-  };
-
   const renderSliderCard = (item: FlatOrderedPlate, isCurrentCook: boolean) => (
     <TouchableOpacity
       key={item.uid}
       style={[styles.recommendedCard]}
-      onPress={() => openDetail(item)}
+      onPress={() => handleCardPress(item)}
     >
-      <Text style={styles.recPlateName} numberOfLines={1}>
-        {item.plate_name}
-      </Text>
+      <Text style={styles.recPlateName} numberOfLines={1}>{item.plate_name}</Text>
       <Text style={styles.recCount}>x{item.count}</Text>
       {item.highlightedAsEarlyCourse && (
         <Ionicons name="timer-outline" size={14} color="#e67e22" />
@@ -577,60 +687,88 @@ const ChefOrders = () => {
     </TouchableOpacity>
   );
 
+  const swipeableRefs = useRef(new Map()).current;
+
   const renderItem = ({ item }: { item: FlatOrderedPlate }) => {
     const statusInfo = getStatusInfo(item.current_status);
-    const isRecommendedForCurrentUser = item.recommended && specializationFilter !== 'all';
-    const showOtherCookLabel =
-      specializationFilter !== 'all' &&
-      item.recommendedCookId &&
-      item.recommendedCookId !== user?.id;
+    const isSelected = selectedUids.has(item.uid);
     const cookName = item.cook_id_preparing
       ? groupCooks.find(c => c.id === item.cook_id_preparing)?.name
       : null;
 
-    return (
-      <TouchableOpacity
-        style={styles.card}
-        onPress={() => openDetail(item)}
-        activeOpacity={0.7}
+    const renderRightActions = () => (
+      <RectButton
+        style={{
+          backgroundColor: isSelected ? '#e74c3c' : '#3498db',
+          justifyContent: 'center',
+          alignItems: 'center',
+          width: 72,
+          marginBottom: 12,
+          borderRadius: 12,
+        }}
+        onPress={() => {
+          swipeableRefs.get(item.uid)?.close();
+          toggleSelectItem(item);
+        }}
       >
-        {item.highlightedAsEarlyCourse && <View style={styles.earlyCourseIndicator} />}
+        <Ionicons
+          name={isSelected ? 'close-circle-outline' : 'checkmark-circle-outline'}
+          size={28}
+          color="#fff"
+        />
+      </RectButton>
+    );
 
-        <View style={styles.cardHeader}>
-          <Text style={styles.plateName}>{item.plate_name}</Text>
-          <Text style={styles.count}>x{item.count}</Text>
-        </View>
+    const cardContent = (
+      <TouchableOpacity onPress={() => handleCardPress(item)} activeOpacity={0.75}>
+          <View style={[styles.card, isSelected && { borderColor: '#3498db', borderWidth: 2 }]}>
+            {item.highlightedAsEarlyCourse && <View style={styles.earlyCourseIndicator} />}
 
-        <View style={styles.cardFooter}>
-          <Text style={styles.orderInfo}></Text>
-          {cookName && <Text style={styles.cookName}>{cookName}</Text>}
-        </View>
+            <View style={styles.cardHeader}>
+              <Text style={styles.plateName}>{item.plate_name}</Text>
+              <Text style={styles.count}>x{item.count}</Text>
+            </View>
 
-        <View style={styles.bottomRow}>
-          <Text style={styles.time}>
-            {new Date(item.timestart).toLocaleTimeString('ru-RU', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </Text>
+            <View style={styles.cardFooter}>
+              <Text style={styles.orderInfo}></Text>
+              {cookName && <Text style={styles.cookName}>{cookName}</Text>}
+            </View>
 
-          <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
-            <Text style={styles.statusText}>{statusInfo.label}</Text>
+            <View style={styles.bottomRow}>
+              <Text style={styles.time}>
+                {new Date(item.timestart).toLocaleTimeString('ru-RU', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </Text>
+              <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
+                <Text style={styles.statusText}>{statusInfo.label}</Text>
+              </View>
+            </View>
+
+            {item.comments.length > 0 && (
+              <Text style={styles.cardComment} numberOfLines={2}>
+                💬 {item.comments.join(' · ')}
+              </Text>
+            )}
+
+            {item.highlightedAsEarlyCourse && (
+              <Text style={styles.earlyCourseLabel}>Повышенный приоритет</Text>
+            )}
           </View>
-        </View>
-
-        {item.comments.length > 0 && (
-          <Text style={styles.cardComment} numberOfLines={2}>
-            💬 {item.comments.join(' · ')}
-          </Text>
-        )}
-
-        {item.highlightedAsEarlyCourse && (
-          <Text style={styles.earlyCourseLabel}>Повышенный приоритет</Text>
-        )}
-
-
       </TouchableOpacity>
+    );
+
+    if (!canMultiSelect) return cardContent;
+
+    return (
+      <Swipeable
+        ref={ref => { if (ref) swipeableRefs.set(item.uid, ref); else swipeableRefs.delete(item.uid); }}
+        renderRightActions={renderRightActions}
+        overshootRight={false}
+      >
+        {cardContent}
+      </Swipeable>
     );
   };
 
@@ -665,10 +803,19 @@ const ChefOrders = () => {
   }
 
   const nextStatus = selectedItem ? getNextStatus(selectedItem.current_status) : null;
+  const bulkNextStatus = statusFilter === 'waiting'
+    ? 'preparing'
+    : statusFilter === 'preparing'
+    ? 'ready'
+    : null;
+  const bulkNextLabel = bulkNextStatus === 'preparing'
+    ? 'Взять в работу'
+    : bulkNextStatus === 'ready'
+    ? 'Завершить приготовление'
+    : null;
 
   const showCookFilterBar =
-    (statusFilter === 'preparing' || statusFilter === 'ready') &&
-    groupCooks.length > 1;
+    (statusFilter === 'preparing' || statusFilter === 'ready') && groupCooks.length > 1;
 
   return (
     <View style={styles.container}>
@@ -728,23 +875,18 @@ const ChefOrders = () => {
           <View>
             {statusFilter === 'waiting' &&
               specializationFilter !== 'all' &&
-              Array.from(grouped.cookSections.entries()).map(([cookId, { cook, plates }]) => {
-                const isCurrentCook = cookId === user?.id;
-                return (
-                  <View key={cookId} style={styles.recommendedSection}>
-                    <Text style={[styles.sectionTitle]}>
-                      {isCurrentCook ? `${cook.name}` : cook.name}
-                    </Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={{ paddingHorizontal: 12 }}
-                    >
-                      {plates.map(item => renderSliderCard(item, isCurrentCook))}
-                    </ScrollView>
-                  </View>
-                );
-              })}
+              Array.from(grouped.cookSections.entries()).map(([cookId, { cook, plates }]) => (
+                <View key={cookId} style={styles.recommendedSection}>
+                  <Text style={styles.sectionTitle}>{cook.name}</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 12 }}
+                  >
+                    {plates.map(item => renderSliderCard(item, cookId === user?.id))}
+                  </ScrollView>
+                </View>
+              ))}
           </View>
         )}
         ListEmptyComponent={
@@ -778,15 +920,8 @@ const ChefOrders = () => {
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Статус:</Text>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      { backgroundColor: getStatusInfo(selectedItem.current_status).color },
-                    ]}
-                  >
-                    <Text style={styles.statusText}>
-                      {getStatusInfo(selectedItem.current_status).label}
-                    </Text>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusInfo(selectedItem.current_status).color }]}>
+                    <Text style={styles.statusText}>{getStatusInfo(selectedItem.current_status).label}</Text>
                   </View>
                 </View>
                 {selectedItem.comments.length > 0 ? (
@@ -800,11 +935,9 @@ const ChefOrders = () => {
                   <Text style={styles.noComment}>Нет комментариев</Text>
                 )}
                 <Text style={styles.timeText}>
-                  Время заказа:{' '}
-                  {new Date(selectedItem.timestart).toLocaleString('ru-RU')}
+                  Время заказа: {new Date(selectedItem.timestart).toLocaleString('ru-RU')}
                 </Text>
-                {(selectedItem.current_status === 'preparing' ||
-                  selectedItem.current_status === 'ready') && (
+                {(selectedItem.current_status === 'preparing' || selectedItem.current_status === 'ready') && (
                   <TouchableOpacity
                     style={[styles.changeStatusButton, { backgroundColor: '#e74c3c' }]}
                     onPress={() => {
@@ -838,14 +971,11 @@ const ChefOrders = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Кто выполняет?</Text>
-
-            {targetStatus === "ready" ? (
+            {targetStatus === 'ready' ? (
               <View style={{ paddingVertical: 10 }}>
-                <Text style={{ fontSize: 16, marginBottom: 6 }}>
-                  Повар:
-                </Text>
-                <Text style={{ fontSize: 18, fontWeight: "600" }}>
-                  {groupCooks.find(c => c.id === selectedCookId)?.name ?? "Не найден"}
+                <Text style={{ fontSize: 16, marginBottom: 6 }}>Повар:</Text>
+                <Text style={{ fontSize: 18, fontWeight: '600' }}>
+                  {groupCooks.find(c => c.id === selectedCookId)?.name ?? 'Не найден'}
                 </Text>
               </View>
             ) : (
@@ -859,38 +989,133 @@ const ChefOrders = () => {
                 keyExtractor={item => item.id.toString()}
                 renderItem={({ item }) => (
                   <TouchableOpacity
-                    style={[
-                      styles.cookItem,
-                      selectedCookId === item.id && styles.cookItemSelected
-                    ]}
+                    style={[styles.cookItem, selectedCookId === item.id && styles.cookItemSelected]}
                     onPress={() => setSelectedCookId(item.id)}
                   >
                     <Text style={styles.cookName}>{item.name}</Text>
-                    {item.specialization && (
-                      <Text style={styles.cookSpec}>{item.specialization.name}</Text>
-                    )}
-                    {selectedCookId === item.id && (
-                      <Ionicons name="checkmark-circle" size={20} color="#2ecc71" />
-                    )}
+                    {item.specialization && <Text style={styles.cookSpec}>{item.specialization.name}</Text>}
+                    {selectedCookId === item.id && <Ionicons name="checkmark-circle" size={20} color="#2ecc71" />}
                   </TouchableOpacity>
                 )}
               />
             )}
-
             <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setChangeStatusModalVisible(false)}
-              >
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setChangeStatusModalVisible(false)}>
                 <Text style={styles.cancelButtonText}>Отмена</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.confirmButton}
-                onPress={changePlateStatus}
-                disabled={!selectedCookId}
-              >
+              <TouchableOpacity style={styles.confirmButton} onPress={changePlateStatus} disabled={!selectedCookId}>
                 <Text style={styles.confirmButtonText}>Подтвердить</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={bulkListModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Выбрано: {selectedItems.length}</Text>
+              <TouchableOpacity onPress={() => setBulkListModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={selectedItems}
+              keyExtractor={item => item.uid}
+              style={{ maxHeight: 320 }}
+              renderItem={({ item }) => {
+                const statusInfo = getStatusInfo(item.current_status);
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}>
+                    <TouchableOpacity
+                      onPress={() => toggleSelectItem(item)}
+                      style={{ marginRight: 10 }}
+                    >
+                      <Ionicons name="close-circle-outline" size={20} color="#e74c3c" />
+                    </TouchableOpacity>
+                    <Text style={{ flex: 1, fontSize: 15 }}>{item.plate_name}</Text>
+                    <Text style={{ marginRight: 8, color: '#888' }}>x{item.count}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
+                      <Text style={styles.statusText}>{statusInfo.label}</Text>
+                    </View>
+                  </View>
+                );
+              }}
+              ListFooterComponent={
+                <TouchableOpacity
+                  onPress={() => { setBulkListModalVisible(false); clearSelection(); }}
+                  style={{ paddingVertical: 10, alignItems: 'center' }}
+                >
+                  <Text style={{ color: '#e74c3c', fontSize: 14 }}>Снять выделение</Text>
+                </TouchableOpacity>
+              }
+            />
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+              {(statusFilter === 'preparing' || statusFilter === 'ready') && (
+                <TouchableOpacity
+                  style={[styles.confirmButton, { backgroundColor: '#e74c3c', flex: 1 }]}
+                  onPress={() => {
+                    setBulkListModalVisible(false);
+                    confirmBulkRollback();
+                  }}
+                >
+                  <Text style={styles.confirmButtonText}>Откатить статус</Text>
+                </TouchableOpacity>
+              )}
+              {bulkNextLabel && bulkNextStatus && (
+                <TouchableOpacity
+                  style={[styles.confirmButton, { flex: 1 }]}
+                  onPress={() => {
+                    setBulkListModalVisible(false);
+                    openBulkStatusChange(bulkNextStatus);
+                  }}
+                >
+                  <Text style={[styles.confirmButtonText, { textAlign: 'center' }]}>{bulkNextLabel}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={bulkStatusModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              Кто выполняет? ({selectedUids.size} блюд)
+            </Text>
+            {bulkTargetStatus !== 'ready' && (
+              <FlatList
+                data={bulkEligibleCooks}
+                keyExtractor={item => item.id.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.cookItem, bulkSelectedCookId === item.id && styles.cookItemSelected]}
+                    onPress={() => setBulkSelectedCookId(item.id)}
+                  >
+                    <Text style={styles.cookName}>{item.name}</Text>
+                    {item.specialization && <Text style={styles.cookSpec}>{item.specialization.name}</Text>}
+                    {bulkSelectedCookId === item.id && <Ionicons name="checkmark-circle" size={20} color="#2ecc71" />}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setBulkStatusModalVisible(false)}>
+                <Text style={styles.cancelButtonText}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmButton, bulkLoadingChange && { opacity: 0.6 }]}
+                onPress={confirmBulkStatusChange}
+                disabled={bulkLoadingChange || (bulkTargetStatus !== 'ready' && !bulkSelectedCookId)}
+              >
+                {bulkLoadingChange
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={styles.confirmButtonText}>Подтвердить</Text>
+                }
               </TouchableOpacity>
             </View>
           </View>

@@ -108,6 +108,8 @@ const WaiterMenu = () => {
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [flatCategories, setFlatCategories] = useState<Array<Category & { depth: number }>>([]);
 
+  const [lockedMenuIds, setLockedMenuIds] = useState<number[]>([]);
+
   const swipeableRefs = new Map();
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const isFirstFocus = useRef(true);
@@ -237,11 +239,23 @@ const WaiterMenu = () => {
     return flattenMenuByCategories();
   }, [currentCategory, menuItems, flattenMenuByCategories]);
 
+  const fetchLockedMenuIds = async () => {
+    try {
+      const response = await api.get('/orders/active-menu-ids');
+      setLockedMenuIds(response.data);
+    } catch (e) {
+      console.log("Ошибка загрузки lockedMenuIds", e);
+    }
+  };
 
   const loadData = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      await Promise.all([fetchCategories(), fetchMenuItems()]);
+      await Promise.all([
+        fetchCategories(),
+        fetchMenuItems(),
+        fetchLockedMenuIds()
+      ]);
     } catch (error) {
       console.error(error);
     } finally {
@@ -284,6 +298,14 @@ const WaiterMenu = () => {
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
       if (data.type === 'categories_update' || data.type === 'plates_update') loadData();
+      if (
+        data.type === 'order_created' ||
+        data.type === 'order_updated' ||
+        data.type === 'plate_status_changed' ||
+        data.type === 'order_completed'
+      ) {
+        fetchLockedMenuIds();
+      }
     });
     return unsubscribe;
   }, [addHandler, loadData]);
@@ -646,6 +668,7 @@ const WaiterMenu = () => {
   };
 
   const renderMenuItem = ({ item }: { item: MenuItem }) => {
+    const isLocked = lockedMenuIds.includes(item.id);
     const content = (
       <View style={[styles.menuItemContent, !item.is_available && { opacity: 0.3 }]}>
         <TouchableOpacity style={{ flex: 1, flexDirection: 'row' }} onPress={() => handleItemPress(item)} activeOpacity={0.7}>
@@ -671,6 +694,13 @@ const WaiterMenu = () => {
     );
 
     if (isAdmin && !isNewOrderMode && !isEditMode) {
+      if (isLocked) {
+        return (
+          <View style={[styles.menuItem, { opacity: 0.5 }]}>
+            {content}
+          </View>
+        );
+      }
       return (
         <Swipeable
           ref={(ref) => { if (ref) swipeableRefs.set(item.id, ref); }}
