@@ -694,23 +694,27 @@ const WaiterMenu = () => {
     );
 
     if (isAdmin && !isNewOrderMode && !isEditMode) {
-      if (isLocked) {
-        return (
-          <View style={[styles.menuItem, { opacity: 0.5 }]}>
-            {content}
-          </View>
-        );
-      }
       return (
         <Swipeable
           ref={(ref) => { if (ref) swipeableRefs.set(item.id, ref); }}
+          enabled={!isLocked}
           renderRightActions={() => (
             <View style={styles.swipeActions}>
-              <RectButton style={[styles.swipeCircleButton, styles.editButton]} onPress={() => handleEditItem(item)}>
-                <View style={styles.swipeButtonContent}><Ionicons name="create-outline" size={22} color="#fff" /></View>
+              <RectButton
+                style={[styles.swipeCircleButton, styles.editButton, isLocked && { opacity: 0.35 }]}
+                onPress={() => !isLocked && handleEditItem(item)}
+              >
+                <View style={styles.swipeButtonContent}>
+                  <Ionicons name="create-outline" size={22} color="#fff" />
+                </View>
               </RectButton>
-              <RectButton style={[styles.swipeCircleButton, styles.deleteButton]} onPress={() => handleDeleteItem(item)}>
-                <View style={styles.swipeButtonContent}><Ionicons name="trash-outline" size={22} color="#fff" /></View>
+              <RectButton
+                style={[styles.swipeCircleButton, styles.deleteButton, isLocked && { opacity: 0.35 }]}
+                onPress={() => !isLocked && handleDeleteItem(item)}
+              >
+                <View style={styles.swipeButtonContent}>
+                  <Ionicons name="trash-outline" size={22} color="#fff" />
+                </View>
               </RectButton>
             </View>
           )}
@@ -851,10 +855,26 @@ const WaiterMenu = () => {
                 </View>
                 {isAdmin && !isNewOrderMode && !isEditMode && (
                   <View style={styles.modalActions}>
-                    <TouchableOpacity style={[styles.modalActionButton, styles.editButton]} onPress={() => { handleCloseModal(); handleEditItem(selectedItem); }}>
+                    <TouchableOpacity
+                      style={[styles.modalActionButton, styles.editButton, selectedItem && lockedMenuIds.includes(selectedItem.id) && { opacity: 0.35 }]}
+                      onPress={() => {
+                        if (selectedItem && !lockedMenuIds.includes(selectedItem.id)) {
+                          handleCloseModal();
+                          handleEditItem(selectedItem);
+                        }
+                      }}
+                    >
                       <Text>Редактировать</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.modalActionButton, styles.deleteButton]} onPress={() => { handleCloseModal(); handleDeleteItem(selectedItem); }}>
+                    <TouchableOpacity
+                      style={[styles.modalActionButton, styles.deleteButton, selectedItem && lockedMenuIds.includes(selectedItem.id) && { opacity: 0.35 }]}
+                      onPress={() => {
+                        if (selectedItem && !lockedMenuIds.includes(selectedItem.id)) {
+                          handleCloseModal();
+                          handleDeleteItem(selectedItem);
+                        }
+                      }}
+                    >
                       <Text>Удалить</Text>
                     </TouchableOpacity>
                   </View>
