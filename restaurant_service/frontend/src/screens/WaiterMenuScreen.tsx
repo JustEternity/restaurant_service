@@ -110,6 +110,8 @@ const WaiterMenu = () => {
 
   const [lockedMenuIds, setLockedMenuIds] = useState<number[]>([]);
 
+  const [searchQuery, setSearchQuery] = useState('');
+
   const swipeableRefs = new Map();
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const isFirstFocus = useRef(true);
@@ -233,11 +235,27 @@ const WaiterMenu = () => {
 
 
   const filteredItems = useMemo(() => {
-    if (currentCategory) {
-      return menuItems.filter(item => item.category === currentCategory.id);
+    const base = currentCategory
+      ? menuItems.filter(item => item.category === currentCategory.id)
+      : flattenMenuByCategories();
+
+    if (!searchQuery.trim()) return base;
+
+    const q = searchQuery.toLowerCase();
+
+    if (!currentCategory) {
+      return (base as UnifiedListItem[]).filter(entry => {
+        if (entry.type === 'item') {
+          return entry.data.name.toLowerCase().startsWith(q);
+        }
+        return false;
+      });
     }
-    return flattenMenuByCategories();
-  }, [currentCategory, menuItems, flattenMenuByCategories]);
+
+    return (base as MenuItem[]).filter(item =>
+      item.name.toLowerCase().startsWith(q)
+    );
+  }, [currentCategory, menuItems, flattenMenuByCategories, searchQuery]);
 
   const fetchLockedMenuIds = async () => {
     try {
@@ -764,9 +782,28 @@ const WaiterMenu = () => {
             </View>
           )}
         </View>
-        <Text style={styles.headerSubtitle}>
-          {categoryPath.length > 0 ? categoryPath.map(c => c.name).join(' / ') : 'Все блюда'} • {totalItemsCount} позиций
-        </Text>
+        <View style={{ marginTop: 0 }}>
+          <TextInput
+            style={{
+              backgroundColor: '#f2f2f7',
+              borderRadius: 10,
+              paddingHorizontal: 12,
+              marginBottom: 8,
+              fontSize: 15,
+              color: '#000',
+              minHeight: 60,
+            }}
+            placeholder="Введите название блюда"
+            placeholderTextColor="#999"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            clearButtonMode="while-editing"
+            returnKeyType="search"
+          />
+          <Text style={[styles.headerSubtitle, { marginTop: 4 }]}>
+            {categoryPath.length > 0 ? categoryPath.map(c => c.name).join(' / ') : 'Все блюда'} • {totalItemsCount} позиций
+          </Text>
+        </View>
       </View>
 
       <View style={styles.categoriesContainer}>
