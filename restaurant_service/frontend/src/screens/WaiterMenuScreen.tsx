@@ -715,12 +715,12 @@ const WaiterMenu = () => {
       return (
         <Swipeable
           ref={(ref) => { if (ref) swipeableRefs.set(item.id, ref); }}
-          enabled={!isLocked}
+          enabled={true}
           renderRightActions={() => (
             <View style={styles.swipeActions}>
               <RectButton
-                style={[styles.swipeCircleButton, styles.editButton, isLocked && { opacity: 0.35 }]}
-                onPress={() => !isLocked && handleEditItem(item)}
+                style={[styles.swipeCircleButton, styles.editButton]}
+                onPress={() => handleEditItem(item)}
               >
                 <View style={styles.swipeButtonContent}>
                   <Ionicons name="create-outline" size={22} color="#fff" />
@@ -893,9 +893,9 @@ const WaiterMenu = () => {
                 {isAdmin && !isNewOrderMode && !isEditMode && (
                   <View style={styles.modalActions}>
                     <TouchableOpacity
-                      style={[styles.modalActionButton, styles.editButton, selectedItem && lockedMenuIds.includes(selectedItem.id) && { opacity: 0.35 }]}
+                      style={[styles.modalActionButton, styles.editButton]}
                       onPress={() => {
-                        if (selectedItem && !lockedMenuIds.includes(selectedItem.id)) {
+                        if (selectedItem) {
                           handleCloseModal();
                           handleEditItem(selectedItem);
                         }
