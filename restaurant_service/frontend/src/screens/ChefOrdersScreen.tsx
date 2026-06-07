@@ -586,6 +586,7 @@ const ChefOrders = () => {
       case 'preparing': return { label: 'Готовится', color: '#3498db' };
       case 'ready':     return { label: 'Готово',    color: '#2ecc71' };
       case 'served':    return { label: 'Подано',    color: '#95a5a6' };
+      case 'cancelled': return { label: 'Отменено', color: '#e74c3c' };
       default:          return { label: status,      color: '#7f8c8d' };
     }
   };
@@ -959,6 +960,26 @@ const ChefOrders = () => {
                     <Text style={styles.changeStatusButtonText}>
                       {nextStatus === 'preparing' ? 'Взять в работу' : 'Завершить приготовление'}
                     </Text>
+                  </TouchableOpacity>
+                )}
+                {selectedItem?.current_status === 'waiting' && (
+                  <TouchableOpacity
+                    style={[styles.changeStatusButton, { backgroundColor: '#e74c3c', marginTop: 8 }]}
+                    onPress={async () => {
+                      const cookId = user?.id;
+                      if (!cookId) return;
+                      try {
+                        await api.put(
+                          `/orders/plate/${selectedItem.plate_order_id}/status/cancelled?change_by=${cookId}`
+                        );
+                        setDetailModalVisible(false);
+                        loadData();
+                      } catch (error: any) {
+                        Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось отменить блюдо');
+                      }
+                    }}
+                  >
+                    <Text style={styles.changeStatusButtonText}>Невозможно приготовить</Text>
                   </TouchableOpacity>
                 )}
               </ScrollView>

@@ -246,6 +246,7 @@ const WaiterOrders = () => {
       case 'preparing': return 'Готовится';
       case 'ready': return 'Готово';
       case 'served': return 'Подано';
+      case 'cancelled': return 'Отменено кухней';
       default: return status || 'Не отправлено';
     }
   };
@@ -255,6 +256,7 @@ const WaiterOrders = () => {
       case 'preparing': return '#3498db';
       case 'ready': return '#2ecc71';
       case 'served': return '#95a5a6';
+      case 'cancelled': return '#e74c3c';
       default: return '#7f8c8d';
     }
   };
@@ -489,7 +491,7 @@ const WaiterOrders = () => {
   }
 
   const modalTotal = selectedOrder?.plates
-    .filter(p => p.is_considered)
+    .filter(p => p.is_considered && p.current_status !== 'cancelled')
     .reduce((sum, p) => sum + p.price * getEffectiveConsideredCount(p), 0)
     .toFixed(2);
 

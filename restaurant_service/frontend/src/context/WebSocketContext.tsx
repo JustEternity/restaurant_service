@@ -117,6 +117,23 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
             }
           }
 
+          if (data.type === 'plate_cancelled') {
+            const now = Date.now();
+            if (now - lastReadyToastRef.current > TOAST_COOLDOWN) {
+              lastReadyToastRef.current = now;
+              Toast.show(data.message || 'Блюдо невозможно приготовить', {
+                duration: Toast.durations.SHORT,
+                position: Toast.positions.TOP,
+                containerStyle: { marginTop: insets.top + 30 },
+                shadow: true,
+                animation: true,
+                backgroundColor: '#e74c3c',
+                textColor: '#fff',
+                opacity: 1,
+              });
+            }
+          }
+
           handlersRef.current.forEach(h => h(data));
         } catch (e) {
           console.error('WebSocket parse error:', e);

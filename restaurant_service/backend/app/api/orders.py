@@ -680,7 +680,7 @@ async def update_plate_status(
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
 ):
-    allowed_statuses = ["waiting", "preparing", "ready", "served"]
+    allowed_statuses = ["waiting", "preparing", "ready", "served", "cancelled"]
     if status not in allowed_statuses:
         raise HTTPException(status_code=400, detail=f"Недопустимый статус. Допустимые: {', '.join(allowed_statuses)}")
 
@@ -742,6 +742,14 @@ async def update_plate_status(
             "plate_name": plate.menu_item.name if plate.menu_item else "Блюдо",
             "order_id": plate.order.id,
             "message": "Блюдо готово к подаче"
+        }, plate.order.waiter)
+
+    if status == "cancelled" and plate.order:
+        await manager.send_personal_message({
+            "type": "plate_cancelled",
+            "plate_name": plate.menu_item.name if plate.menu_item else "Блюдо",
+            "order_id": plate.order.id,
+            "message": f"Невозможно приготовить: {plate.menu_item.name if plate.menu_item else 'блюдо'}"
         }, plate.order.waiter)
 
     return {"message": f"Статус блюда изменён на {status}"}

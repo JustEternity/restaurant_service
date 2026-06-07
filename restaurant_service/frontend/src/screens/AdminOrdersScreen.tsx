@@ -111,6 +111,7 @@ const AdminOrders = () => {
       case 'preparing': return 'Готовится';
       case 'ready': return 'Готово';
       case 'served': return 'Подано';
+      case 'cancelled': return 'Отменено кухней';
       default: return 'Не отправлено';
     }
   };
@@ -121,11 +122,16 @@ const AdminOrders = () => {
       case 'preparing': return '#3498db';
       case 'ready': return '#2ecc71';
       case 'served': return '#95a5a6';
+      case 'cancelled': return '#e74c3c';
       default: return '#7f8c8d';
     }
   };
 
-  const renderOrderItem = ({ item }: { item: Order }) => (
+  const renderOrderItem = ({ item }: { item: Order }) => {
+    const activePlates = item.plates.filter(
+      p => (p.cooking_status ?? p.current_status) !== 'cancelled'
+    );
+    return (
     <TouchableOpacity
       style={styles.orderCard}
       onPress={() => openOrderDetails(item)}
@@ -154,18 +160,18 @@ const AdminOrders = () => {
         <View style={styles.infoRow}>
           <Ionicons name="receipt-outline" size={16} color="#666" />
           <Text style={styles.infoText}>
-            Позиций: {item.plates.reduce((sum, p) => sum + p.count, 0)}
+            Позиций: {activePlates.reduce((sum, p) => sum + p.count, 0)}
           </Text>
         </View>
         <View style={styles.infoRow}>
           <Ionicons name="cash-outline" size={16} color="#666" />
           <Text style={styles.infoText}>
-            Сумма: {item.plates.reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽
+            Сумма: {activePlates.reduce((sum, p) => sum + p.price * p.count, 0).toFixed(2)} ₽
           </Text>
         </View>
       </View>
     </TouchableOpacity>
-  );
+  )};
 
   const groupPlatesByCourse = (plates: PlateInOrder[]) => {
     const map = new Map<number, PlateInOrder[]>();
@@ -210,7 +216,8 @@ const renderPlateItem = (plate: PlateInOrder) => {
         data.type === 'plate_status_changed' ||
         data.type === 'order_completed' ||
         data.type === 'order_created' ||
-        data.type === 'order_updated'
+        data.type === 'order_updated' ||
+        data.type === 'plate_cancelled'
       ) {
         loadOrders();
       }
@@ -313,8 +320,9 @@ const renderPlateItem = (plate: PlateInOrder) => {
                   <Text style={styles.totalText}>Итого:</Text>
                   <Text style={styles.totalValue}>
                     {selectedOrder.plates
+                      .filter(p => (p.cooking_status ?? p.current_status) !== 'cancelled')
                       .reduce((sum, p) => sum + p.price * p.count, 0)
-                      .toFixed(2)}{' '}₽
+                      .toFixed(2)} ₽
                   </Text>
                 </View>
               </>
