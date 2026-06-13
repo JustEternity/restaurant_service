@@ -4,13 +4,14 @@ from sqlalchemy import select
 from typing import List
 
 from app.database import get_async_db
-from app.db_models import Role
+from app.db_models import Role, User
 from app.schemas.role_schemas import RoleCreate, RoleUpdate, RoleResponse
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/roles", tags=["Роли пользователей"])
 
 @router.get("/", response_model=List[RoleResponse])
-async def get_all_roles(db: AsyncSession = Depends(get_async_db)):
+async def get_all_roles(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить список всех ролей"""
     stmt = select(Role).order_by(Role.name)
     result = await db.execute(stmt)
@@ -18,7 +19,7 @@ async def get_all_roles(db: AsyncSession = Depends(get_async_db)):
     return roles
 
 @router.get("/{role_id}", response_model=RoleResponse)
-async def get_role(role_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_role(role_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить роль по ID"""
     role = await db.get(Role, role_id)
     if not role:
@@ -26,7 +27,7 @@ async def get_role(role_id: int, db: AsyncSession = Depends(get_async_db)):
     return role
 
 @router.post("/", response_model=RoleResponse)
-async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_async_db)):
+async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Создать новую роль"""
     stmt = select(Role).where(Role.name == role_data.name)
     result = await db.execute(stmt)
@@ -40,7 +41,7 @@ async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_asyn
     return role
 
 @router.put("/{role_id}", response_model=RoleResponse)
-async def update_role(role_id: int, role_data: RoleUpdate, db: AsyncSession = Depends(get_async_db)):
+async def update_role(role_id: int, role_data: RoleUpdate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Обновить название роли"""
     role = await db.get(Role, role_id)
     if not role:
@@ -58,7 +59,7 @@ async def update_role(role_id: int, role_data: RoleUpdate, db: AsyncSession = De
     return role
 
 @router.delete("/{role_id}")
-async def delete_role(role_id: int, db: AsyncSession = Depends(get_async_db)):
+async def delete_role(role_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Удалить роль"""
     role = await db.get(Role, role_id)
     if not role:

@@ -4,12 +4,13 @@ from sqlalchemy import select
 from typing import List, Optional
 
 from app.database import get_async_db
-from app.db_models import TableForOrder, Order, Table
+from app.db_models import TableForOrder, Order, Table, User
 from app.schemas.table_orders_schemas import (
     TableForOrderCreate,
     TableForOrderUpdate,
     TableForOrderResponse
 )
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/tables-for-order", tags=["Столы для заказов"])
 
@@ -17,7 +18,8 @@ router = APIRouter(prefix="/tables-for-order", tags=["Столы для зака
 async def get_all_tables_for_order(
     order_id: Optional[int] = None,
     table_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Получить все связи столов и заказов"""
     stmt = select(TableForOrder)
@@ -33,7 +35,7 @@ async def get_all_tables_for_order(
     return records
 
 @router.get("/order/{order_id}", response_model=List[TableForOrderResponse])
-async def get_tables_by_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_tables_by_order(order_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить все столы, привязанные к заказу"""
     order = await db.get(Order, order_id)
     if not order:
@@ -44,7 +46,7 @@ async def get_tables_by_order(order_id: int, db: AsyncSession = Depends(get_asyn
     return result.scalars().all()
 
 @router.get("/table/{table_id}", response_model=List[TableForOrderResponse])
-async def get_orders_by_table(table_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_orders_by_table(table_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить все заказы, привязанные к столу"""
     table = await db.get(Table, table_id)
     if not table:
@@ -55,7 +57,7 @@ async def get_orders_by_table(table_id: int, db: AsyncSession = Depends(get_asyn
     return result.scalars().all()
 
 @router.post("/", response_model=TableForOrderResponse)
-async def create_table_for_order(record_data: TableForOrderCreate, db: AsyncSession = Depends(get_async_db)):
+async def create_table_for_order(record_data: TableForOrderCreate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Создать связь стола и заказа"""
     order = await db.get(Order, record_data.order)
     if not order:
@@ -83,7 +85,7 @@ async def create_table_for_order(record_data: TableForOrderCreate, db: AsyncSess
     return record
 
 @router.put("/{record_id}", response_model=TableForOrderResponse)
-async def update_table_for_order(record_id: int, record_data: TableForOrderUpdate, db: AsyncSession = Depends(get_async_db)):
+async def update_table_for_order(record_id: int, record_data: TableForOrderUpdate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Обновить связь стола и заказа"""
     record = await db.get(TableForOrder, record_id)
     if not record:
@@ -106,7 +108,7 @@ async def update_table_for_order(record_id: int, record_data: TableForOrderUpdat
     return record
 
 @router.delete("/{record_id}")
-async def delete_table_for_order(record_id: int, db: AsyncSession = Depends(get_async_db)):
+async def delete_table_for_order(record_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Удалить связь стола и заказа"""
     record = await db.get(TableForOrder, record_id)
     if not record:

@@ -13,11 +13,12 @@ from ..schemas.plates_for_specialization_schemas import (
 )
 
 from app.websocket.manager import manager
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/plates-specializations", tags=["Связи блюд и специализаций"])
 
 @router.get("/", response_model=List[PlateSpecializationResponse])
-async def get_all_links(db: AsyncSession = Depends(get_async_db)):
+async def get_all_links(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить все связи блюд со специализациями"""
     stmt = select(PlatesForSpecialization).options(
         selectinload(PlatesForSpecialization.spec_plates),
@@ -38,7 +39,7 @@ async def get_all_links(db: AsyncSession = Depends(get_async_db)):
     return response
 
 @router.post("/", response_model=PlateSpecializationResponse)
-async def create_link(link_data: PlateSpecializationCreate, db: AsyncSession = Depends(get_async_db)):
+async def create_link(link_data: PlateSpecializationCreate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Создать связь между блюдом и специализацией"""
     plate = await db.get(Menu, link_data.plate_id)
     if not plate:
@@ -75,7 +76,7 @@ async def create_link(link_data: PlateSpecializationCreate, db: AsyncSession = D
     )
 
 @router.delete("/{link_id}")
-async def delete_link(link_id: int, db: AsyncSession = Depends(get_async_db)):
+async def delete_link(link_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Удалить связь по её ID"""
     link = await db.get(PlatesForSpecialization, link_id)
     if not link:
@@ -85,7 +86,7 @@ async def delete_link(link_id: int, db: AsyncSession = Depends(get_async_db)):
     return {"message": "Связь удалена"}
 
 @router.get("/plate/{plate_id}", response_model=List[PlateSpecializationResponse])
-async def get_specializations_for_plate(plate_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_specializations_for_plate(plate_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить все специализации, связанные с конкретным блюдом"""
     plate = await db.get(Menu, plate_id)
     if not plate:
@@ -110,7 +111,7 @@ async def get_specializations_for_plate(plate_id: int, db: AsyncSession = Depend
     return response
 
 @router.get("/specialization/{spec_id}", response_model=List[PlateSpecializationResponse])
-async def get_plates_for_specialization(spec_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_plates_for_specialization(spec_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить все блюда, связанные с конкретной специализацией"""
     spec = await db.get(Specialization, spec_id)
     if not spec:
@@ -138,7 +139,8 @@ async def get_plates_for_specialization(spec_id: int, db: AsyncSession = Depends
 async def update_plates_for_specialization(
     spec_id: int,
     data: BatchUpdatePlates,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Заменить все блюда, привязанные к специализации"""
     spec = await db.get(Specialization, spec_id)

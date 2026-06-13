@@ -4,10 +4,11 @@ from sqlalchemy import select, delete
 from typing import List, Optional
 from sqlalchemy.orm import selectinload
 
-from app.db_models import Menu, Category, Specialization, PlatesForSpecialization
+from app.db_models import Menu, Category, Specialization, PlatesForSpecialization, User
 from app.database import get_async_db
 from app.schemas.menu_schemas import *
 from app.websocket.manager import manager
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/menu", tags=["Меню"])
 
@@ -23,7 +24,8 @@ MAX_SIZE = 5 * 1024 * 1024
 async def upload_menu_photo(
     menu_id: int,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     menu_item = await db.get(Menu, menu_id)
     if not menu_item:
@@ -65,7 +67,8 @@ async def get_all_menu(
     category_id: Optional[int] = None,
     is_available: Optional[bool] = None,
     specialization_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Получить все блюда с фильтрацией по категории, доступности и специализации"""
     stmt = select(Menu).options(
@@ -113,7 +116,7 @@ async def get_all_menu(
     return response_items
 
 @router.get("/{menu_id}", response_model=MenuResponse)
-async def get_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить блюдо по ID"""
     stmt = select(Menu).where(Menu.id == menu_id).options(
         selectinload(Menu.category_of_item),
@@ -147,7 +150,7 @@ async def get_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db)):
     )
 
 @router.post("/", response_model=MenuResponse)
-async def create_menu_item(menu_data: MenuCreate, db: AsyncSession = Depends(get_async_db)):
+async def create_menu_item(menu_data: MenuCreate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Создать блюдо"""
     category = await db.get(Category, menu_data.category)
     if not category:
@@ -202,7 +205,7 @@ async def create_menu_item(menu_data: MenuCreate, db: AsyncSession = Depends(get
     )
 
 @router.put("/{menu_id}", response_model=MenuResponse)
-async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession = Depends(get_async_db)):
+async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Обновить блюдо"""
     stmt = select(Menu).where(Menu.id == menu_id).options(
         selectinload(Menu.plate_for_specialization)
@@ -264,7 +267,7 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
     )
 
 @router.delete("/{menu_id}")
-async def delete_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db)):
+async def delete_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Удалить блюдо"""
     item = await db.get(Menu, menu_id)
     if not item:
@@ -281,7 +284,8 @@ async def delete_menu_item(menu_id: int, db: AsyncSession = Depends(get_async_db
 @router.get("/categories/", response_model=List[CategoryFlatResponse])
 async def get_all_categories(
     flat: bool = True,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Получить категории.
@@ -324,7 +328,7 @@ async def get_all_categories(
         return tree
 
 @router.get("/categories/tree", response_model=List[CategoryTreeResponse])
-async def get_category_tree(db: AsyncSession = Depends(get_async_db)):
+async def get_category_tree(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить полное дерево категорий"""
     stmt = select(Category).order_by(Category.name)
     result = await db.execute(stmt)
@@ -353,7 +357,7 @@ async def get_category_tree(db: AsyncSession = Depends(get_async_db)):
     return tree
 
 @router.get("/categories/{category_id}", response_model=CategoryFlatResponse)
-async def get_category(category_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_category(category_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить категорию по ID (без дочерних)"""
     cat = await db.get(Category, category_id)
     if not cat:
@@ -365,7 +369,7 @@ async def get_category(category_id: int, db: AsyncSession = Depends(get_async_db
     )
 
 @router.post("/categories/", response_model=CategoryFlatResponse)
-async def create_category(category_data: CategoryCreate, db: AsyncSession = Depends(get_async_db)):
+async def create_category(category_data: CategoryCreate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Создать категорию"""
     parent_id = category_data.parent_category
     if parent_id is not None:
@@ -395,7 +399,8 @@ async def create_category(category_data: CategoryCreate, db: AsyncSession = Depe
 async def update_category(
     category_id: int,
     category_data: CategoryUpdate,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Обновить категорию"""
     category = await db.get(Category, category_id)
@@ -439,7 +444,7 @@ async def update_category(
     )
 
 @router.delete("/categories/{category_id}")
-async def delete_category(category_id: int, db: AsyncSession = Depends(get_async_db)):
+async def delete_category(category_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Удалить категорию"""
     category = await db.get(Category, category_id)
     if not category:

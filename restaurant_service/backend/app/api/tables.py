@@ -4,10 +4,11 @@ from sqlalchemy import select
 from typing import List, Optional
 
 from app.database import get_async_db
-from app.db_models import Table, TableForOrder, Order
+from app.db_models import Table, TableForOrder, Order, User
 from app.schemas.tables_schemas import TableCreate, TableUpdate, TableResponse
 
 from app.websocket.manager import manager
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/tables", tags=["Столы"])
 
@@ -15,7 +16,8 @@ router = APIRouter(prefix="/tables", tags=["Столы"])
 async def get_all_tables(
     status: Optional[str] = None,
     is_available: Optional[bool] = None,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Получить все столы с возможностью фильтрации"""
     stmt = select(Table)
@@ -30,7 +32,7 @@ async def get_all_tables(
     return result.scalars().all()
 
 @router.get("/{table_id}", response_model=TableResponse)
-async def get_table(table_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_table(table_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить стол по ID"""
     table = await db.get(Table, table_id)
     if not table:
@@ -38,14 +40,14 @@ async def get_table(table_id: int, db: AsyncSession = Depends(get_async_db)):
     return table
 
 @router.get("/status/{status}", response_model=List[TableResponse])
-async def get_tables_by_status(status: str, db: AsyncSession = Depends(get_async_db)):
+async def get_tables_by_status(status: str, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить столы по статусу"""
     stmt = select(Table).where(Table.status == status).order_by(Table.number)
     result = await db.execute(stmt)
     return result.scalars().all()
 
 @router.post("/", response_model=TableResponse)
-async def create_table(table_data: TableCreate, db: AsyncSession = Depends(get_async_db)):
+async def create_table(table_data: TableCreate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     stmt_min = select(Table).where(Table.is_available == False).order_by(Table.number).limit(1)
     result_min = await db.execute(stmt_min)
     min_inactive = result_min.scalar_one_or_none()
@@ -96,7 +98,7 @@ async def create_table(table_data: TableCreate, db: AsyncSession = Depends(get_a
     return table
 
 @router.put("/{table_id}", response_model=TableResponse)
-async def update_table(table_id: int, table_data: TableUpdate, db: AsyncSession = Depends(get_async_db)):
+async def update_table(table_id: int, table_data: TableUpdate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Обновить стол"""
     table = await db.get(Table, table_id)
     if not table:
@@ -123,7 +125,7 @@ async def update_table(table_id: int, table_data: TableUpdate, db: AsyncSession 
     return table
 
 @router.delete("/{table_id}")
-async def delete_table(table_id: int, db: AsyncSession = Depends(get_async_db)):
+async def delete_table(table_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Удалить стол"""
     table = await db.get(Table, table_id)
     if not table:

@@ -291,6 +291,7 @@ def _predict_one(
 async def recommend_plates(
     body: RecommendRequest,
     db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
 ):
     logger.info(f"=== /recommend/plates вызван, MODEL_PATH={MODEL_PATH.resolve()}")
     if not body.plates or not body.cooks:

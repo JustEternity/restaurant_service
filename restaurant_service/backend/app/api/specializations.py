@@ -5,17 +5,18 @@ from sqlalchemy.orm import aliased
 from typing import List
 
 from app.database import get_async_db
-from app.db_models import Specialization, PlatesForSpecialization, PlateForOrder, CookingStatusHistory
+from app.db_models import Specialization, PlatesForSpecialization, PlateForOrder, CookingStatusHistory, User
 from app.schemas.specialization_schemas import (
     SpecializationCreate,
     SpecializationUpdate,
     SpecializationResponse
 )
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/specializations", tags=["Специализации"])
 
 @router.get("/", response_model=List[SpecializationResponse])
-async def get_all_specializations(db: AsyncSession = Depends(get_async_db)):
+async def get_all_specializations(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить список всех специализаций"""
     stmt = select(Specialization).order_by(Specialization.name)
     result = await db.execute(stmt)
@@ -23,7 +24,7 @@ async def get_all_specializations(db: AsyncSession = Depends(get_async_db)):
     return specializations
 
 @router.get("/{spec_id}", response_model=SpecializationResponse)
-async def get_specialization(spec_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_specialization(spec_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить специализацию по ID"""
     spec = await db.get(Specialization, spec_id)
     if not spec:
@@ -33,7 +34,8 @@ async def get_specialization(spec_id: int, db: AsyncSession = Depends(get_async_
 @router.post("/", response_model=SpecializationResponse)
 async def create_specialization(
     spec_data: SpecializationCreate,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Создать новую специализацию"""
     stmt = select(Specialization).where(Specialization.name == spec_data.name)
@@ -51,7 +53,8 @@ async def create_specialization(
 async def update_specialization(
     spec_id: int,
     spec_data: SpecializationUpdate,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Обновить название специализации"""
     spec = await db.get(Specialization, spec_id)
@@ -73,7 +76,7 @@ async def update_specialization(
     return spec
 
 @router.delete("/{spec_id}")
-async def delete_specialization(spec_id: int, db: AsyncSession = Depends(get_async_db)):
+async def delete_specialization(spec_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Удалить специализацию"""
     spec = await db.get(Specialization, spec_id)
     if not spec:

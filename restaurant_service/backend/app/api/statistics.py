@@ -8,6 +8,7 @@ from typing import Optional
 from app.database import get_async_db
 from app.db_models import Order, PlateForOrder, CookingStatusHistory, TableForOrder, Table, Menu, User
 from app.db_models.user_roles import Role
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/statistics", tags=["Статистика"])
 
@@ -15,7 +16,8 @@ router = APIRouter(prefix="/statistics", tags=["Статистика"])
 async def general_statistics(
     start_date: date = Query(...),
     end_date: date = Query(...),
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     start_dt = datetime(start_date.year, start_date.month, start_date.day)
     end_dt = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)
@@ -72,7 +74,8 @@ async def general_statistics(
 async def table_order_count(
     start_date: date = Query(...),
     end_date: date = Query(...),
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     start_dt = datetime(start_date.year, start_date.month, start_date.day)
     end_dt = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)
@@ -99,7 +102,8 @@ async def kitchen_statistics(
     end_date: date = Query(...),
     cook_id: Optional[int] = Query(None),
     plate_id: Optional[int] = Query(None),
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     start_dt = datetime(start_date.year, start_date.month, start_date.day)
     end_dt = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)
@@ -158,7 +162,8 @@ async def kitchen_detail_statistics(
     end_date: date = Query(...),
     cook_id: Optional[int] = Query(None),
     plate_id: Optional[int] = Query(None),
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     start_dt = datetime(start_date.year, start_date.month, start_date.day)
     end_dt = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)
@@ -296,7 +301,8 @@ async def kitchen_detail_statistics(
 
 @router.get("/kitchen/workload")
 async def kitchen_workload(
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     latest_time_subq = (
         select(

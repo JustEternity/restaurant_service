@@ -4,9 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pathlib import Path
 
-from app.db_models import HallMapSettings
+from app.db_models import HallMapSettings, User
 from app.database import get_async_db
 from app.schemas.hallmap_settings_schemas import HallMapSettingsResponse, HallMapSettingsUpdate
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/hallmap", tags=["Схема зала"])
 
@@ -35,7 +36,7 @@ async def _get_or_create_settings(db: AsyncSession) -> HallMapSettings:
     return settings
 
 @router.get("/settings", response_model=HallMapSettingsResponse)
-async def get_settings(db: AsyncSession = Depends(get_async_db)):
+async def get_settings(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     settings = await _get_or_create_settings(db)
     return HallMapSettingsResponse(
         id=settings.id,
@@ -44,7 +45,7 @@ async def get_settings(db: AsyncSession = Depends(get_async_db)):
     )
 
 @router.put("/settings", response_model=HallMapSettingsResponse)
-async def update_settings(data: HallMapSettingsUpdate, db: AsyncSession = Depends(get_async_db)):
+async def update_settings(data: HallMapSettingsUpdate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     settings = await _get_or_create_settings(db)
     if data.table_size is not None:
         settings.table_size = data.table_size
@@ -61,7 +62,8 @@ async def update_settings(data: HallMapSettingsUpdate, db: AsyncSession = Depend
 @router.post("/upload-background")
 async def upload_background(
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
 ):
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail="Разрешены только JPEG, PNG, WebP")

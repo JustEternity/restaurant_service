@@ -18,14 +18,14 @@ router = APIRouter(prefix="/cook-groups", tags=["Группы поваров"])
 
 # ===== ЭНДПОИНТЫ ГРУПП =====
 @router.get("/", response_model=List[CookGroupResponse])
-async def get_all_cook_groups(db: AsyncSession = Depends(get_async_db)):
+async def get_all_cook_groups(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить все группы поваров"""
     stmt = select(CookGroup).order_by(CookGroup.name)
     result = await db.execute(stmt)
     return result.scalars().all()
 
 @router.get("/{group_id}", response_model=CookGroupResponse)
-async def get_cook_group(group_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_cook_group(group_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить группу поваров по ID"""
     stmt = select(CookGroup).where(CookGroup.id == group_id)
     result = await db.execute(stmt)
@@ -140,7 +140,7 @@ async def delete_cook_group(
 
 # ===== ПОВАРА В ГРУППЕ =====
 @router.get("/{group_id}/cooks/", response_model=List[UserResponse])
-async def get_group_cooks(group_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_group_cooks(group_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить всех поваров, входящих в группу"""
     group = await db.get(CookGroup, group_id)
     if not group:

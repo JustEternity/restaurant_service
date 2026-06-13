@@ -15,12 +15,14 @@ from app.schemas.history_schemas import (
 
 from app.websocket.manager import manager
 from app.api.orders import get_cooks_to_notify
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/cooking-status-history", tags=["История статусов блюд"])
 
 @router.get("/", response_model=List[CookingStatusHistoryResponse])
 async def get_all_cooking_status_history(
     db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     plate_id: Optional[int] = None,
@@ -81,7 +83,7 @@ async def get_all_cooking_status_history(
     return response
 
 @router.get("/{history_id}", response_model=CookingStatusHistoryResponse)
-async def get_cooking_status_history(history_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_cooking_status_history(history_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить запись истории статуса по ID (ID = plate_for_order_id)"""
     stmt = select(CookingStatusHistory).where(CookingStatusHistory.id == history_id).options(
         selectinload(CookingStatusHistory.status_to_plate).selectinload(PlateForOrder.plate),
@@ -114,7 +116,7 @@ async def get_cooking_status_history(history_id: int, db: AsyncSession = Depends
     )
 
 @router.post("/", response_model=CookingStatusHistoryResponse)
-async def create_cooking_status_history(history_data: CookingStatusHistoryCreate, db: AsyncSession = Depends(get_async_db)):
+async def create_cooking_status_history(history_data: CookingStatusHistoryCreate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Создать запись истории изменения статуса"""
     plate_for_order = await db.get(PlateForOrder, history_data.plate_for_order_id)
     if not plate_for_order:
@@ -164,7 +166,9 @@ async def create_cooking_status_history(history_data: CookingStatusHistoryCreate
 async def rollback_status(
     plate_for_order_id: int,
     expected_current_status: str = Query(..., description="Ожидаемый текущий статус"),
-    db: AsyncSession = Depends(get_async_db)):
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
     lock_key = hash(f"plate_rollback:{plate_for_order_id}") % 2_147_483_647
     await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
@@ -211,7 +215,7 @@ async def rollback_status(
     return {"message": "Последний статус успешно отменён", "new_status": plate_for_order.current_status if plate_for_order else None}
 
 @router.put("/{history_id}", response_model=CookingStatusHistoryResponse)
-async def update_cooking_status_history(history_id: int, history_data: CookingStatusHistoryUpdate, db: AsyncSession = Depends(get_async_db)):
+async def update_cooking_status_history(history_id: int, history_data: CookingStatusHistoryUpdate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Обновить запись истории статуса"""
     item = await db.get(CookingStatusHistory, history_id)
     if not item:
@@ -254,7 +258,7 @@ async def update_cooking_status_history(history_id: int, history_data: CookingSt
     )
 
 @router.delete("/{history_id}")
-async def delete_cooking_status_history(history_id: int, db: AsyncSession = Depends(get_async_db)):
+async def delete_cooking_status_history(history_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Удалить запись истории статуса"""
     item = await db.get(CookingStatusHistory, history_id)
     if not item:
@@ -265,7 +269,7 @@ async def delete_cooking_status_history(history_id: int, db: AsyncSession = Depe
     return {"message": "Запись истории удалена"}
 
 @router.get("/plate/{plate_id}", response_model=List[CookingStatusHistoryResponse])
-async def get_history_by_plate(plate_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_history_by_plate(plate_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить историю статусов для блюда"""
     plate = await db.get(Menu, plate_id)
     if not plate:
@@ -305,7 +309,7 @@ async def get_history_by_plate(plate_id: int, db: AsyncSession = Depends(get_asy
     return response
 
 @router.get("/order/{order_id}", response_model=List[CookingStatusHistoryResponse])
-async def get_history_by_order(order_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_history_by_order(order_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить историю статусов для заказа"""
     order = await db.get(Order, order_id)
     if not order:
@@ -344,7 +348,7 @@ async def get_history_by_order(order_id: int, db: AsyncSession = Depends(get_asy
     return response
 
 @router.get("/user/{user_id}", response_model=List[CookingStatusHistoryResponse])
-async def get_history_by_user(user_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_history_by_user(user_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить историю статусов, измененных пользователем"""
     user = await db.get(User, user_id)
     if not user:
@@ -379,7 +383,7 @@ async def get_history_by_user(user_id: int, db: AsyncSession = Depends(get_async
     return response
 
 @router.get("/latest/plate/{plate_id}", response_model=CookingStatusHistoryResponse)
-async def get_latest_status_for_plate(plate_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_latest_status_for_plate(plate_id: int, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(get_current_user)):
     """Получить последний статус для блюда"""
     plate = await db.get(Menu, plate_id)
     if not plate:
