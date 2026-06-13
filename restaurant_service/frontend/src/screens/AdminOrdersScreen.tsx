@@ -111,7 +111,7 @@ const AdminOrders = () => {
       case 'preparing': return 'Готовится';
       case 'ready': return 'Готово';
       case 'served': return 'Подано';
-      case 'cancelled': return 'Отменено кухней';
+      case 'cancelled': return 'Отменено';
       default: return 'Не отправлено';
     }
   };

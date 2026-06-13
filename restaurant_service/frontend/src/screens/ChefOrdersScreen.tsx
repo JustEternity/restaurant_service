@@ -949,19 +949,6 @@ const ChefOrders = () => {
                     <Text style={styles.changeStatusButtonText}>Откатить статус</Text>
                   </TouchableOpacity>
                 )}
-                {nextStatus && (
-                  <TouchableOpacity
-                    style={styles.changeStatusButton}
-                    onPress={() => {
-                      setDetailModalVisible(false);
-                      openChangeStatus(nextStatus);
-                    }}
-                  >
-                    <Text style={styles.changeStatusButtonText}>
-                      {nextStatus === 'preparing' ? 'Взять в работу' : 'Завершить приготовление'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
                 {selectedItem?.current_status === 'waiting' && (
                   <TouchableOpacity
                     style={[styles.changeStatusButton, { backgroundColor: '#e74c3c', marginTop: 8 }]}
@@ -980,6 +967,19 @@ const ChefOrders = () => {
                     }}
                   >
                     <Text style={styles.changeStatusButtonText}>Невозможно приготовить</Text>
+                  </TouchableOpacity>
+                )}
+                {nextStatus && (
+                  <TouchableOpacity
+                    style={styles.changeStatusButton}
+                    onPress={() => {
+                      setDetailModalVisible(false);
+                      openChangeStatus(nextStatus);
+                    }}
+                  >
+                    <Text style={styles.changeStatusButtonText}>
+                      {nextStatus === 'preparing' ? 'Взять в работу' : 'Завершить приготовление'}
+                    </Text>
                   </TouchableOpacity>
                 )}
               </ScrollView>
