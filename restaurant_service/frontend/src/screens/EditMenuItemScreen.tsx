@@ -24,6 +24,7 @@ import { getPhotoUrl } from '../utils/imageUrl';
 interface Category {
   id: number;
   name: string;
+  parent_category: number | null;
 }
 
 interface MenuItemFormData {
@@ -45,6 +46,7 @@ const MenuItemFormScreen = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryTree, setCategoryTree] = useState<any[]>([]);
 
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -69,10 +71,33 @@ const MenuItemFormScreen = () => {
     }
   }, [itemId]);
 
+  // -----------------------------
+  // 1. Построение дерева категорий
+  // -----------------------------
+  const buildCategoryTree = (categories: Category[]) => {
+    const map: Record<number, any> = {};
+    const roots: any[] = [];
+
+    categories.forEach(cat => {
+      map[cat.id] = { ...cat, children: [] };
+    });
+
+    categories.forEach(cat => {
+      if (cat.parent_category) {
+        map[cat.parent_category].children.push(map[cat.id]);
+      } else {
+        roots.push(map[cat.id]);
+      }
+    });
+
+    return roots;
+  };
+
   const loadCategories = async () => {
     try {
       const response = await api.get('/menu/categories/');
       setCategories(response.data);
+      setCategoryTree(buildCategoryTree(response.data));
     } catch (error) {
       console.error('Ошибка загрузки категорий:', error);
     }
@@ -101,55 +126,55 @@ const MenuItemFormScreen = () => {
   };
 
   const pickImage = async () => {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-          Alert.alert('Ошибка доступа к галерее', 'Пожалуйста, предоставьте доступ к галерее, чтобы выбрать фото');
-          return;
-      }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Ошибка доступа к галерее', 'Пожалуйста, предоставьте доступ к галерее, чтобы выбрать фото');
+      return;
+    }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          quality: 1,
-      });
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 1,
+    });
 
-      if (result.canceled) return;
+    if (result.canceled) return;
 
-      const manipResult = await ImageManipulator.manipulateAsync(
-          result.assets[0].uri,
-          [{ resize: { width: 800 } }],
-          { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
-      );
+    const manipResult = await ImageManipulator.manipulateAsync(
+      result.assets[0].uri,
+      [{ resize: { width: 800 } }],
+      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+    );
 
-      const uri = manipResult.uri;
+    const uri = manipResult.uri;
 
-      if (isEditMode && itemId) {
-          await uploadPhotoToServer(itemId, uri);
-      } else {
-          setSelectedImageUri(uri);
-      }
+    if (isEditMode && itemId) {
+      await uploadPhotoToServer(itemId, uri);
+    } else {
+      setSelectedImageUri(uri);
+    }
   };
 
   const uploadPhotoToServer = async (menuId: number, uri: string) => {
-      setUploadingPhoto(true);
-      try {
-          const formDataObj = new FormData();
-          formDataObj.append('file', {
-              uri,
-              name: 'photo.jpg',
-              type: 'image/jpeg',
-          } as any);
+    setUploadingPhoto(true);
+    try {
+      const formDataObj = new FormData();
+      formDataObj.append('file', {
+        uri,
+        name: 'photo.jpg',
+        type: 'image/jpeg',
+      } as any);
 
-          const resp = await api.post(`/menu/${menuId}/upload-photo`, formDataObj, {
-              headers: { 'Content-Type': 'multipart/form-data' },
-          });
+      const resp = await api.post(`/menu/${menuId}/upload-photo`, formDataObj, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
 
-          setFormData(prev => ({ ...prev, photo: resp.data.photo_url }));
-          setSelectedImageUri(null);
-      } catch (error: any) {
-          Alert.alert('Ошибка', error.message);
-      } finally {
-          setUploadingPhoto(false);
-      }
+      setFormData(prev => ({ ...prev, photo: resp.data.photo_url }));
+      setSelectedImageUri(null);
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.message);
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
   const handleSave = async () => {
@@ -180,14 +205,14 @@ const MenuItemFormScreen = () => {
     try {
       if (isEditMode) {
         await api.put(`/menu/${itemId}`, payload);
-    } else {
+      } else {
         const response = await api.post('/menu/', payload);
         const newItemId = response.data.id;
         if (selectedImageUri) {
-            await uploadPhotoToServer(newItemId, selectedImageUri);
+          await uploadPhotoToServer(newItemId, selectedImageUri);
         }
-    }
-    navigation.goBack();
+      }
+      navigation.goBack();
     } catch (error: any) {
       const errMsg = error.response?.data?.detail || error.message || 'Ошибка сохранения';
       Alert.alert('Ошибка', errMsg);
@@ -204,6 +229,36 @@ const MenuItemFormScreen = () => {
       </View>
     );
   }
+
+  // -----------------------------
+  // 2. Рекурсивный рендер дерева
+  // -----------------------------
+  const renderCategoryNode = (node: any, level = 0) => {
+    return (
+      <View key={node.id}>
+        <TouchableOpacity
+          style={[styles.categoryRow, { paddingLeft: 16 + level * 20 }]}
+          onPress={() => {
+            setFormData(prev => ({ ...prev, category: node.id }));
+            setCategoryModalVisible(false);
+          }}
+        >
+          <View
+            style={[
+              styles.radioOuter,
+              formData.category === node.id && styles.radioOuterSelected
+            ]}
+          >
+            {formData.category === node.id && <View style={styles.radioInner} />}
+          </View>
+
+          <Text style={styles.categoryRowText}>{node.name}</Text>
+        </TouchableOpacity>
+
+        {node.children?.map(child => renderCategoryNode(child, level + 1))}
+      </View>
+    );
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
@@ -222,7 +277,7 @@ const MenuItemFormScreen = () => {
           value={formData.name}
           onChangeText={text => setFormData(prev => ({ ...prev, name: text }))}
           placeholder="Введите название"
-          placeholderTextColor= "#888787"
+          placeholderTextColor="#888787"
         />
 
         <Text style={styles.label}>Описание</Text>
@@ -231,7 +286,7 @@ const MenuItemFormScreen = () => {
           value={formData.description}
           onChangeText={text => setFormData(prev => ({ ...prev, description: text }))}
           placeholder="Введите описание"
-          placeholderTextColor= "#888787"
+          placeholderTextColor="#888787"
           multiline
           numberOfLines={4}
         />
@@ -242,7 +297,7 @@ const MenuItemFormScreen = () => {
           value={formData.price}
           onChangeText={text => setFormData(prev => ({ ...prev, price: text }))}
           placeholder="0.00"
-          placeholderTextColor= "#888787"
+          placeholderTextColor="#888787"
           keyboardType="numeric"
         />
 
@@ -258,17 +313,18 @@ const MenuItemFormScreen = () => {
 
         <Text style={styles.label}>Фото</Text>
         <TouchableOpacity style={styles.imagePickerButton} onPress={pickImage} disabled={uploadingPhoto}>
-            <Ionicons name="image-outline" size={24} color="#007AFF" />
-            <Text style={styles.imagePickerText}>
-                {uploadingPhoto ? 'Загрузка...' : 'Выбрать фото'}
-            </Text>
+          <Ionicons name="image-outline" size={24} color="#007AFF" />
+          <Text style={styles.imagePickerText}>
+            {uploadingPhoto ? 'Загрузка...' : 'Выбрать фото'}
+          </Text>
         </TouchableOpacity>
+
         {(selectedImageUri || formData.photo) && (
-            <RNImage
-                source={{ uri: (selectedImageUri || getPhotoUrl(formData.photo)) ?? undefined }}
-                style={styles.previewImage}
-                resizeMode="cover"
-            />
+          <RNImage
+            source={{ uri: (selectedImageUri || getPhotoUrl(formData.photo)) ?? undefined }}
+            style={styles.previewImage}
+            resizeMode="cover"
+          />
         )}
 
         <View style={styles.switchContainer}>
@@ -311,24 +367,15 @@ const MenuItemFormScreen = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Выберите категорию</Text>
+
             <ScrollView style={styles.modalScroll}>
-              {categories.map(cat => (
-                <TouchableOpacity
-                  key={cat.id}
-                  style={styles.categoryRow}
-                  onPress={() => {
-                    setFormData(prev => ({ ...prev, category: cat.id }));
-                    setCategoryModalVisible(false);
-                  }}
-                >
-                  <View style={[styles.radioOuter, formData.category === cat.id && styles.radioOuterSelected]}>
-                    {formData.category === cat.id && <View style={styles.radioInner} />}
-                  </View>
-                  <Text style={styles.categoryRowText}>{cat.name}</Text>
-                </TouchableOpacity>
-              ))}
+              {categoryTree.map(node => renderCategoryNode(node))}
             </ScrollView>
-            <TouchableOpacity style={[styles.modalCloseButton, styles.cancelButton]} onPress={() => setCategoryModalVisible(false)}>
+
+            <TouchableOpacity
+              style={[styles.modalCloseButton, styles.cancelButton]}
+              onPress={() => setCategoryModalVisible(false)}
+            >
               <Text style={styles.modalCloseButtonText}>Отмена</Text>
             </TouchableOpacity>
           </View>

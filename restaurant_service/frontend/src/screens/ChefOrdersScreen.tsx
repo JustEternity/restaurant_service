@@ -386,7 +386,15 @@ const ChefOrders = () => {
       let withRecs: FlatOrderedPlate[];
       if (statusF === 'waiting') {
         try {
-          withRecs = await applyRecommendations(withWaiting, user?.id ?? 0, groupCooks);
+          const cooksForRecs = groupCooks.length > 0
+            ? groupCooks
+            : [{
+                id: user!.id,
+                name: user!.name,
+                specialization: user!.specialization
+              }];
+
+          withRecs = await applyRecommendations(withWaiting, user?.id ?? 0, cooksForRecs);
         } catch {
           withRecs = withWaiting.map(p => ({ ...p, recommended: false }));
         }
