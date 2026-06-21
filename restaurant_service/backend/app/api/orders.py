@@ -12,6 +12,8 @@ from app.schemas.orders_schemas import *
 from app.core.security import get_current_user
 from app.websocket.manager import manager
 
+import hashlib
+
 router = APIRouter(prefix="/orders", tags=["Заказы"])
 
 def get_current_status(plate: PlateForOrder):
@@ -412,8 +414,13 @@ async def create_order(
     tables_sorted = sorted(order_data.tables)
 
     if tables_sorted:
-        lock_key = hash(f"tables:{','.join(map(str, tables_sorted))}") % 2_147_483_647
+        key_str = f"tables:{','.join(map(str, tables_sorted))}"
+        lock_key = int(hashlib.md5(key_str.encode()).hexdigest(), 16) % 2_147_483_647
         await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
+    if tables_sorted:
+        for table_id in tables_sorted:
+            await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": table_id})
 
     if tables_sorted:
         conflict_stmt = select(exists().where(
@@ -426,6 +433,7 @@ async def create_order(
         result = await db.execute(conflict_stmt)
         if result.scalar():
             raise HTTPException(status_code=409, detail="Один или несколько столов уже заняты активным заказом")
+
     waiter = await db.get(User, order_data.waiter)
     if not waiter:
         raise HTTPException(status_code=404, detail="Официант не найден")
@@ -684,8 +692,7 @@ async def update_plate_status(
     if status not in allowed_statuses:
         raise HTTPException(status_code=400, detail=f"Недопустимый статус. Допустимые: {', '.join(allowed_statuses)}")
 
-    lock_key = hash(f"plate_status:{plate_id}") % 2_147_483_647
-    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+    await db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"), {"ns": 2, "key": plate_id})
 
     stmt = select(PlateForOrder).where(PlateForOrder.id == plate_id).options(
         selectinload(PlateForOrder.statuses_of_plate).selectinload(CookingStatusHistory.status_to_plate),
@@ -773,6 +780,15 @@ async def delete_order(order_id: int, db: AsyncSession = Depends(get_async_db), 
             link.table_for_order.status = "free"
 
     await db.commit()
+
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Удален заказ официантом"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Удален заказ официантом"
+    }, "admin")
 
     return {"message": "Заказ отменён"}
 
@@ -1047,8 +1063,8 @@ async def reactivate_order(order_id: int, db: AsyncSession = Depends(get_async_d
 
     if table_ids:
         tables_sorted = sorted(table_ids)
-        lock_key = hash(f"tables:{','.join(map(str, tables_sorted))}") % 2_147_483_647
-        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+        for table_id in tables_sorted:
+            await db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"), {"ns": 1, "key": table_id})
 
         conflict_stmt = select(exists().where(
             and_(
@@ -1070,6 +1086,15 @@ async def reactivate_order(order_id: int, db: AsyncSession = Depends(get_async_d
     order.endtime = None
 
     await db.commit()
+
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Создан заказ официантом"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Создан заказ официантом"
+    }, "admin")
 
     return {"message": "Заказ снова активен"}
 

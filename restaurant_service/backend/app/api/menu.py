@@ -243,6 +243,7 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
     await manager.broadcast_to_role({"type": "plates_update"}, "admin")
     await manager.broadcast_to_role({"type": "plates_update"}, "waiter")
     await manager.broadcast_to_role({"type": "plates_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "cook")
 
     category = item.category_of_item
     category_name = category.name if category else None

@@ -8,6 +8,7 @@ from app.db_models import HallMapSettings, User
 from app.database import get_async_db
 from app.schemas.hallmap_settings_schemas import HallMapSettingsResponse, HallMapSettingsUpdate
 from app.core.security import get_current_user
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/hallmap", tags=["Схема зала"])
 
@@ -53,6 +54,11 @@ async def update_settings(data: HallMapSettingsUpdate, db: AsyncSession = Depend
         settings.hallmap_image = data.hallmap_image
     await db.commit()
     await db.refresh(settings)
+
+    await manager.broadcast_to_role({"type": "plates_update"}, "admin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "plates_update"}, "superadmin")
+
     return HallMapSettingsResponse(
         id=settings.id,
         hallmap_image=_photo_url(settings.hallmap_image),

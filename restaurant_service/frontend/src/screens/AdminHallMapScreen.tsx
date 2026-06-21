@@ -140,6 +140,17 @@ const HallMap = () => {
     setTableIds(selectedTableIds);
   }, [selectedTableIds]);
 
+  useEffect(() => {
+    setSelectedTableIds(prev => {
+      const stillFree = prev.filter(id => {
+        const t = tables.find(tb => tb.id === id);
+        return !!t && t.status === 'free';
+      });
+
+      return stillFree.length === prev.length ? prev : stillFree;
+    });
+  }, [tables, draft.isActive]);
+
   const getImageSize = (url: string) => {
     Image.getSize(url, (w, h) => {
       const size = { width: w, height: h };
@@ -312,6 +323,7 @@ const HallMap = () => {
       if (params?.clearDraft) {
         clearDraft();
         setSelectedTableIds([]);
+        manualRefresh();
         navigation.setParams({ clearDraft: undefined });
       }
     });
@@ -606,7 +618,7 @@ const HallMap = () => {
                 styles.table,
                 table.status === 'occupied' && !readyTableIds.has(table.id) && styles.tableOccupied,
                 readyTableIds.has(table.id) && styles.tableReady,
-                selectedTableIds.includes(table.id) && !isAdmin && styles.tableSelected,
+                selectedTableIds.includes(table.id) && !isAdmin && table.status === 'free' && styles.tableSelected,
                 { flex: 1 },
               ]}
             >
