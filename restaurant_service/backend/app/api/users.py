@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, delete
 from sqlalchemy.orm import selectinload, aliased
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 
 from app.database import get_async_db
@@ -399,6 +400,9 @@ async def delete_user(
     if current_user.role_of_user.name not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
+    if current_user.id == user_id:
+        raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
+
     target_role_stmt = select(Role).join(User, User.role == Role.id).where(User.id == user_id)
     target_role_result = await db.execute(target_role_stmt)
     target_role = target_role_result.scalar_one_or_none()
@@ -408,7 +412,11 @@ async def delete_user(
     if target_role and target_role.name == "admin" and current_user.role_of_user.name != "superadmin":
         raise HTTPException(status_code=403, detail="Только суперадмин может удалять администраторов")
 
-    user = await db.get(User, user_id)
+    user_result = await db.execute(
+        select(User).options(selectinload(User.role_of_user)).where(User.id == user_id)
+    )
+    user = user_result.scalar_one_or_none()
+
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
@@ -419,7 +427,8 @@ async def delete_user(
         last_status_subq = (
             select(
                 CSH.ordered_plate,
-                CSH.new_status
+                CSH.new_status,
+                CSH.change_by,
             )
             .where(
                 CSH.change_time == select(func.max(CSH2.change_time))
@@ -432,19 +441,15 @@ async def delete_user(
 
         stmt = (
             select(func.count())
-            .select_from(PlateForOrder)
-            .join(last_status_subq, last_status_subq.c.ordered_plate == PlateForOrder.id)
+            .select_from(last_status_subq)
             .where(
-                PlateForOrder.cook == user_id,
-                last_status_subq.c.new_status.in_(["preparing", "ready"])
+                last_status_subq.c.new_status.in_(["preparing", "ready"]),
+                last_status_subq.c.change_by == user_id,
             )
         )
 
         if (await db.execute(stmt)).scalar_one() > 0:
-            raise HTTPException(
-                400,
-                "Нельзя удалить повара: у него есть блюда в работе"
-            )
+            raise HTTPException(400, "Нельзя удалить повара: у него есть блюда в работе")
 
     if user.role_of_user and user.role_of_user.name == "waiter":
         stmt = (
@@ -457,18 +462,23 @@ async def delete_user(
         )
 
         if (await db.execute(stmt)).scalar_one() > 0:
-            raise HTTPException(
-                400,
-                "Нельзя удалить официанта: у него есть активные заказы"
-            )
+            raise HTTPException(400, "Нельзя удалить официанта: у него есть активные заказы")
+
+    try:
+        await db.delete(user)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Невозможно удалить пользователя: есть связанные записи в истории (заказы, статусы блюд)"
+        )
 
     await manager.send_personal_message(
         {"type": "force_logout", "reason": "user_deleted"},
         user_id
     )
 
-    await db.delete(user)
-    await db.commit()
     return {"message": "Пользователь удален"}
 
 @router.get("/password/{login}")

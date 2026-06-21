@@ -244,6 +244,11 @@ const AdminStaff = () => {
       return;
     }
 
+    if (editData.password.trim() && editData.password.trim().length < 6) {
+      Alert.alert('Ошибка', 'Пароль должен состоять минимум из 6 символов');
+      return;
+    }
+
     try {
       const updateData: any = {
         name: editData.name,
@@ -319,6 +324,10 @@ const AdminStaff = () => {
   const handleCreateUser = async () => {
     if (!editData.name.trim() || !editData.login.trim() || !editData.password.trim()) {
       Alert.alert('Ошибка', 'Заполните все обязательные поля');
+      return;
+    }
+    if (editData.password.trim().length < 6) {
+      Alert.alert('Ошибка', 'Пароль должен состоять минимум из 6 символов');
       return;
     }
     try {
@@ -956,6 +965,11 @@ const AdminStaff = () => {
                   placeholderTextColor= "#888787"
                   secureTextEntry
                 />
+                {editData.password.length > 0 && editData.password.length < 6 && (
+                  <Text style={{ color: '#e74c3c', fontSize: 12, marginTop: 4 }}>
+                    Минимум 6 символов
+                  </Text>
+                )}
               </View>
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Роль</Text>
