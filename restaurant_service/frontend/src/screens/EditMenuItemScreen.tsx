@@ -194,7 +194,7 @@ const MenuItemFormScreen = () => {
     const payload = {
       name: formData.name.trim(),
       description: formData.description.trim() || null,
-      price: parseFloat(formData.price),
+      price: parseFloat(formData.price.replace(',', '.')),
       category: formData.category,
       is_available: formData.is_available,
       is_selfserve: formData.is_selfserve,

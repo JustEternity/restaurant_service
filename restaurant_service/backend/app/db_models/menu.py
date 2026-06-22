@@ -10,7 +10,7 @@ class Menu(BaseModel):
     name = Column(VARCHAR(100), nullable=False)
     description = Column(Text)
     photo = Column(Text)
-    price = Column(NUMERIC, nullable=True)
+    price = Column(NUMERIC(10, 2), nullable=True)
     category = Column(Integer, ForeignKey("category.id"), nullable=True)
     is_available = Column(BOOLEAN, nullable=False)
     is_selfserve = Column(BOOLEAN)
