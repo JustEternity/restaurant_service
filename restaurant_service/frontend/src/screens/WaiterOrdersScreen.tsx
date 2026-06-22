@@ -467,7 +467,7 @@ const WaiterOrders = () => {
 
   const allServed = selectedOrder?.plates
     .filter(p => p.is_considered)
-    .every(p => p.current_status === 'served');
+    .every(p => p.current_status === 'served' || p.current_status === 'cancelled');
 
   const reactivateOrder = async (orderId: number) => {
     try {
