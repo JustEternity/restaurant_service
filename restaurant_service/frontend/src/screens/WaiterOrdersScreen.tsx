@@ -59,10 +59,16 @@ const WaiterOrders = () => {
   const swipeableRefs = useRef<Map<number, Swipeable>>(new Map());
   const [footerHeight, setFooterHeight] = useState(0);
   const route = useRoute();
+  const selectedOrderIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    selectedOrderIdRef.current = selectedOrder?.id ?? null;
+  }, [selectedOrder]);
 
-  const loadOrders = useCallback(async () => {
+  const openOrderIdRef = useRef<number | null>(null);
+
+  const loadOrders = useCallback(async (silent: boolean = false): Promise<Order[] | undefined> => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const response = await api.get(`/orders/?waiter_id=${user?.id}`);
       const data: Order[] = response.data;
       const statusPriority: Record<string, number> = {
@@ -77,6 +83,7 @@ const WaiterOrders = () => {
         return new Date(b.timestart).getTime() - new Date(a.timestart).getTime();
       });
       setOrders(data);
+
       if (openOrderIdRef.current) {
         const target = data.find(o => o.id === openOrderIdRef.current);
         if (target) {
@@ -85,17 +92,21 @@ const WaiterOrders = () => {
         }
         openOrderIdRef.current = null;
         navigation.setParams({ openOrderId: undefined } as any);
+      } else if (selectedOrderIdRef.current) {
+        const updated = data.find(o => o.id === selectedOrderIdRef.current);
+        if (updated) setSelectedOrder(updated);
       }
+
+      return data;
     } catch (error) {
       console.error(error);
       Alert.alert('Ошибка', 'Не удалось загрузить заказы');
+      return undefined;
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id]);
-
-  const openOrderIdRef = useRef<number | null>(null);
+  }, [user?.id, navigation]);
 
   useEffect(() => {
     const params = route.params as any;
@@ -113,16 +124,6 @@ const WaiterOrders = () => {
   const handleRefresh = () => { setRefreshing(true); loadOrders(); };
 
   const openOrderDetails = (order: Order) => { setSelectedOrder(order); setModalVisible(true); };
-
-  const refreshSelectedOrder = async () => {
-    if (!selectedOrder) return;
-    try {
-      const res = await api.get(`/orders/?waiter_id=${user?.id}`);
-      const updatedOrders: Order[] = res.data;
-      const updated = updatedOrders.find(o => o.id === selectedOrder.id);
-      if (updated) setSelectedOrder(updated);
-    } catch (error) { console.error('Ошибка обновления заказа', error); }
-  };
 
   const handleEditOrder = () => {
     if (!selectedOrder) return;
@@ -160,8 +161,7 @@ const WaiterOrders = () => {
   const markAsServed = async (plateId: number) => {
     try {
       await api.put(`/orders/plate/${plateId}/status/served?change_by=${user?.id}`);
-      await loadOrders();
-      await refreshSelectedOrder();
+      await loadOrders(true);
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось обновить статус блюда');
     }
@@ -176,8 +176,7 @@ const WaiterOrders = () => {
     try {
       await api.put(`/orders/plate/${plate.id}/consider-count?delta=${delta}`);
       swipeableRefs.current.get(plate.id)?.close();
-      await loadOrders();
-      await refreshSelectedOrder();
+      await loadOrders(true);
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось изменить количество');
     }
@@ -188,8 +187,7 @@ const WaiterOrders = () => {
     setActivatingCourse(true);
     try {
       await api.post(`/orders/${selectedOrder.id}/activate-next-course`);
-      await loadOrders();
-      await refreshSelectedOrder();
+      await loadOrders(true);
     } catch (error: any) {
       const detail = error.response?.data?.detail || 'Не удалось активировать следующий курс';
       Alert.alert('Ошибка', detail);
@@ -451,8 +449,7 @@ const WaiterOrders = () => {
     if (!selectedOrder) return;
     try {
       await api.post(`/orders/${selectedOrder.id}/cancel-last-course`);
-      await loadOrders();
-      await refreshSelectedOrder();
+      await loadOrders(true);
     } catch (error: any) {
       Alert.alert("Ошибка", error.response?.data?.detail || "Не удалось отменить курс");
     }
@@ -462,7 +459,7 @@ const WaiterOrders = () => {
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
       if (data.type === 'plate_ready' || data.type === 'plate_status_changed') {
-        loadOrders();
+        loadOrders(true);
       }
     });
     return unsubscribe;

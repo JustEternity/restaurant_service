@@ -645,7 +645,6 @@ const ChefOrders = () => {
       setChangeStatusModalVisible(false);
       setDetailModalVisible(false);
       loadData();
-      Alert.alert('Успех', `Статус изменён на "${getStatusLabel(targetStatus)}"`);
     } catch (error: any) {
       const msg =
         error.response?.status === 409

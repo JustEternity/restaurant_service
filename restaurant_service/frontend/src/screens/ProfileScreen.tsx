@@ -40,7 +40,7 @@ const ProfileScreen = () => {
 
   const getRoleDisplayName = (role: string) => {
     switch (role) {
-      case 'chef':
+      case 'cook':
         return '👨‍🍳 Повар';
       case 'waiter':
         return '👨‍💼 Официант';
