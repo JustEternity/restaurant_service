@@ -623,7 +623,7 @@ const WaiterOrders = () => {
 
                   {selectedOrder?.status === 'active' && hasInactiveCourses(selectedOrder) && (
                     <TouchableOpacity
-                      style={[styles.activateCourseButton, { flexBasis: "48%" }]}
+                      style={[styles.activateCourseButton, { flexGrow: 1, flexBasis: "48%", maxWidth: "100%"  }]}
                       onPress={handleActivateNextCourse}
                       disabled={activatingCourse}
                     >
