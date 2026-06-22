@@ -374,3 +374,52 @@ async def kitchen_workload(
         cook["total_count"] = sum(d["count"] for d in cook["dishes"])
 
     return list(cook_map.values())
+
+@router.get("/waiters")
+async def waiters_statistics(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    waiter_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user)
+):
+    start_dt = datetime(start_date.year, start_date.month, start_date.day)
+    end_dt = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)
+
+    base_cond = [
+        Order.status == "completed",
+        Order.timestart >= start_dt,
+        Order.timestart <= end_dt
+    ]
+    if waiter_id:
+        base_cond.append(Order.waiter == waiter_id)
+
+    stmt_count = select(func.count(Order.id)).where(*base_cond)
+    total_orders = (await db.execute(stmt_count)).scalar() or 0
+
+    stmt_revenue = (
+        select(func.sum(PlateForOrder.price * PlateForOrder.count))
+        .select_from(Order)
+        .join(PlateForOrder, Order.id == PlateForOrder.order_id)
+        .where(*base_cond)
+    )
+    total_revenue = (await db.execute(stmt_revenue)).scalar() or 0
+
+    stmt_dishes = (
+        select(func.sum(PlateForOrder.count))
+        .select_from(Order)
+        .join(PlateForOrder, Order.id == PlateForOrder.order_id)
+        .where(*base_cond)
+    )
+    total_dishes = (await db.execute(stmt_dishes)).scalar() or 0
+
+    avg_check = total_revenue / total_orders if total_orders else 0
+    avg_dishes_per_order = total_dishes / total_orders if total_orders else 0
+
+    return {
+        "total_orders": total_orders,
+        "total_revenue": float(total_revenue),
+        "avg_check": float(avg_check),
+        "total_dishes": int(total_dishes),
+        "avg_dishes_per_order": float(avg_dishes_per_order),
+    }

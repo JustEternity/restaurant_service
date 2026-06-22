@@ -34,6 +34,17 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    if (!error.response) {
+      Toast.show("Нет подключения к интернету", {
+        duration: Toast.durations.SHORT,
+        position: Toast.positions.TOP,
+        backgroundColor: "#e74c3c",
+        textColor: "#fff",
+      });
+
+      return Promise.reject(new Error("network_error"));
+    }
+
     if (error.config?.url?.includes('/auth/login-json')) {
       return Promise.reject(error);
     }

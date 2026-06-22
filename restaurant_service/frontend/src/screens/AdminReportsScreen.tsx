@@ -129,6 +129,14 @@ const AdminReports = () => {
   const [cookWorkload, setCookWorkload] = useState<CookWorkload[]>([]);
   const [showWorkloadModal, setShowWorkloadModal] = useState(false);
 
+  const [waiterStats, setWaiterStats] = useState<{
+    total_orders: number;
+    total_revenue: number;
+    avg_check: number;
+    total_dishes: number;
+    avg_dishes_per_order: number;
+  } | null>(null);
+
   const handleStartDateChange = (_: any, d?: Date) => {
     if (d) setStartDate(d);
     if (Platform.OS === 'android') setShowStartPicker(false);
@@ -222,6 +230,20 @@ const AdminReports = () => {
     }
   };
 
+  const loadWaiterStats = useCallback(async () => {
+    const params = new URLSearchParams({
+      start_date: formatApiDate(startDate),
+      end_date: formatApiDate(endDate),
+    });
+    if (selectedWaiter) params.append('waiter_id', selectedWaiter.id.toString());
+    try {
+      const res = await api.get(`/statistics/waiters?${params.toString()}`);
+      setWaiterStats(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [startDate, endDate, selectedWaiter]);
+
   useEffect(() => {
     loadAll();
     loadOrders();
@@ -236,6 +258,10 @@ const AdminReports = () => {
     loadCooks();
     loadMenu();
   }, []);
+
+  useEffect(() => {
+    loadWaiterStats();
+  }, [loadWaiterStats]);
 
   const filteredOrders = orders.filter(o => o.status === 'completed');
   const waiterOrders = selectedWaiter
@@ -366,15 +392,25 @@ const AdminReports = () => {
         {activeTab === 'waiters' && (
           <View>
             <TouchableOpacity style={styles.pickerButton} onPress={() => setShowWaiterPicker(true)}>
-              <Text style={styles.pickerButtonText}>{selectedWaiter ? selectedWaiter.name : 'Все официанты'}</Text>
+              <Text style={styles.pickerButtonText}>
+                {selectedWaiter ? selectedWaiter.name : 'Все официанты'}
+              </Text>
               <Ionicons name="chevron-down" size={18} color="#666" />
             </TouchableOpacity>
-            <ReportCard title="Количество заказов" value={waiterTotalOrders} icon="receipt-outline" />
-            <ReportCard title="Средний чек" value={`${waiterAvgCheck.toFixed(2)} ₽`} icon="cash-outline" />
-            <ReportCard title="Среднее количество блюд в заказе" value={waiterAvgDishes.toFixed(1)} icon="restaurant-outline" />
+
+            {waiterStats ? (
+              <>
+                <ReportCard title="Количество заказов" value={waiterStats.total_orders} icon="receipt-outline" />
+                <ReportCard title="Общая выручка" value={`${waiterStats.total_revenue.toFixed(2)} ₽`} icon="cash-outline" />
+                <ReportCard title="Средний чек" value={`${waiterStats.avg_check.toFixed(2)} ₽`} icon="card-outline" />
+                <ReportCard title="Общее количество блюд" value={waiterStats.total_dishes} icon="restaurant-outline" />
+                <ReportCard title="Среднее количество блюд в заказе" value={waiterStats.avg_dishes_per_order.toFixed(1)} icon="restaurant-outline" />
+              </>
+            ) : (
+              <ActivityIndicator style={{ marginTop: 20 }} />
+            )}
           </View>
         )}
-
         {activeTab === 'kitchen' && kitchenStats && kitchenDetail && (
           <View>
             <TouchableOpacity style={styles.pickerButton} onPress={() => setShowPlatePicker(true)}>
