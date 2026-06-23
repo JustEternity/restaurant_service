@@ -54,7 +54,3 @@ def root():
         "redoc": "/redoc",
         "health": "/api/health"
     }
-
-@app.get("/{full_path:path}")
-async def catch_all(full_path: str):
-    return {"error": f"Путь {full_path} не найден"}
