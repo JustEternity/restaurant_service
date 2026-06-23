@@ -504,7 +504,10 @@ async def create_order(
         "type": "order_created",
         "message": f"Создан заказ официантом {order_data.waiter}"
     }, "admin")
-
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Создан заказ официантом {order_data.waiter}"
+    }, "cook")
     if first_plates:
         first_plate_ids = [p.id for p in first_plates]
         cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=first_plate_ids)
