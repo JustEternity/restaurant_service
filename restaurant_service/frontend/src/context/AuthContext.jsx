@@ -166,7 +166,7 @@ export const AuthProvider = ({ children }) => {
         return { success: false, error: err.response.data.detail };
       }
 
-      return { success: false, error: "Ошибка подключения к серверу" };
+      return { success: false, error: `status:${err.response?.status} | ${err.response?.data?.detail} | msg:${err.message} | code:${err.code}` };
     }
   };
 

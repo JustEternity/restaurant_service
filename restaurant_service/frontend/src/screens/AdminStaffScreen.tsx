@@ -13,6 +13,8 @@ import {
   Switch,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useWebSocket } from '../context/WebSocketContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import api from '../services/api';
@@ -562,6 +564,24 @@ const AdminStaff = () => {
     });
   };
 
+  const { addHandler } = useWebSocket();
+
+  useEffect(() => {
+    const unsubscribe = addHandler((data: any) => {
+      if (
+        data.type === 'users_update' ||
+        data.type === 'cook_groups_update' ||
+        data.type === 'cook_group_updated' ||
+        data.type === 'specializations_update' ||
+        data.type === 'plates_update'
+      ) {
+        loadStaff();
+      }
+    });
+
+    return unsubscribe;
+  }, [addHandler, loadStaff]);
+
   const renderCategoryNode = (node: CategoryNode, depth: number) => {
     const ownPlates = allMenuItems.filter(item => item.category === node.id && !item.is_selfserve);
     const allSubPlates = categoryPlatesMap.get(node.id) || [];
@@ -814,6 +834,7 @@ const AdminStaff = () => {
   const hasLocks = selectedUser ? !!(activeCookTasks[selectedUser.id] || activeWaiterOrders[selectedUser.id]): false;
 
   return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
@@ -1231,6 +1252,7 @@ const AdminStaff = () => {
         </View>
       </Modal>
     </View>
+    </SafeAreaView>
   );
 };
 

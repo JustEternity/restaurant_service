@@ -11,6 +11,7 @@ import {
   Modal,
   Image as RNImage
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../services/api';
@@ -261,6 +262,7 @@ const MenuItemFormScreen = () => {
   };
 
   return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -382,6 +384,7 @@ const MenuItemFormScreen = () => {
         </View>
       </Modal>
     </ScrollView>
+    </SafeAreaView>
   );
 };
 

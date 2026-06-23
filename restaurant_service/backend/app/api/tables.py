@@ -122,6 +122,9 @@ async def update_table(table_id: int, table_data: TableUpdate, db: AsyncSession 
 
     await db.commit()
     await db.refresh(table)
+    await manager.broadcast_to_role({"type": "table_created"}, "admin")
+    await manager.broadcast_to_role({"type": "table_created"}, "waiter")
+    await manager.broadcast_to_role({"type": "table_created"}, "superadmin")
     return table
 
 @router.delete("/{table_id}")

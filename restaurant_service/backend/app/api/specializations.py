@@ -12,6 +12,7 @@ from app.schemas.specialization_schemas import (
     SpecializationResponse
 )
 from app.core.security import get_current_user
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/specializations", tags=["Специализации"])
 
@@ -47,6 +48,9 @@ async def create_specialization(
     db.add(spec)
     await db.commit()
     await db.refresh(spec)
+    await manager.broadcast_to_role({"type": "specializations_update"}, "admin")
+    await manager.broadcast_to_role({"type": "specializations_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "specializations_update"}, "cook")
     return spec
 
 @router.put("/{spec_id}", response_model=SpecializationResponse)
@@ -73,6 +77,9 @@ async def update_specialization(
 
     await db.commit()
     await db.refresh(spec)
+    await manager.broadcast_to_role({"type": "specializations_update"}, "admin")
+    await manager.broadcast_to_role({"type": "specializations_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "specializations_update"}, "cook")
     return spec
 
 @router.delete("/{spec_id}")
@@ -121,4 +128,7 @@ async def delete_specialization(spec_id: int, db: AsyncSession = Depends(get_asy
 
     await db.delete(spec)
     await db.commit()
+    await manager.broadcast_to_role({"type": "specializations_update"}, "admin")
+    await manager.broadcast_to_role({"type": "specializations_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "specializations_update"}, "cook")
     return {"message": f"Специализация '{spec.name}' удалена"}

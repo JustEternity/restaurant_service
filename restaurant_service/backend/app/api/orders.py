@@ -563,6 +563,19 @@ async def activate_next_course(
 
     await db.commit()
 
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "cook")
+
     activated_plate_ids = [p.id for p in next_course_plates if not (p.menu_item and p.menu_item.is_selfserve)]
     if activated_plate_ids:
         cooks = await get_cooks_to_notify(order.id, db, plates_for_first_course=activated_plate_ids)
@@ -620,6 +633,19 @@ async def cancel_last_course(
 
     await db.commit()
 
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "cook")
+
     cooks = await get_cooks_to_notify(order.id, db, plates_for_first_course=deleted_plate_ids)
     if cooks:
         await manager.broadcast_to_users({
@@ -650,6 +676,10 @@ async def update_order(order_id: int, order_data: OrderUpdate, db: AsyncSession 
         "type": "order_updated",
         "message": f"Обновлен заказ официантом {order_data.waiter}"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом {order_data.waiter}"
+    }, "cook")
 
     cooks_to_notify = await get_cooks_to_notify(order_id, db)
     if cooks_to_notify:
@@ -735,6 +765,13 @@ async def update_plate_status(
         "order_id": plate.order.id if plate.order else None,
         "message": f"Статус блюда изменён на {status}"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "plate_status_changed",
+        "plate_id": plate_id,
+        "new_status": status,
+        "order_id": plate.order.id if plate.order else None,
+        "message": f"Статус блюда изменён на {status}"
+    }, "cook")
 
     cooks_to_notify = await get_cooks_to_notify(plate.order.id, db)
     if cooks_to_notify:
@@ -792,6 +829,10 @@ async def delete_order(order_id: int, db: AsyncSession = Depends(get_async_db), 
         "type": "order_created",
         "message": f"Удален заказ официантом"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Удален заказ официантом"
+    }, "cook")
 
     return {"message": "Заказ отменён"}
 
@@ -850,6 +891,19 @@ async def add_plate_to_order(
 
     await db.commit()
     await db.refresh(plate, attribute_names=["menu_item", "statuses_of_plate"])
+
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "cook")
 
     if not dish.is_selfserve and plate.course_number <= max_activated:
         cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=[plate.id])
@@ -914,6 +968,19 @@ async def update_plate_in_order(
         db.add(history)
 
     await db.commit()
+
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "cook")
 
     stmt = select(PlateForOrder).where(PlateForOrder.id == plate_id).options(
         selectinload(PlateForOrder.menu_item),
@@ -1020,6 +1087,19 @@ async def update_order_plates(
     await db.commit()
     await db.refresh(order, attribute_names=["plates", "tables"])
 
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "cook")
+
     if new_activated_plate_ids:
         cooks_to_notify = await get_cooks_to_notify(order.id, db, plates_for_first_course=new_activated_plate_ids)
         if cooks_to_notify:
@@ -1039,6 +1119,18 @@ async def delete_plate_from_order(plate_id: int, db: AsyncSession = Depends(get_
         raise HTTPException(status_code=400, detail="Нельзя удалять блюда из завершённого или отменённого заказа")
     await db.delete(plate)
     await db.commit()
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "waiter")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "cook")
     cooks_to_notify = await get_cooks_to_notify(plate_id, db)
     if cooks_to_notify:
         await manager.broadcast_to_users({
@@ -1098,6 +1190,10 @@ async def reactivate_order(order_id: int, db: AsyncSession = Depends(get_async_d
         "type": "order_created",
         "message": f"Создан заказ официантом"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Создан заказ официантом"
+    }, "cook")
 
     return {"message": "Заказ снова активен"}
 

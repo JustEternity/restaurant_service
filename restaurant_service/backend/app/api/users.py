@@ -142,6 +142,10 @@ async def create_user(
     await db.commit()
     await db.refresh(user, attribute_names=["role_of_user", "specialization_of_user", "user_in_group"])
 
+    await manager.broadcast_to_role({"type": "users_update"}, "admin")
+    await manager.broadcast_to_role({"type": "users_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "users_update"}, "cook")
+
     cook_groups = []
     for link in user.user_in_group:
         if link.group_of_cooks:
@@ -293,6 +297,11 @@ async def update_user(
     await db.commit()
     await db.refresh(user, attribute_names=["role_of_user", "specialization_of_user", "user_in_group"])
 
+    await manager.broadcast_to_role({"type": "users_update"}, "admin")
+    await manager.broadcast_to_role({"type": "users_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "users_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "users_update"}, "cook")
+
     logout_reason = None
 
     if user_data.password is not None:
@@ -373,6 +382,11 @@ async def update_user_full(
 
     await db.commit()
     await db.refresh(user, attribute_names=["role_of_user", "specialization_of_user", "user_in_group"])
+
+    await manager.broadcast_to_role({"type": "users_update"}, "admin")
+    await manager.broadcast_to_role({"type": "users_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "users_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "users_update"}, "cook")
 
     cook_groups = []
     for link in user.user_in_group:
@@ -473,6 +487,11 @@ async def delete_user(
             status_code=409,
             detail="Невозможно удалить пользователя: есть связанные записи в истории (заказы, статусы блюд)"
         )
+
+    await manager.broadcast_to_role({"type": "users_update"}, "admin")
+    await manager.broadcast_to_role({"type": "users_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "users_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "users_update"}, "cook")
 
     await manager.send_personal_message(
         {"type": "force_logout", "reason": "user_deleted"},

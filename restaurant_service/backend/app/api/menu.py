@@ -242,6 +242,7 @@ async def update_menu_item(menu_id: int, menu_data: MenuUpdate, db: AsyncSession
     await db.refresh(item, attribute_names=["category_of_item", "plate_for_specialization"])
     await asyncio.sleep(0.5)
 
+    print(' Broadcasting plates_update to roles...')
     await manager.broadcast_to_role({"type": "plates_update"}, "admin")
     await manager.broadcast_to_role({"type": "plates_update"}, "waiter")
     await manager.broadcast_to_role({"type": "plates_update"}, "superadmin")

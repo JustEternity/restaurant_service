@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import styles from '../design/ProfileScreenStyles';
@@ -56,7 +56,7 @@ const ProfileScreen = () => {
   const headerBackgroundColor = ROLE_COLORS[user?.role as keyof typeof ROLE_COLORS] || '#FF6B6B';
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
       {/* Шапка профиля */}
       <View style={[styles.header, { backgroundColor: headerBackgroundColor }]}>
         <View style={styles.avatarContainer}>

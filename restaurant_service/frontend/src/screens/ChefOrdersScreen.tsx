@@ -10,6 +10,7 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
@@ -524,11 +525,13 @@ const ChefOrders = () => {
     const unsubscribe = addHandler((data: any) => {
       if (
         data.type === 'new_order' ||
+        data.type === 'order_created' ||
         data.type === 'plate_status_changed' ||
         data.type === 'order_updated' ||
         data.type === 'cooking_status_changed' ||
         data.type === 'cook_group_updated' ||
-        data.type === 'spec_updated'
+        data.type === 'spec_updated' ||
+        data.type === 'plates_update'
       ) {
         handleRefresh();
       }
@@ -826,6 +829,7 @@ const ChefOrders = () => {
     (statusFilter === 'preparing' || statusFilter === 'ready') && groupCooks.length > 1;
 
   return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.subtitle}>{filteredItems.length} позиций</Text>
@@ -1150,6 +1154,7 @@ const ChefOrders = () => {
         </View>
       </Modal>
     </View>
+    </SafeAreaView>
   );
 };
 

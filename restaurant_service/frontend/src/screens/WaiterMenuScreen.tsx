@@ -4,6 +4,7 @@ import {
   RefreshControl, Alert, Modal, ScrollView, TextInput, Keyboard,
   Platform, UIManager,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
@@ -313,20 +314,28 @@ const WaiterMenu = () => {
   const handleRefresh = () => { setRefreshing(true); loadData(true); };
 
   const { addHandler } = useWebSocket();
+  const loadDataRef = useRef(loadData);
+  const fetchLockedRef = useRef(fetchLockedMenuIds);
+
+  useEffect(() => { loadDataRef.current = loadData; });
+  useEffect(() => { fetchLockedRef.current = fetchLockedMenuIds; });
+
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
-      if (data.type === 'categories_update' || data.type === 'plates_update') loadData();
-      if (
-        data.type === 'order_created' ||
-        data.type === 'order_updated' ||
-        data.type === 'plate_status_changed' ||
-        data.type === 'order_completed'
-      ) {
-        fetchLockedMenuIds();
+      if (data.type === 'ws_status' && data.connected) {
+        loadDataRef.current();
       }
+      if (
+        data.type === 'categories_update' ||
+        data.type === 'plates_update'
+      ) {
+        loadDataRef.current();
+      }
+      if (['order_created','order_updated','plate_status_changed','order_completed'].includes(data.type))
+        fetchLockedRef.current();
     });
     return unsubscribe;
-  }, [addHandler, loadData]);
+  }, [addHandler]);
 
   const handleSelectCategory = (category: Category) => setCategoryPath([...categoryPath, category]);
   const handleBack = () => setCategoryPath(categoryPath.slice(0, -1));
@@ -760,6 +769,7 @@ const WaiterMenu = () => {
   }
 
   return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -865,7 +875,7 @@ const WaiterMenu = () => {
       )}
 
       <Modal animationType="fade" transparent visible={modalVisible} onRequestClose={handleCloseModal}>
-        <View style={styles.modalOverlay}>
+        <SafeAreaView style={styles.modalOverlay} edges={['bottom']}>
           <View style={styles.modalContent}>
             <TouchableOpacity style={styles.closeButton} onPress={handleCloseModal}>
               <Ionicons name="close" size={24} color="#666" />
@@ -924,7 +934,7 @@ const WaiterMenu = () => {
               </ScrollView>
             )}
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal visible={cartModalVisible} animationType="slide" transparent>
@@ -1152,6 +1162,7 @@ const WaiterMenu = () => {
         </View>
       </Modal>
     </View>
+    </SafeAreaView>
   );
 };
 

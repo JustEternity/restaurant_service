@@ -67,6 +67,11 @@ async def create_link(link_data: PlateSpecializationCreate, db: AsyncSession = D
     await db.refresh(new_link)
     await db.refresh(new_link, attribute_names=["spec_plates", "spec_of_plates"])
 
+    await manager.broadcast_to_role({"type": "plates_update"}, "admin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "cook")
+
+
     return PlateSpecializationResponse(
         id=new_link.id,
         plate_id=new_link.plate,
@@ -83,6 +88,9 @@ async def delete_link(link_id: int, db: AsyncSession = Depends(get_async_db), cu
         raise HTTPException(status_code=404, detail="Связь не найдена")
     await db.delete(link)
     await db.commit()
+    await manager.broadcast_to_role({"type": "plates_update"}, "admin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "cook")
     return {"message": "Связь удалена"}
 
 @router.get("/plate/{plate_id}", response_model=List[PlateSpecializationResponse])
@@ -155,6 +163,9 @@ async def update_plates_for_specialization(
         db.add(PlatesForSpecialization(plate=plate_id, specialization=spec_id))
 
     await db.commit()
+    await manager.broadcast_to_role({"type": "plates_update"}, "admin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "plates_update"}, "cook")
     stmt = (
         select(User.id)
         .join(CooksInGroup, CooksInGroup.cook == User.id)

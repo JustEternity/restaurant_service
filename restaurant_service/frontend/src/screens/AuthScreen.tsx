@@ -66,6 +66,10 @@ export default function AuthScreen({ navigation }: Props) {
       setError('Ошибка входа. Попробуйте снова.');
     } catch (err: any) {
       console.error('Ошибка входа:', err);
+      console.log("ERR MESSAGE:", err.message);
+      console.log("ERR CODE:", err.code);
+      setError(`Произошла ошибка: ${err.message}`);
+      return { success: false, error: err.message };
 
       if (err.response?.status === 401) {
         setError('Неверный логин или пароль');
@@ -87,7 +91,7 @@ export default function AuthScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
@@ -158,7 +162,7 @@ export default function AuthScreen({ navigation }: Props) {
 
 
           {/* Быстрый вход для тестирования*/}
-          {__DEV__ &&  (
+
             <View style={styles.testContainer}>
               <Text style={styles.testTitle}>Тестовые пользователи:</Text>
               <View style={styles.testButtons}>
@@ -182,7 +186,7 @@ export default function AuthScreen({ navigation }: Props) {
                 </TouchableOpacity>
               </View>
             </View>
-          )}
+
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

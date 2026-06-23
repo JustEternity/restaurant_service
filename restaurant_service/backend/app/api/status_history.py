@@ -141,6 +141,34 @@ async def create_cooking_status_history(history_data: CookingStatusHistoryCreate
     if history_item.status_to_plate:
         await db.refresh(history_item.status_to_plate, attribute_names=["plate", "order_of_plate"])
 
+    await manager.broadcast_to_role({
+        "type": "plate_status_changed",
+        "plate_id": history_item.ordered_plate,
+        "new_status": history_item.new_status,
+        "order_id": order_id,
+    }, "waiter")
+
+    await manager.broadcast_to_role({
+        "type": "plate_status_changed",
+        "plate_id": history_item.ordered_plate,
+        "new_status": history_item.new_status,
+        "order_id": order_id,
+    }, "admin")
+
+    await manager.broadcast_to_role({
+        "type": "plate_status_changed",
+        "plate_id": history_item.ordered_plate,
+        "new_status": history_item.new_status,
+        "order_id": order_id,
+    }, "cook")
+
+    await manager.broadcast_to_role({
+        "type": "plate_status_changed",
+        "plate_id": history_item.ordered_plate,
+        "new_status": history_item.new_status,
+        "order_id": order_id,
+    }, "superadmin")
+
     plate_for_order = history_item.status_to_plate
     plate_name = plate_for_order.plate.name if plate_for_order and plate_for_order.plate else None
     order_id = plate_for_order.order_of_plate.id if plate_for_order and plate_for_order.order_of_plate else None
@@ -191,6 +219,11 @@ async def rollback_status(
     await db.delete(last_record)
     await db.commit()
 
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "admin")
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "superadmin")
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "cook")
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "waiter")
+
     plate_for_order = await db.get(PlateForOrder, plate_for_order_id)
     if plate_for_order:
         if len(history_records) > 1:
@@ -236,6 +269,11 @@ async def update_cooking_status_history(history_id: int, history_data: CookingSt
     if item.status_to_plate:
         await db.refresh(item.status_to_plate, attribute_names=["plate", "order_of_plate"])
 
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "admin")
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "superadmin")
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "cook")
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "waiter")
+
     plate_for_order = item.status_to_plate
     plate_name = plate_for_order.plate.name if plate_for_order and plate_for_order.plate else None
     order_id = plate_for_order.order_of_plate.id if plate_for_order and plate_for_order.order_of_plate else None
@@ -266,6 +304,10 @@ async def delete_cooking_status_history(history_id: int, db: AsyncSession = Depe
 
     await db.delete(item)
     await db.commit()
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "admin")
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "superadmin")
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "cook")
+    await manager.broadcast_to_role({"type": "plate_status_changed"}, "waiter")
     return {"message": "Запись истории удалена"}
 
 @router.get("/plate/{plate_id}", response_model=List[CookingStatusHistoryResponse])

@@ -55,9 +55,9 @@ async def update_settings(data: HallMapSettingsUpdate, db: AsyncSession = Depend
     await db.commit()
     await db.refresh(settings)
 
-    await manager.broadcast_to_role({"type": "plates_update"}, "admin")
-    await manager.broadcast_to_role({"type": "plates_update"}, "waiter")
-    await manager.broadcast_to_role({"type": "plates_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "hallmap_update"}, "admin")
+    await manager.broadcast_to_role({"type": "hallmap_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "hallmap_update"}, "superadmin")
 
     return HallMapSettingsResponse(
         id=settings.id,
@@ -98,5 +98,7 @@ async def upload_background(
     settings.hallmap_image = f"hallmap/{filename}"
     await db.commit()
     await db.refresh(settings)
-
+    await manager.broadcast_to_role({"type": "hallmap_update"}, "admin")
+    await manager.broadcast_to_role({"type": "hallmap_update"}, "waiter")
+    await manager.broadcast_to_role({"type": "hallmap_update"}, "superadmin")
     return {"url": _photo_url(settings.hallmap_image)}

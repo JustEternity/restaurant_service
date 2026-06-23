@@ -19,20 +19,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    maxHeight: height,
   },
 
   keyboardView: {
     flex: 1,
-    justifyContent: 'space-between',
+    marginTop: 60,
+    justifyContent: 'flex-start',
     paddingHorizontal: 24,
-    paddingTop: 40,
-    paddingBottom: 30,
+    paddingBottom: 8,
   },
 
   header: {
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 16,
   },
 
   logoContainer: {
@@ -63,6 +62,8 @@ const styles = StyleSheet.create({
   },
 
   form: {
+    flex: 1,
+    justifyContent: 'flex-end',
     marginTop: 0,
   },
 
@@ -135,6 +136,7 @@ const styles = StyleSheet.create({
 
   testContainer: {
     marginTop: 10,
+    marginBottom: 0,
     padding: 15,
     backgroundColor: '#F8F9FA',
     borderRadius: 10,
@@ -162,6 +164,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginHorizontal: 3,
     alignItems: 'center',
+    justifyContent: 'center',
   },
 
   testButtonChef: {
@@ -185,6 +188,8 @@ const styles = StyleSheet.create({
   testButtonText: {
     fontSize: 12,
     fontWeight: '600',
+    textAlign: 'center',
+    flexShrink: 1,
   },
 
   subtitle: {

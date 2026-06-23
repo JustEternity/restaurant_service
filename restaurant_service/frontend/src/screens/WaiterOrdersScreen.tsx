@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, ActivityIndicator,
   RefreshControl, Alert, Modal, ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
@@ -458,7 +459,14 @@ const WaiterOrders = () => {
   const { addHandler } = useWebSocket();
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
-      if (data.type === 'plate_ready' || data.type === 'plate_status_changed') {
+      if (data.type === 'plate_ready' ||
+        data.type === 'new_order' ||
+        data.type === 'plate_cancelled' ||
+        data.type === 'plate_status_changed' ||
+        data.type === 'order_created' ||
+        data.type === 'order_updated' ||
+        data.type === 'order_completed'
+      ) {
         loadOrders(true);
       }
     });
@@ -493,6 +501,7 @@ const WaiterOrders = () => {
     .toFixed(2);
 
   return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Мои заказы</Text>
@@ -520,6 +529,7 @@ const WaiterOrders = () => {
         transparent
         onRequestClose={() => setModalVisible(false)}
       >
+        <SafeAreaView style={styles.modalOverlay} edges={['bottom']}>
         <GestureHandlerRootView style={{ flex: 1 }}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
@@ -648,8 +658,10 @@ const WaiterOrders = () => {
             </View>
           </View>
         </GestureHandlerRootView>
+        </SafeAreaView>
       </Modal>
     </View>
+    </SafeAreaView>
   );
 };
 

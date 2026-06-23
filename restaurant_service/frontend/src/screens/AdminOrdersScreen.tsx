@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
@@ -11,6 +10,7 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../context/WebSocketContext';
@@ -235,6 +235,7 @@ const renderPlateItem = (plate: PlateInOrder) => {
   }
 
   return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerSubtitle}>{orders.length} заказов</Text>
@@ -262,7 +263,7 @@ const renderPlateItem = (plate: PlateInOrder) => {
         transparent
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <SafeAreaView style={styles.modalOverlay} edges={['bottom']}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Заказ #{selectedOrder?.id}</Text>
@@ -328,9 +329,10 @@ const renderPlateItem = (plate: PlateInOrder) => {
               </>
             )}
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
     </View>
+    </SafeAreaView>
   );
 };
 

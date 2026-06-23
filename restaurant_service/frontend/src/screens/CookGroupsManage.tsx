@@ -12,6 +12,7 @@ import {
   TextInput,
   ScrollView
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import api from '../services/api';
@@ -295,6 +296,7 @@ const CookGroupManagement = () => {
   }
 
   return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -468,6 +470,7 @@ const CookGroupManagement = () => {
         </View>
       </Modal>
     </View>
+    </SafeAreaView>
   );
 };
 

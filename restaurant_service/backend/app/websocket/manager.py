@@ -41,7 +41,9 @@ class ConnectionManager:
             await self.send_personal_message(message, uid)
 
     async def broadcast_to_role(self, message: dict, role: str):
-        for uid, r in self.user_roles.items():
+        print("Broadcast to role:", role, "users:", self.user_roles)
+        tmp = list(self.user_roles.items())
+        for uid, r in tmp:
             if r == role:
                 await self.send_personal_message(message, uid)
 

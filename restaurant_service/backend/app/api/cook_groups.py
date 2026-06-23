@@ -55,6 +55,9 @@ async def create_cook_group(
     db.add(group)
     await db.commit()
     await db.refresh(group)
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "admin")
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "cook")
     return group
 
 @router.put("/{group_id}", response_model=CookGroupResponse)
@@ -88,6 +91,9 @@ async def update_cook_group(
 
     await db.commit()
     await db.refresh(group)
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "admin")
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "cook")
     return group
 
 @router.delete("/{group_id}")
@@ -136,6 +142,9 @@ async def delete_cook_group(
 
     await db.delete(group)
     await db.commit()
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "admin")
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "cook")
     return {"message": "Группа удалена"}
 
 # ===== ПОВАРА В ГРУППЕ =====
@@ -200,6 +209,9 @@ async def add_cook_to_group(
     new_link = CooksInGroup(group=group_id, cook=payload.user_id)
     db.add(new_link)
     await db.commit()
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "admin")
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "superadmin")
+    await manager.broadcast_to_role({"type": "cook_groups_update"}, "cook")
     return {"message": "Повар добавлен в группу"}
 
 @router.delete("/{group_id}/cooks/{user_id}")

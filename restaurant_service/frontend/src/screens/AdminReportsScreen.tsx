@@ -10,6 +10,7 @@ import {
   FlatList,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import api from '../services/api';
@@ -335,6 +336,7 @@ const AdminReports = () => {
   }
 
   return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
     <View style={styles.container}>
       <View style={styles.datePickerRow}>
         <TouchableOpacity style={styles.dateButton} onPress={() => setShowStartPicker(true)}>
@@ -659,6 +661,7 @@ const AdminReports = () => {
         </View>
       </Modal>
     </View>
+    </SafeAreaView>
   );
 };
 

@@ -92,9 +92,15 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
       };
 
       ws.onmessage = (event) => {
+        let data;
         try {
-          const data = JSON.parse(event.data);
+          data = JSON.parse(event.data);
+        } catch (e) {
+          console.error("WS JSON parse error:", e, event.data);
+          return;
+        }
 
+        try {
           if (data.type === 'pong') {
             lastPongRef.current = Date.now();
             return;

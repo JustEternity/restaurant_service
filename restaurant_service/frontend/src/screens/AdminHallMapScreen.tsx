@@ -24,6 +24,7 @@ import Animated, {
   runOnJS,
   withTiming,
 } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -192,6 +193,8 @@ const HallMap = () => {
       if (res.data.hallmap_image) {
         setBackgroundImage(res.data.hallmap_image);
         const fullUrl = getPhotoUrl(res.data.hallmap_image);
+        const urlWithCache = fullUrl ? `${fullUrl}?t=${Date.now()}` : null;
+        setBackgroundImage(res.data.hallmap_image);
         if (fullUrl) getImageSize(fullUrl);
       }
       const size = Number(res.data.table_size) || 30;
@@ -381,8 +384,8 @@ const HallMap = () => {
   const { addHandler } = useWebSocket();
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
-      if (data.type === 'plate_ready' || data.type === 'plate_status_changed' ||
-          data.type === 'order_completed' || data.type === 'order_created' ||
+      if (data.type === 'plate_ready' || data.type === 'plate_status_changed' || data.type === 'hallmap_update' ||
+          data.type === 'order_completed' || data.type === 'order_created' || data.type === 'table_updated' ||
           data.type === 'order_updated' || data.type === 'table_created' || data.type === 'table_deleted') {
         manualRefresh();
       }
@@ -533,6 +536,9 @@ const HallMap = () => {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setBackgroundImage(res.data.url);
+      const fullUrl = getPhotoUrl(res.data.url);
+      // timestamp сбрасывает кеш React Native
+      if (fullUrl) getImageSize(`${fullUrl}?t=${Date.now()}`);
       Alert.alert('Готово', 'Фон схемы обновлён');
     } catch (error: any) { Alert.alert('Ошибка', error.message); }
     finally { setUploadingBg(false); }
@@ -650,6 +656,7 @@ const HallMap = () => {
   const imgSize = imageNaturalSizeState || { width: 0, height: 0 };
 
   return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
     <GestureHandlerRootView style={styles.container}>
       {(isAdmin) && (
         <View style={styles.header}>
@@ -741,7 +748,7 @@ const HallMap = () => {
                     source={{ uri: getPhotoUrl(backgroundImage) ?? undefined }}
                     style={{ width: imgSize.width, height: imgSize.height }}
                     resizeMode="contain"
-                    onLoad={handleImageLoad}
+                    //onLoad={handleImageLoad}
                   />
                 )}
                 {isAdmin
@@ -837,6 +844,7 @@ const HallMap = () => {
         </View>
       </Modal>
     </GestureHandlerRootView>
+    </SafeAreaView>
   );
 };
 
