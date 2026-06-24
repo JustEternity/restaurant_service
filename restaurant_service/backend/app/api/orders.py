@@ -507,6 +507,10 @@ async def create_order(
     await manager.broadcast_to_role({
         "type": "order_created",
         "message": f"Создан заказ официантом {order_data.waiter}"
+    }, "superadmin")
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Создан заказ официантом {order_data.waiter}"
     }, "cook")
     if first_plates:
         first_plate_ids = [p.id for p in first_plates]
@@ -571,6 +575,10 @@ async def activate_next_course(
         "type": "order_updated",
         "message": f"Обновлен заказ официантом"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "superadmin")
     await manager.broadcast_to_role({
         "type": "order_updated",
         "message": f"Обновлен заказ официантом"
@@ -644,6 +652,10 @@ async def cancel_last_course(
     await manager.broadcast_to_role({
         "type": "order_updated",
         "message": f"Обновлен заказ официантом"
+    }, "superadmin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
     }, "cook")
 
     cooks = await get_cooks_to_notify(order.id, db, plates_for_first_course=deleted_plate_ids)
@@ -679,6 +691,10 @@ async def update_order(order_id: int, order_data: OrderUpdate, db: AsyncSession 
     await manager.broadcast_to_role({
         "type": "order_updated",
         "message": f"Обновлен заказ официантом {order_data.waiter}"
+    }, "superadmin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом {order_data.waiter}"
     }, "cook")
 
     cooks_to_notify = await get_cooks_to_notify(order_id, db)
@@ -711,6 +727,11 @@ async def complete_order(order_id: int, db: AsyncSession = Depends(get_async_db)
         "order_id": order.id,
         "message": "Заказ завершён"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_completed",
+        "order_id": order.id,
+        "message": "Заказ завершён"
+    }, "superadmin")
     return {"message": "Заказ завершён"}
 
 @router.put("/plate/{plate_id}/status/{status}")
@@ -765,6 +786,13 @@ async def update_plate_status(
         "order_id": plate.order.id if plate.order else None,
         "message": f"Статус блюда изменён на {status}"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "plate_status_changed",
+        "plate_id": plate_id,
+        "new_status": status,
+        "order_id": plate.order.id if plate.order else None,
+        "message": f"Статус блюда изменён на {status}"
+    }, "superadmin")
     await manager.broadcast_to_role({
         "type": "plate_status_changed",
         "plate_id": plate_id,
@@ -829,6 +857,10 @@ async def delete_order(order_id: int, db: AsyncSession = Depends(get_async_db), 
         "type": "order_created",
         "message": f"Удален заказ официантом"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Удален заказ официантом"
+    }, "superadmin")
     await manager.broadcast_to_role({
         "type": "order_created",
         "message": f"Удален заказ официантом"
@@ -900,6 +932,10 @@ async def add_plate_to_order(
         "type": "order_updated",
         "message": f"Обновлен заказ официантом"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "superadmin")
     await manager.broadcast_to_role({
         "type": "order_updated",
         "message": f"Обновлен заказ официантом"
@@ -977,6 +1013,10 @@ async def update_plate_in_order(
         "type": "order_updated",
         "message": f"Обновлен заказ официантом"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "superadmin")
     await manager.broadcast_to_role({
         "type": "order_updated",
         "message": f"Обновлен заказ официантом"
@@ -1098,6 +1138,10 @@ async def update_order_plates(
     await manager.broadcast_to_role({
         "type": "order_updated",
         "message": f"Обновлен заказ официантом"
+    }, "superadmin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
     }, "cook")
 
     if new_activated_plate_ids:
@@ -1127,6 +1171,10 @@ async def delete_plate_from_order(plate_id: int, db: AsyncSession = Depends(get_
         "type": "order_updated",
         "message": f"Обновлен заказ официантом"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_updated",
+        "message": f"Обновлен заказ официантом"
+    }, "superadmin")
     await manager.broadcast_to_role({
         "type": "order_updated",
         "message": f"Обновлен заказ официантом"
@@ -1190,6 +1238,10 @@ async def reactivate_order(order_id: int, db: AsyncSession = Depends(get_async_d
         "type": "order_created",
         "message": f"Создан заказ официантом"
     }, "admin")
+    await manager.broadcast_to_role({
+        "type": "order_created",
+        "message": f"Создан заказ официантом"
+    }, "superadmin")
     await manager.broadcast_to_role({
         "type": "order_created",
         "message": f"Создан заказ официантом"
