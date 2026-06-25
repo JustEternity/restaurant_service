@@ -65,12 +65,6 @@ export default function AuthScreen({ navigation }: Props) {
 
       setError('Ошибка входа. Попробуйте снова.');
     } catch (err: any) {
-      console.error('Ошибка входа:', err);
-      console.log("ERR MESSAGE:", err.message);
-      console.log("ERR CODE:", err.code);
-      setError(`Произошла ошибка: ${err.message}`);
-      return { success: false, error: err.message };
-
       if (err.response?.status === 401) {
         setError('Неверный логин или пароль');
       } else if (err.response?.status === 404) {

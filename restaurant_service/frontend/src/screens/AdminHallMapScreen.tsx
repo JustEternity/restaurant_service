@@ -506,8 +506,7 @@ const HallMap = () => {
     try {
       await api.put('/hallmap/settings', { table_size: size });
       setTableSize(size);
-      Alert.alert('Готово', 'Размер столов обновлён');
-    } catch (error) { Alert.alert('Ошибка', 'Не удалось обновить размер'); }
+    } catch (error) { Alert.alert('Ошибка', 'Не удалось обновить размер столов'); }
     finally { setSavingSize(false); }
   };
 
@@ -625,7 +624,7 @@ const HallMap = () => {
                 table.status === 'occupied' && !readyTableIds.has(table.id) && styles.tableOccupied,
                 readyTableIds.has(table.id) && styles.tableReady,
                 selectedTableIds.includes(table.id) && !isAdmin && table.status === 'free' && styles.tableSelected,
-                { flex: 1 },
+                { flex: 1, borderRadius: 9999 },
               ]}
             >
               <Text style={styles.tableNumber}>{table.number}</Text>

@@ -234,6 +234,16 @@ const WaiterMenu = () => {
     return result;
   }, [categoriesTree, menuItems]);
 
+  const getCookingStatusText = (status: string) => {
+    switch (status) {
+      case 'waiting': return 'Ожидает';
+      case 'preparing': return 'Готовится';
+      case 'ready': return 'Готово';
+      case 'served': return 'Подано';
+      case 'cancelled': return 'Отменено';
+      default: return status;
+    }
+  };
 
   const filteredItems = useMemo(() => {
     const base = currentCategory
@@ -278,8 +288,8 @@ const WaiterMenu = () => {
     } catch (error) {
       console.error(error);
     } finally {
+      if (!silent) setLoading(false);
       setIsInitialLoad(false);
-      setLoading(false);
       setRefreshing(false);
     }
   };
@@ -323,13 +333,13 @@ const WaiterMenu = () => {
   useEffect(() => {
     const unsubscribe = addHandler((data: any) => {
       if (data.type === 'ws_status' && data.connected) {
-        loadDataRef.current();
+        loadDataRef.current(true);
       }
       if (
         data.type === 'categories_update' ||
         data.type === 'plates_update'
       ) {
-        loadDataRef.current();
+        loadDataRef.current(true);
       }
       if (['order_created','order_updated','plate_status_changed','order_completed'].includes(data.type))
         fetchLockedRef.current();
@@ -911,7 +921,7 @@ const WaiterMenu = () => {
                         }
                       }}
                     >
-                      <Text>Редактировать</Text>
+                      <Text style={{ color: '#fff' }}>Редактировать</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.modalActionButton, styles.deleteButton, selectedItem && lockedMenuIds.includes(selectedItem.id) && { opacity: 0.35 }]}
@@ -922,7 +932,7 @@ const WaiterMenu = () => {
                         }
                       }}
                     >
-                      <Text>Удалить</Text>
+                      <Text style={{ color: '#fff' }}>Удалить</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -939,7 +949,7 @@ const WaiterMenu = () => {
 
       <Modal visible={cartModalVisible} animationType="slide" transparent>
         <View style={styles.cartModalOverlay}>
-          <View style={styles.cartModalContent}>
+          <SafeAreaView style={styles.cartModalContent} edges={['bottom']}>
             <View style={styles.cartModalHeader}>
               <Text style={styles.modalTitle}>Корзина</Text>
               <TouchableOpacity onPress={() => setCartModalVisible(false)}>
@@ -965,7 +975,7 @@ const WaiterMenu = () => {
 
                       {isLocked && ep && (
                         <Text style={{ fontSize: 12, color: '#e67e22', marginTop: 4 }}>
-                          Статус: {ep.current_status}
+                          Статус: {getCookingStatusText(ep.current_status)}
                         </Text>
                       )}
 
@@ -1063,12 +1073,12 @@ const WaiterMenu = () => {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
       <Modal animationType="fade" transparent visible={categoryTreeModalVisible} onRequestClose={() => setCategoryTreeModalVisible(false)}>
-        <View style={styles.modalOverlay}>
+        <SafeAreaView style={styles.modalOverlay} edges={['bottom']}>
           <View style={[styles.modalContent, { maxHeight: '85%' }]}>
             <View style={styles.treeModalHeader}>
               <View style={{ width: 34 }} />
@@ -1085,11 +1095,11 @@ const WaiterMenu = () => {
             </View>
             <FlatList data={flatCategories} renderItem={renderTreeItem} keyExtractor={(item) => item.id.toString()} style={{ maxHeight: '100%' }} />
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal animationType="fade" transparent visible={categoryEditModalVisible} onRequestClose={closeCategoryEditModal}>
-        <View style={styles.modalOverlay}>
+        <SafeAreaView style={styles.modalOverlay} edges={['bottom']}>
           <View style={styles.modalContent}>
             <TouchableOpacity style={styles.closeButton} onPress={closeCategoryEditModal}>
               <Ionicons name="close" size={24} color="#666" />
@@ -1159,7 +1169,7 @@ const WaiterMenu = () => {
               </ScrollView>
             )}
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
     </View>
     </SafeAreaView>

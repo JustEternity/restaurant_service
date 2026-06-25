@@ -26,10 +26,7 @@ interface FlatOrderedPlate {
   highlightedAsEarlyCourse?: boolean;
   waitingMinutes?: number;
   cook_id_preparing?: number | null;
-  recommended?: boolean;
-  recommendedCookId?: number;
-  recommendedCookName?: string;
-  priorityScore?: number;
+  cookETAs?: Record<number, number>;
 }
 
 interface CookRecommendation {
@@ -53,8 +50,6 @@ interface RecommendResponse {
   fallback_used: boolean;
 }
 
-// Кэш
-
 interface CacheEntry {
   key: string;
   data: RecommendResponse;
@@ -73,7 +68,6 @@ function buildCacheKey(plates: FlatOrderedPlate[], cooks: Cook[]): string {
 
 export async function applyRecommendations(
   plates: FlatOrderedPlate[],
-  currentCookId: number,
   cooks: Cook[],
 ): Promise<FlatOrderedPlate[]> {
   if (plates.length === 0 || cooks.length === 0) return plates;
@@ -81,9 +75,8 @@ export async function applyRecommendations(
   const cacheKey = buildCacheKey(plates, cooks);
   const now = Date.now();
 
-  // закэшированный результат если он свежий
   if (_cache && _cache.key === cacheKey && now - _cache.ts < CACHE_TTL_MS) {
-    return mergePlatesWithRecs(plates, _cache.data.plates, cooks, currentCookId);
+    return mergePlatesWithRecs(plates, _cache.data.plates);
   }
 
   let response: RecommendResponse;
@@ -107,42 +100,30 @@ export async function applyRecommendations(
     }
   } catch (error) {
     console.warn('[recommendations] Сервер недоступен, возвращаем без рекомендаций:', error);
-    return plates.map(p => ({
-      ...p,
-      recommended: false,
-      recommendedCookId: undefined,
-      recommendedCookName: undefined,
-      priorityScore: undefined,
-    }));
+    return plates.map(p => ({ ...p, cookETAs: undefined }));
   }
 
-  return mergePlatesWithRecs(plates, response.plates, cooks, currentCookId);
+  return mergePlatesWithRecs(plates, response.plates);
 }
 
 function mergePlatesWithRecs(
   plates: FlatOrderedPlate[],
   recs: PlateRecommendation[],
-  cooks: Cook[],
-  currentCookId: number,
 ): FlatOrderedPlate[] {
   const recMap = new Map<number, PlateRecommendation>();
   recs.forEach(r => recMap.set(r.plate_order_id, r));
 
   return plates.map(plate => {
     const rec = recMap.get(plate.plate_order_id);
-    if (!rec || rec.best_cook_id === null) {
-      return { ...plate, recommended: false };
+    if (!rec) {
+      return { ...plate, cookETAs: undefined };
     }
 
-    const bestCookName = cooks.find(c => c.id === rec.best_cook_id)?.name;
+    const cookETAs: Record<number, number> = {};
+    rec.all_cooks.forEach(c => {
+      cookETAs[c.cook_id] = c.eta_minutes;
+    });
 
-    return {
-      ...plate,
-      recommended: rec.best_cook_id === currentCookId,
-      recommendedCookId: rec.best_cook_id,
-      recommendedCookName: bestCookName,
-      // priorityScore = ETA лучшего повара
-      priorityScore: rec.best_eta_minutes ?? undefined,
-    };
+    return { ...plate, cookETAs };
   });
 }

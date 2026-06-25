@@ -1,6 +1,8 @@
 export const API_CONFIG = {
-  BASE_URL: 'http://192.168.3.111:8000/api',
-  WS_BASE_URL: 'ws://192.168.3.111:8000',
+
+  BASE_URL: 'http://192.168.3.119:8000/api',
+  WS_BASE_URL: 'ws://192.168.3.119:8000',
+  PHOTO_URL: 'http://192.168.3.119:8000',
 
   STORAGE_KEYS: {
     AUTH_TOKEN: '@auth_token',
@@ -10,6 +12,7 @@ export const API_CONFIG = {
 };
 
 export const UserRoles = {
+  SUPERADMIN: 'superadmin',
   COOK: 'cook',
   WAITER: 'waiter',
   ADMIN: 'admin'

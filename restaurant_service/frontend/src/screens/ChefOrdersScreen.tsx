@@ -74,6 +74,7 @@ interface FlatOrderedPlate {
   recommendedCookId?: number;
   recommendedCookName?: string;
   priorityScore?: number;
+  cookETAs?: Record<number, number>;
   waitingMinutes?: number;
   cook_id_preparing?: number | null;
 }
@@ -385,42 +386,35 @@ const ChefOrders = () => {
       }));
 
       let withRecs: FlatOrderedPlate[];
-      if (statusF === 'waiting') {
+      if (statusF === 'waiting' && specF !== 'all') {
         try {
-          const cooksForRecs = groupCooks.length > 0
-            ? groupCooks
-            : [{
-                id: user!.id,
-                name: user!.name,
-                specialization: user!.specialization
-              }];
+          const cooksForRecs =
+            groupCooks.length > 0
+              ? groupCooks
+              : [{
+                  id: user!.id,
+                  name: user!.name,
+                  specialization: user!.specialization
+                }];
 
-          withRecs = await applyRecommendations(withWaiting, user?.id ?? 0, cooksForRecs);
+          withRecs = await applyRecommendations(withWaiting, cooksForRecs);
+
         } catch {
-          withRecs = withWaiting.map(p => ({ ...p, recommended: false }));
+          withRecs = withWaiting.map(p => ({ ...p, cookETAs: undefined }));
         }
       } else {
         withRecs = withWaiting.map(p => ({
           ...p,
-          recommended: false,
-          recommendedCookId: undefined,
-          recommendedCookName: undefined,
-          priorityScore: undefined,
+          cookETAs: undefined,
         }));
       }
 
       const sorted = [...withRecs].sort((a, b) => {
         if (a.highlightedAsEarlyCourse !== b.highlightedAsEarlyCourse)
           return a.highlightedAsEarlyCourse ? -1 : 1;
-        if (specF === 'all' || statusF !== 'waiting') {
-          const waitDiff = (b.waitingMinutes ?? 0) - (a.waitingMinutes ?? 0);
-          if (Math.abs(waitDiff) > 0.5) return waitDiff;
+        if (a.course_number !== b.course_number)
           return a.course_number - b.course_number;
-        } else {
-          if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
-          if (a.course_number !== b.course_number) return a.course_number - b.course_number;
-          return (a.priorityScore ?? Infinity) - (b.priorityScore ?? Infinity);
-        }
+        return (b.waitingMinutes ?? 0) - (a.waitingMinutes ?? 0);
       });
 
       setFilteredItems(sorted);
@@ -522,7 +516,12 @@ const ChefOrders = () => {
 
   const { addHandler } = useWebSocket();
   useEffect(() => {
-    const unsubscribe = addHandler((data: any) => {
+    const unsubscribe = addHandler(async (data: any) => {
+      if (data.type === 'cook_group_updated' ||
+        data.type === 'spec_updated') {
+          await loadAllowedPlateIds();
+          await loadGroupCooks();
+        }
       if (
         data.type === 'new_order' ||
         data.type === 'order_created' ||
@@ -541,10 +540,11 @@ const ChefOrders = () => {
 
   const grouped = useMemo(() => {
     type CookSection = { cook: Cook; plates: FlatOrderedPlate[] };
+
     const cookSections = new Map<number, CookSection>();
     const unassigned: FlatOrderedPlate[] = [];
-    const showSections = specializationFilter !== 'all' && statusFilter === 'waiting';
 
+    const showSections = specializationFilter !== 'all' && statusFilter === 'waiting';
     if (!showSections) {
       filteredItems.forEach(item => unassigned.push(item));
       return { cookSections, unassigned };
@@ -552,28 +552,50 @@ const ChefOrders = () => {
 
     const specId = specializationFilter as number;
     const eligibleCooks = groupCooks.filter(c => c.specialization?.id === specId);
-    const MAX_PER_COOK = 4;
-    const inAnySectionUids = new Set<string>();
 
-    for (const cook of eligibleCooks) {
-      const cookPlates = filteredItems
-        .filter(item => {
-          const specs = plateToSpecializations.current.get(item.plate_id);
-          return specs && cook.specialization && specs.has(cook.specialization.id);
-        })
-        .slice(0, MAX_PER_COOK);
-      if (cookPlates.length > 0) {
-        cookSections.set(cook.id, { cook, plates: cookPlates });
-        cookPlates.forEach(p => inAnySectionUids.add(p.uid));
-      }
-    }
+    const MAX_PER_COOK = 5;
 
-    filteredItems.forEach(item => {
-      if (!inAnySectionUids.has(item.uid)) unassigned.push(item);
+    eligibleCooks.forEach(cook => {
+      cookSections.set(cook.id, { cook, plates: [] });
     });
+
+    const sortedPlates = [...filteredItems].sort((a, b) => {
+      if (a.highlightedAsEarlyCourse !== b.highlightedAsEarlyCourse)
+        return a.highlightedAsEarlyCourse ? -1 : 1;
+
+      const bestA = Math.min(...Object.values(a.cookETAs ?? { 999: Infinity }));
+      const bestB = Math.min(...Object.values(b.cookETAs ?? { 999: Infinity }));
+      if (bestA !== bestB) return bestA - bestB;
+
+      return (b.waitingMinutes ?? 0) - (a.waitingMinutes ?? 0);
+    });
+
+    for (const plate of sortedPlates) {
+      let bestCook: Cook | null = null;
+      let bestETA = Infinity;
+
+      for (const cook of eligibleCooks) {
+        const eta = plate.cookETAs?.[cook.id] ?? Infinity;
+        if (eta < bestETA) {
+          bestETA = eta;
+          bestCook = cook;
+        }
+      }
+
+      if (bestCook) {
+        const section = cookSections.get(bestCook.id)!;
+
+        if (section.plates.length < MAX_PER_COOK) {
+          section.plates.push(plate);
+        }
+      }
+
+      unassigned.push(plate);
+    }
 
     return { cookSections, unassigned };
   }, [filteredItems, specializationFilter, statusFilter, groupCooks]);
+
 
   const getNextStatus = (current: string) => {
     switch (current) {
@@ -684,19 +706,25 @@ const ChefOrders = () => {
     }
   };
 
-  const renderSliderCard = (item: FlatOrderedPlate, isCurrentCook: boolean) => (
-    <TouchableOpacity
-      key={item.uid}
-      style={[styles.recommendedCard]}
-      onPress={() => handleCardPress(item)}
-    >
-      <Text style={styles.recPlateName} numberOfLines={1}>{item.plate_name}</Text>
-      <Text style={styles.recCount}>x{item.count}</Text>
-      {item.highlightedAsEarlyCourse && (
-        <Ionicons name="timer-outline" size={14} color="#e67e22" />
-      )}
-    </TouchableOpacity>
-  );
+  const renderSliderCard = (item: FlatOrderedPlate, cookId: number) => {
+    const eta = item.cookETAs?.[cookId];
+    return (
+      <TouchableOpacity
+        key={item.uid}
+        style={[styles.recommendedCard]}
+        onPress={() => handleCardPress(item)}
+      >
+        <Text style={styles.recPlateName} numberOfLines={1}>{item.plate_name}</Text>
+        <Text style={styles.recCount}>x{item.count}</Text>
+        {/* {eta != null && (
+          <Text style={styles.recCount}>~{Math.round(eta)} мин</Text>
+        )} */}
+        {item.highlightedAsEarlyCourse && (
+          <Ionicons name="timer-outline" size={14} color="#e67e22" />
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   const swipeableRefs = useRef(new Map()).current;
 
@@ -895,7 +923,7 @@ const ChefOrders = () => {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ paddingHorizontal: 12 }}
                   >
-                    {plates.map(item => renderSliderCard(item, cookId === user?.id))}
+                    {plates.map(item => renderSliderCard(item, cookId))}
                   </ScrollView>
                 </View>
               ))}

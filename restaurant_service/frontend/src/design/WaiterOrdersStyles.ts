@@ -45,7 +45,7 @@ const styles = StyleSheet.create({
   totalText: { fontSize: 18, fontWeight: '600', color: '#333' },
   totalValue: { fontSize: 20, fontWeight: 'bold', color: '#007AFF' },
   actionsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 24, gap: 8 },
-  editOrderButton: { backgroundColor: '#007AFF', borderRadius: 15, paddingVertical: 14, alignItems: 'center', justifyContent: 'center', minWidth: 60 },
+  editOrderButton: { backgroundColor: '#007AFF', borderRadius: 15, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', minWidth: 60, height: 48, },
   completeOrderButton: { backgroundColor: '#27ae60', flexGrow: 1, height: 48, borderRadius: 15, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   editOrderButtonText: { color: '#fff', fontSize: 16, fontWeight: '600', textAlign: 'center' },
   courseTitle: {
@@ -59,12 +59,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#f39c12',
     paddingVertical: 12,
     borderRadius: 15,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelOrderButton: {
     backgroundColor: '#e74c3c',
-    paddingVertical: 12,
+
+    height: 48,
     borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',

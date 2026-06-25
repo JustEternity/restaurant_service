@@ -84,9 +84,6 @@ const styles = StyleSheet.create({
   mapContainer: { flex: 1, backgroundColor: '#e9ecef', position: 'relative' },
   tableContainer: { position: 'absolute', left: 0, top: 0 },
   table: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
     backgroundColor: '#4cd964',
     justifyContent: 'center',
     alignItems: 'center',

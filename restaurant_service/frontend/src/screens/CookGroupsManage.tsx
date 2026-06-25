@@ -205,7 +205,7 @@ const CookGroupManagement = () => {
               await api.delete(`/cook-groups/${group.id}`);
               setGroups(prev => prev.filter(g => g.id !== group.id));
             } catch (error: any) {
-              Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось удалить группу');
+              Alert.alert('Ошибка', error.response?.data?.detail || 'Не удалось удалить группу, сначала удалите всех поваров из группы');
             }
           },
         },

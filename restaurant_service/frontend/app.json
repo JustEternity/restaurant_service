@@ -2,6 +2,27 @@
   "expo": {
     "name": "Restaurant Service",
     "slug": "restaurant-service",
-    "version": "1.0.0"
+    "version": "1.0.0",
+    "extra": {
+      "eas": {
+        "projectId": "9010c38a-7364-4634-be0b-4c4a54fecac6"
+      }
+    },
+    "android": {
+      "package": "com.justeternity.restaurantservice",
+      "usesCleartextTraffic": true,
+      "permissions": []
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
+    "owner": "justie123"
   }
 }

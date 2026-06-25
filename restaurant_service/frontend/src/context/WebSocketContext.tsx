@@ -108,12 +108,17 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
 
           if (data.type === 'plate_ready') {
             const now = Date.now();
+            console.log("WS RAW:", event.data);
+            console.log("WS PARSED:", data);
             if (now - lastReadyToastRef.current > TOAST_COOLDOWN) {
               lastReadyToastRef.current = now;
-              Toast.show(data.message || 'Блюдо готово к подаче', {
-                duration: Toast.durations.SHORT,
+              const msg = data.message
+                ? `Заказ #${data.order_id}: ${data.message}`
+                : 'Блюдо готово к подаче';
+              Toast.show(msg, {
+                duration: 5000,
                 position: Toast.positions.TOP,
-                containerStyle: { marginTop: insets.top + 30 },
+                containerStyle: { marginTop: 0 },
                 shadow: true,
                 animation: true,
                 backgroundColor: '#2ecc71',
@@ -127,10 +132,13 @@ export const WebSocketProvider = ({ children, authToken, user }: WebSocketProvid
             const now = Date.now();
             if (now - lastReadyToastRef.current > TOAST_COOLDOWN) {
               lastReadyToastRef.current = now;
-              Toast.show(data.message || 'Блюдо невозможно приготовить', {
-                duration: Toast.durations.SHORT,
+              const msg = data.message
+                ? `Заказ #${data.order_id}: ${data.message}`
+                : 'Блюдо невозможно приготовить';
+              Toast.show(msg, {
+                duration: 5000,
                 position: Toast.positions.TOP,
-                containerStyle: { marginTop: insets.top + 30 },
+                containerStyle: { marginTop: 0 },
                 shadow: true,
                 animation: true,
                 backgroundColor: '#e74c3c',

@@ -209,6 +209,10 @@ const AdminStaff = () => {
     loadStaff();
   };
 
+  const silentRefresh = useCallback(async () => {
+    await loadStaff();
+  }, [loadStaff]);
+
   const handleUserPress = (u: User) => { setSelectedUser(u); setModalVisible(true); };
   const handleEditUser = (u: User) => {
     setSelectedUser(u);
@@ -573,14 +577,15 @@ const AdminStaff = () => {
         data.type === 'cook_groups_update' ||
         data.type === 'cook_group_updated' ||
         data.type === 'specializations_update' ||
-        data.type === 'plates_update'
+        data.type === 'plates_update' ||
+        data.type === 'plate_status_changed'
       ) {
-        loadStaff();
+        silentRefresh();
       }
     });
 
     return unsubscribe;
-  }, [addHandler, loadStaff]);
+  }, [addHandler, silentRefresh]);
 
   const renderCategoryNode = (node: CategoryNode, depth: number) => {
     const ownPlates = allMenuItems.filter(item => item.category === node.id && !item.is_selfserve);
@@ -958,7 +963,7 @@ const AdminStaff = () => {
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Имя</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: '#000' }]}
                   value={editData.name}
                   onChangeText={(t) => setEditData({ ...editData, name: t })}
                   placeholder="Введите имя"
@@ -968,7 +973,7 @@ const AdminStaff = () => {
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Логин</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: '#000' }]}
                   value={editData.login}
                   onChangeText={(t) => setEditData({ ...editData, login: t })}
                   placeholder="Введите логин"
@@ -979,7 +984,7 @@ const AdminStaff = () => {
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Пароль {selectedUser ? '(заполните для смены)' : ''}</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: '#000' }]}
                   value={editData.password}
                   onChangeText={(t) => setEditData({ ...editData, password: t })}
                   placeholder="Введите пароль"
